@@ -1,6 +1,7 @@
 package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.AuthDetailsDto;
+import com.secufusion.iam.dto.LoginResponseDto;
 import com.secufusion.iam.service.AuthConfigService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -95,6 +96,24 @@ public class AuthController {
     @GetMapping("/tenant-config")
     public ResponseEntity<AuthDetailsDto> getTenantConfig(@Parameter(description = "Host/domain", required = true) @RequestParam String host) {
         return ResponseEntity.ok(authConfigService.getTenantConfig(host));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<LoginResponseDto> login(HttpServletRequest request, @RequestParam String token){
+
+        // Mask token info: don't log the token itself, only its length and presence
+        String remoteAddr = request.getRemoteAddr();
+        int tokenLength = token == null ? 0 : token.length();
+        log.info("Login attempt from remoteAddr={} with tokenPresent={} tokenLength={}",
+                remoteAddr, token != null && !token.isBlank(), tokenLength > 0 ? tokenLength : 0);
+
+        // Delegate authentication to service
+        LoginResponseDto response = authConfigService.login(request, token);
+
+        log.debug("Login processed for remoteAddr={}, resultStatus={}",
+                remoteAddr, response != null ? "non-null" : "null");
+
+        return ResponseEntity.ok(response);
     }
 
 }

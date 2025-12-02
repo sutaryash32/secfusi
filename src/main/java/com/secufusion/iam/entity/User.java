@@ -1,10 +1,9 @@
 package com.secufusion.iam.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
+import lombok.*;
 
 import java.time.LocalDateTime;
 import java.util.Set;
@@ -12,6 +11,8 @@ import java.util.Set;
 @Entity
 @Table(name = "Users")
 @Data
+@ToString(exclude = {"tenant", "mappedGroups"})
+@EqualsAndHashCode(exclude = {"tenant", "mappedGroups"})
 @AllArgsConstructor
 @NoArgsConstructor
 public class User {
@@ -54,9 +55,10 @@ public class User {
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
             name = "user_group_map",
-            joinColumns = @JoinColumn(
-                    name = "fk_user_id", referencedColumnName = "pkUserId"),
-            inverseJoinColumns = @JoinColumn(
-                    name = "fk_group_id", referencedColumnName = "pkGroupId"))
+            joinColumns = @JoinColumn(name = "fk_user_id"),
+            inverseJoinColumns = @JoinColumn(name = "fk_group_id")
+    )
+    @JsonIgnoreProperties({"mappedUsers"})    // ### prevent loops
     private Set<Groups> mappedGroups;
+
 }

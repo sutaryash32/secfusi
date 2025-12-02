@@ -150,7 +150,7 @@ public class DefaultTenantInitializer {
             String expectedGroupName = defaultTenantName + "_Admin";
 
             Groups adminGroup = groupRepository
-                    .findByTenant_TenantIDAndIsAdminAndIsDefault(tenantId, 'Y', 'Y')
+                    .findByTenantIdAndIsAdminAndIsDefault(tenantId, 'Y', 'Y')
                     .orElse(null);
 
             if (adminGroup == null) {

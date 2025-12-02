@@ -10,7 +10,7 @@ import java.util.Set;
 @AllArgsConstructor
 @NoArgsConstructor
 public class GroupsDropdown {
-    private String id;
+    private String pkGroupId;
     private String name;
     private Set<RoleDropdownResponse> roles;
 }

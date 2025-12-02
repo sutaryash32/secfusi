@@ -1,5 +1,6 @@
 package com.secufusion.iam.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -39,6 +40,7 @@ public class Roles {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "fk_tenant_id", nullable = false)
+    @JsonIgnore
     private Tenant tenant;
 
     /** Role ↔ Scope mapping added later */

@@ -7,6 +7,7 @@ import com.secufusion.iam.entity.User;
 import com.secufusion.iam.repository.TenantRepository;
 import com.secufusion.iam.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
@@ -18,6 +19,7 @@ import org.slf4j.LoggerFactory;
  * <p>
  * All exceptions are caught and logged; methods return null on failure.
  */
+@Slf4j
 @Service
 public class JwtUtl {
 
@@ -235,4 +237,49 @@ public class JwtUtl {
             return null;
         }
     }
+
+    public boolean validateRequestToken(HttpServletRequest request, String token) {
+        log.info("validateRequestToken: start");
+        if (token == null) {
+            log.error("validateRequestToken: provided token is null");
+            throw new IllegalArgumentException("Token is null");
+        }
+
+        String headerToken = extractToken(request);
+        if (headerToken == null) {
+            log.error("validateRequestToken: authorization header is missing or token not present");
+            throw new IllegalArgumentException("Authorization header is missing");
+        }
+
+        // Compare exact tokens; log masked values to avoid exposing them
+        if (!headerToken.equals(token)) {
+            log.warn("validateRequestToken: token mismatch (header vs provided). headerTokenMask={}, providedTokenMask={}",
+                    maskToken(headerToken), maskToken(token));
+            throw new SecurityException("Token mismatch");
+        }
+
+        try {
+            // Decode token to check expiration
+            JWTClaimsSet claims = decodeToken(token);
+            java.util.Date exp = claims.getExpirationTime();
+            log.debug("validateRequestToken: token expiration: {}", exp);
+            if (exp != null && exp.before(new java.util.Date())) {
+                log.info("validateRequestToken: token is expired");
+                return false;
+            }
+            log.info("validateRequestToken: token is valid");
+            return true;
+        } catch (Exception e) {
+            log.error("validateRequestToken: token validation failed: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
+    private String maskToken(String token) {
+        if (token == null) return "null";
+        int len = token.length();
+        if (len <= 8) return "****";
+        return token.substring(0, 4) + "..." + token.substring(len - 4);
+    }
+
 }

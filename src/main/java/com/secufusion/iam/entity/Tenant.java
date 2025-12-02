@@ -3,20 +3,19 @@ package com.secufusion.iam.entity;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
 
 @Entity
 @Table(name = "Tenant")
 @Data
+@ToString(exclude = {"users", "authProviderConfig"})
+@EqualsAndHashCode(exclude = {"users", "authProviderConfig"})
 @AllArgsConstructor
 @NoArgsConstructor
 public class Tenant {

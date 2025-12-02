@@ -1,9 +1,8 @@
 package com.secufusion.iam.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -12,6 +11,8 @@ import java.util.Set;
 @Entity
 @Table(name = "groups")
 @Data
+@ToString(exclude = {"mappedUsers", "mappedRoles"})
+@EqualsAndHashCode(exclude = {"mappedUsers", "mappedRoles"})
 @NoArgsConstructor
 @AllArgsConstructor
 public class Groups {
@@ -38,18 +39,8 @@ public class Groups {
     private LocalDateTime updatedTime;
 
     /** Each group belongs to one tenant */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "fk_tenant_id", nullable = false)
-    private Tenant tenant;
-
-    /** Group ↔ Users = M:N */
-    @ManyToMany(fetch = FetchType.LAZY)
-    @JoinTable(
-            name = "user_group_map",
-            joinColumns = @JoinColumn(name = "fk_group_id"),
-            inverseJoinColumns = @JoinColumn(name = "fk_user_id")
-    )
-    private Set<User> mappedUsers = new HashSet<>();
+    @Column(name = "fk_tenant_id", nullable = false)
+    private String tenantId;
 
     /** Group ↔ Roles = M:N */
     @ManyToMany(fetch = FetchType.EAGER)

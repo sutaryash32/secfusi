@@ -5,9 +5,13 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data
-@AllArgsConstructor
 @NoArgsConstructor
-public class RoleDropdownResponse {
+@AllArgsConstructor
+public class RolesDto {
     private String pkRoleId;
     private String name;
+    private String description;
+    private Character isDefault;
+    private Character isSuperRole;
+    private Boolean active;
 }

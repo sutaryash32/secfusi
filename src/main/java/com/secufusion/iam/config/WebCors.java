@@ -1,4 +1,4 @@
-//package com.secufusion.features.config;
+//package com.secufusion.iam.config;
 //
 //import org.springframework.boot.web.servlet.FilterRegistrationBean;
 //import org.springframework.context.annotation.Bean;
@@ -6,44 +6,29 @@
 //import org.springframework.http.HttpHeaders;
 //import org.springframework.http.HttpMethod;
 //import org.springframework.web.cors.CorsConfiguration;
+//import org.springframework.web.cors.CorsConfigurationSource;
 //import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 //import org.springframework.web.filter.CorsFilter;
 //import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 //
 //import java.util.Arrays;
+//import java.util.List;
 //
 //@Configuration
-//@EnableWebMvc
 //public class WebCors {
 //
-//    private static final int CORS_FILTER_ORDER = -102;
-//
 //    @Bean
-//    public FilterRegistrationBean corsFilter() {
+//    public CorsConfigurationSource corsConfigurationSource() {
+//        CorsConfiguration config = new CorsConfiguration();
 //
+//        config.setAllowedOrigins(List.of("*"));   // Allow all origins
+//        config.setAllowedMethods(List.of("*"));   // Allow all HTTP methods
+//        config.setAllowedHeaders(List.of("*"));   // Allow all headers
+//        config.setAllowCredentials(false);        // Disable credentials when using "*"
 //
 //        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-//        CorsConfiguration config = new CorsConfiguration();
-//        config.setAllowCredentials(false);
-//        config.addAllowedOrigin("*");
-//        config.setAllowedHeaders(Arrays.asList(
-//                HttpHeaders.AUTHORIZATION,
-//                "X-XSRF-TOKEN",
-//                HttpHeaders.CONTENT_TYPE,
-//                HttpHeaders.ACCEPT));
-//        config.setAllowedMethods(Arrays.asList(
-//                HttpMethod.GET.name(),
-//                HttpMethod.POST.name(),
-//                HttpMethod.PUT.name(),
-//                HttpMethod.OPTIONS.name(),
-//                HttpMethod.DELETE.name()
-//        ));
 //        source.registerCorsConfiguration("/**", config);
-//        FilterRegistrationBean bean = new FilterRegistrationBean(new CorsFilter(source));
 //
-//        // should be set order to -100 because we need to CorsFilter before SpringSecurityFilter
-//        bean.setOrder(CORS_FILTER_ORDER);
-//
-//        return bean;
+//        return source;
 //    }
 //}

@@ -1,10 +1,12 @@
 package com.secufusion.iam.service;
 
 import com.secufusion.iam.dto.UsersDto;
+import com.secufusion.iam.entity.Groups;
 import com.secufusion.iam.entity.Tenant;
 import com.secufusion.iam.entity.User;
 import com.secufusion.iam.exception.KeycloakOperationException;
 import com.secufusion.iam.exception.ResourceNotFoundException;
+import com.secufusion.iam.repository.GroupsRepository;
 import com.secufusion.iam.repository.TenantRepository;
 import com.secufusion.iam.repository.UserRepository;
 import com.secufusion.iam.util.JwtUtl;
@@ -13,12 +15,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cglib.core.Local;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.security.access.AccessDeniedException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -44,6 +47,7 @@ public class UserService {
     @Autowired private TenantRepository tenantRepository;
     @Autowired private KeycloakAdminUtil kcUtil;
     @Autowired private JwtUtl jwtUtl;
+    @Autowired private GroupsRepository groupsRepository;
 
     // ========================================================================
     // CREATE USER
@@ -179,6 +183,10 @@ public class UserService {
                     savedUser.getPkUserId(), kcUserId);
             savedUser.setKeycloakUserId(kcUserId);
             savedUser.setStatus("ACTIVE");
+            if (dto.getGroups() != null && !dto.getGroups().isEmpty()) {
+                updateUserGroups(user, dto.getGroups());
+            }
+
             userRepository.save(savedUser);
 
             log.info("🎉 User successfully created in DB + KC. userId={} kcUserId={}",
@@ -276,99 +284,113 @@ public class UserService {
     @Transactional
     public UsersDto updateUsersByParent(HttpServletRequest request, String userId, UsersDto dto) {
 
-        log.info("➡️ [UPDATE USER BY PARENTS] Start. userId={} dtoSummary={}", userId, summarizeDto(dto));
-        log.debug("updateUsersByParent() incoming DTO details: username={}, email={}, phone={}", dto.getUserName(), dto.getEmail(), dto.getPhoneNumber());
-
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> {
-                    log.error("❌ Cannot update user. User not found: {}", userId);
-                    return new ResourceNotFoundException("User not found: " + userId);
-                });
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
 
         Tenant userTenant = user.getTenant();
-        log.debug("Target user resolved for update. userId={} tenantId={} realm={}", userId, userTenant.getTenantID(), userTenant.getRealmName());
-
-        // Resolve requesting tenant from request (uses existing jwtUtl helper elsewhere in the project)
         Tenant requestingTenant = jwtUtl.getTenantFromRequest(request);
-        User userFromRequest = jwtUtl.getUserFromRequest(request);
-        String requestingTenantId = requestingTenant != null ? requestingTenant.getTenantID() : null;
-        log.debug("Requesting tenant resolved from JWT/email: tenantId={}", requestingTenantId);
+        User requestingUser = jwtUtl.getUserFromRequest(request);
 
-        // Authorization: allow only if requester is the same tenant or an ancestor (parent) of the user's tenant
+        // ---------------------------
+        // AUTHORIZATION CHECK
+        // ---------------------------
         boolean allowed = false;
-        if (requestingTenantId != null && requestingTenantId.equals(userTenant.getTenantID())) {
+
+        if (requestingTenant.getTenantID().equals(userTenant.getTenantID())) {
             allowed = true;
-            log.debug("Requesting tenant is the same as user's tenant. allowed=true requester={}", requestingTenantId);
         } else {
-            log.debug("Checking parent chain to determine if requester is ancestor. startTenantId={}", userTenant.getTenantID());
             String parentId = userTenant.getParentTenantId();
             while (parentId != null) {
-                log.debug("Checking parent tenantId={}", parentId);
-                if (parentId.equals(requestingTenantId)) {
+                if (parentId.equals(requestingTenant.getTenantID())) {
                     allowed = true;
-                    log.debug("Requesting tenant is an ancestor of user's tenant. ancestorId={}", requestingTenantId);
                     break;
                 }
                 Tenant parent = tenantRepository.findById(parentId).orElse(null);
-                if (parent == null) {
-                    log.debug("Parent tenant not found in repository: {}. Breaking parent traversal.", parentId);
-                    break;
-                }
+                if (parent == null) break;
                 parentId = parent.getParentTenantId();
             }
         }
 
         if (!allowed) {
-            log.error("❌ Access denied for tenant {} to update user {}", requestingTenantId, userId);
-            throw new org.springframework.security.access.AccessDeniedException("Access denied to update user");
+            throw new AccessDeniedException("Access denied to update user");
         }
 
-        // Validate uniqueness, exclude this user id when checking
+        // ---------------------------
+        // VALIDATE UNIQUE FIELDS
+        // ---------------------------
         validateUserFields(userTenant, dto, userId);
 
         try {
-            log.debug("Updating local DB user fields (firstName,lastName,email,username,phone,groups) for userId={}", userId);
+
+            boolean identityChanged =
+                    !dto.getUserName().equals(user.getUserName()) ||
+                            !dto.getEmail().equals(user.getEmail()) ||
+                            !dto.getFirstName().equals(user.getFirstName()) ||
+                            !dto.getLastName().equals(user.getLastName());
+
+            // ---------------------------
+            // UPDATE SIMPLE FIELDS
+            // ---------------------------
             user.setFirstName(dto.getFirstName());
             user.setLastName(dto.getLastName());
             user.setEmail(dto.getEmail());
             user.setUserName(dto.getUserName());
             user.setPhoneNo(dto.getPhoneNumber());
-            user.setMappedGroups(dto.getGroups());
             user.setUpdatedAt(LocalDateTime.now());
-            user.setLastUpdatedBy(userFromRequest.getPkUserId());
+            user.setLastUpdatedBy(requestingUser.getPkUserId());
+
+            // ---------------------------
+            // UPDATE GROUPS (bidirectional)
+            // ---------------------------
+            updateUserGroups(user, dto.getGroups());
+
             userRepository.save(user);
 
-            log.info("✔ Local DB user updated. userId={} username={}", userId, dto.getUserName());
-
-            // Update Keycloak
-            log.debug("Invoking Keycloak updateUser. realm={} kcUserId={} newUsername={} newEmail={}",
-                    userTenant.getRealmName(), user.getKeycloakUserId(), dto.getUserName(), dto.getEmail());
-
-            kcUtil.updateUser(
-                    userTenant.getRealmName(),
-                    user.getKeycloakUserId(),
-                    dto.getUserName(),
-                    dto.getEmail(),
-                    dto.getFirstName(),
-                    dto.getLastName()
-            );
-
-            log.info("✔ Keycloak user updated. kcUserId={}", user.getKeycloakUserId());
-            log.debug("Completed update operations for userId={}", userId);
+            // ---------------------------
+            // KEYCLOAK UPDATE
+            // ---------------------------
+            if (identityChanged && user.getKeycloakUserId() != null) {
+                kcUtil.updateUser(
+                        userTenant.getRealmName(),
+                        user.getKeycloakUserId(),
+                        dto.getUserName(),
+                        dto.getEmail(),
+                        dto.getFirstName(),
+                        dto.getLastName()
+                );
+            }
 
             return mapToDto(user);
 
         } catch (KeycloakOperationException ex) {
-            log.error("❌ KC failure during update for userId={} message={} cause={}", userId, ex.getMessage(), ex.getCause());
             throw ex;
+
         } catch (Exception ex) {
-            log.error("❌ Unexpected error updating user {} message={} stackTrace={}", userId, ex.getMessage(), ex);
             throw new KeycloakOperationException(
                     "USER_UPDATE_FAILED", 3003,
                     "Unexpected error updating user"
             );
         }
     }
+
+
+    private void updateUserGroups(User user, Set<Groups> incomingGroups) {
+
+        if (incomingGroups == null) incomingGroups = Set.of();
+
+        // Load groups as managed entities
+        Set<Groups> managed = incomingGroups.stream()
+                .map(g -> groupsRepository.findById(g.getPkGroupId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Group not found: " + g.getPkGroupId())))
+                .collect(Collectors.toSet());
+
+        // Replace user's group list
+        user.setMappedGroups(managed);
+    }
+
+
+
+
 
 
     // ========================================================================
