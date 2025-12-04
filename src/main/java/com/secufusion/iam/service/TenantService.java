@@ -177,12 +177,43 @@ public class TenantService {
 
         log.info("[AUTO-CONFIG] Creating default Admin role + Admin group for tenantId={}", tenantId);
 
-        Roles adminRole = roleService.createOrGetDefaultRole(
-                tenantId,
-                savedTenant.getTenantName() + "_Admin",
-                "Administrator role",
-                adminUserId
-        );
+        log.info("[AUTO-CONFIG] Creating default Admin role + Admin group for tenantId={}", tenantId);
+
+        String tenantTypeLower = Optional.ofNullable(savedTenant.getTenantType())
+                .map(String::trim)
+                .map(s -> s.toLowerCase(Locale.ROOT))
+                .orElse("");
+
+        Roles adminRole;
+        switch (tenantTypeLower) {
+            case "enterprise":
+                adminRole = roleService.createOrGetEnterpriseAdminRole(
+                        tenantId,
+                        adminUserId
+                );
+                break;
+            case "mssp":
+                adminRole = roleService.createOrGetMsspAdminRole(
+                        tenantId,
+                        adminUserId
+                );
+                break;
+            case "master mssp":
+            case "master_mssp":
+            case "mastermssp":
+                adminRole = roleService.createOrGetMasterMsspAdminRole(
+                        tenantId,
+                        adminUserId
+                );
+                break;
+            default:
+                // Fallback to enterprise admin role if tenant type is unknown
+                adminRole = roleService.createOrGetEnterpriseAdminRole(
+                        tenantId,
+                        adminUserId
+                );
+        }
+        log.info("[AUTO-CONFIG] Admin Role created id={}", adminRole.getPkRoleId());
         log.info("[AUTO-CONFIG] Admin Role created id={}", adminRole.getPkRoleId());
 
         Groups adminGroup = groupService.createOrGetDefaultGroup(

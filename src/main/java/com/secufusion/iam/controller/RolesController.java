@@ -145,10 +145,20 @@ public class RolesController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @GetMapping("/dropdown")
-    public ResponseEntity<List<RoleDropdownResponse>> getRolesForDropdown() {
+    public ResponseEntity<List<RoleDropdownResponse>> getRolesForDropdown(@RequestParam(required = false) String action) {
         logger.info("GET /roles/dropdown - getRolesForDropdown called");
-        List<RoleDropdownResponse> dropdownList = roleService.getRolesForDropdown();
+        List<RoleDropdownResponse> dropdownList = roleService.getRolesForDropdown(action);
         logger.info("GET /roles/dropdown - returning {} items", dropdownList != null ? dropdownList.size() : 0);
         return ResponseEntity.ok(dropdownList);
+    }
+
+    @PostMapping("/activate")
+    public ResponseEntity<Roles> activateRole(
+            HttpServletRequest request,
+            @RequestParam String roleId) {
+        logger.info("POST /roles/activate - activateRole called for roleId={}", roleId);
+        Roles activatedRole = roleService.updateRoleActive(request, roleId);
+        logger.info("POST /roles/activate - role activated for roleId={}", roleId);
+        return ResponseEntity.ok(activatedRole);
     }
 }

@@ -8,7 +8,7 @@ import java.util.List;
 @Builder
 @Data
 public class UserEventsResponseDto {
-    private String userId;
+    private String userName;
     private List<EventDto> userEvents;
 }
 

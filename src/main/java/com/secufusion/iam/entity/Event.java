@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.GenericGenerator;
 
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 
 @Entity
@@ -28,22 +29,20 @@ public class Event {
     private String url;
 
     @Column(name = "time_stamp", nullable = false, columnDefinition = "timestamptz")
-    private OffsetDateTime timeStamp;
+    private LocalDateTime timeStamp;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "fk_tenant_id", nullable = false)
     private Tenant tenant;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "fk_user_id", nullable = false)
-    private User user;
+    private String userName;
 
-    public static Event from(EventDto eventDto, Tenant tenant, User user) {
+    public static Event from(EventDto eventDto, Tenant tenant, String userName) {
         return Event.builder()
                 .url(eventDto.getUrl())
-                .timeStamp(OffsetDateTime.parse(eventDto.getTimeStamp()))
+                .timeStamp(LocalDateTime.parse(eventDto.getTimeStamp()))
                 .tenant(tenant)
-                .user(user)
+                .userName(userName)
                 .build();
     }
 
