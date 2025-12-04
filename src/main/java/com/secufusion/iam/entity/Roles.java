@@ -7,6 +7,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 
 @Entity
 @Table(name = "roles")
@@ -43,5 +45,13 @@ public class Roles {
     @JsonIgnore
     private Tenant tenant;
 
-    /** Role ↔ Scope mapping added later */
+    @ManyToMany
+    @JoinTable(
+            name = "role_scope_mapping",
+            joinColumns = @JoinColumn(name = "fk_role_id"),
+            inverseJoinColumns = @JoinColumn(name = "fk_scope_id")
+    )
+    @JsonIgnore
+    private Set<Scopes> scopes = new HashSet<>();
+
 }

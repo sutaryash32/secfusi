@@ -35,5 +35,6 @@ public interface RolesRepository extends JpaRepository<Roles, String> {
     Roles findRoleAccessibleByTenant(String roleId, String requestingTenantId
     );
 
+    Optional<Roles> findByNameAndIsDefaultAndIsSuperRole(String roleName, char y, char y1);
 }
 

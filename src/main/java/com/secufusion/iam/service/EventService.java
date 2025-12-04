@@ -57,20 +57,21 @@ public class EventService {
         try {
             // Resolve tenant and user from JWT attached to the request.
             Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
-            User user = jwtUtl.getUserFromRequest(request);
+//            User user = jwtUtl.getUserFromRequest(request);
 
+            String preferredUsernameFromRequest = jwtUtl.getPreferredUsernameFromRequest(request);
             log.debug("Preparing to persist {} events for tenant={} user={}", events.size(),
-                    Objects.toString(tenantFromRequest), Objects.toString(user));
+                    Objects.toString(tenantFromRequest), Objects.toString(preferredUsernameFromRequest));
 
             // Convert DTOs to entities and stamp tenant/user
             List<Event> entities = events.stream()
-                    .map(eventDto -> Event.from(eventDto, tenantFromRequest, user))
+                    .map(eventDto -> Event.from(eventDto, tenantFromRequest,  preferredUsernameFromRequest))
                     .collect(Collectors.toList());
 
             // Persist all events in a single batch call
             eventRepository.saveAll(entities);
             log.info("Persisted {} events for tenant={} user={}", entities.size(),
-                    Objects.toString(tenantFromRequest), Objects.toString(user));
+                    Objects.toString(tenantFromRequest), Objects.toString(preferredUsernameFromRequest));
         } catch (DataAccessException ex) {
             // Log DB access issues and rethrow domain-specific exception for upper layers
             log.error("Failed to persist events due to data access error", ex);
@@ -102,43 +103,37 @@ public class EventService {
                 return Collections.emptyList();
             }
 
-            // Find users that belong to the tenant
-            List<User> users = userRepository.findByTenant(tenant.get());
-            log.debug("Found {} users for tenantId={}", users.size(), tenantId);
-            if (users.isEmpty()) {
+            Optional<List<Event>> eventsOpt = eventRepository.findByTenant(tenant.get());
+            List<Event> events = eventsOpt.orElse(Collections.emptyList());
+            if (events.isEmpty()) {
+                log.debug("No events found for tenantId={}", tenantId);
                 return Collections.emptyList();
             }
 
-            // For each user, fetch their events and map to DTOs. Filter out users without events.
-            List<UserEventsResponseDto> response = users.stream()
-                    .map(user -> {
-                        Optional<List<Event>> userEventsOpt = eventRepository.findByUser(user);
-                        List<Event> userEvents = userEventsOpt.orElse(Collections.emptyList());
+            // Group by userName from the Event entity (filter out events without a user)
+            var grouped = events.stream()
+                    .filter(e -> e.getUserName() != null)
+                    .collect(Collectors.groupingBy(
+                            Event::getUserName,
+                            Collectors.mapping(e -> {
+                                // Build EventDto directly from Event fields to avoid calling a toDto() with unknown signature
+                                EventDto dto = new EventDto();
+                                dto.setUrl(e.getUrl());
+                                dto.setTimeStamp(e.getTimeStamp().toString());
+                                return dto;
+                            }, Collectors.toList())
+                    ));
 
-                        if (userEvents.isEmpty()) {
-                            // Skip users with no events to keep response compact
-                            log.debug("User {} has no events; skipping.", Objects.toString(user));
-                            return null;
-                        }
-
-                        List<EventDto> eventDtos = userEvents.stream()
-                                .map(Event::toDto)
-                                .collect(Collectors.toList());
-
-                        log.debug("User {} has {} events", Objects.toString(user), eventDtos.size());
-
-                        return UserEventsResponseDto.builder()
-                                .userEvents(eventDtos)
-                                .userId(user.getPkUserId())
-                                .build();
-                    })
-                    .filter(Objects::nonNull)
+            List<UserEventsResponseDto> response = grouped.entrySet().stream()
+                    .map(e -> UserEventsResponseDto.builder()
+                            .userName(e.getKey())
+                            .userEvents(e.getValue())
+                            .build())
                     .collect(Collectors.toList());
 
             log.info("Returning events for {} users for tenantId={}", response.size(), tenantId);
             return response;
         } catch (Exception ex) {
-            // Log the error (tenantId is useful context) and return empty list to preserve API stability
             log.error("Error while retrieving user events for tenantId={}", tenantId, ex);
             return Collections.emptyList();
         }

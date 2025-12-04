@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Service responsible for loading tenant auth configuration and creating JWT decoders.
@@ -179,6 +180,7 @@ public class AuthConfigService {
             response.setFirstName(userFromRequest.getFirstName());
             response.setLastName(userFromRequest.getLastName());
             response.setAccessToken(token); // Do not log token content
+            response.setUserType(userFromRequest.getTenant().getTenantType());
 
             // Convert mapped groups → Set<GroupsLean>
             log.debug("Mapping user groups and roles");
@@ -222,7 +224,16 @@ public class AuthConfigService {
             response.setFullName(userFromRequest.getFirstName() + " " + userFromRequest.getLastName());
             response.setMobilePhone(userFromRequest.getPhoneNo());
             response.setMappedTenant(new TenantLean(userFromRequest.getTenant().getTenantID(), userFromRequest.getTenant().getTenantName()));
-
+            response.setMappedScopes(
+                Optional.ofNullable(userFromRequest.getMappedGroups())
+                        .orElse(Collections.emptySet())
+                        .stream()
+                        .flatMap(g -> Optional.ofNullable(g.getMappedRoles()).orElse(Collections.emptySet()).stream()
+                                .flatMap(r -> Optional.ofNullable(r.getScopes()).orElse(Collections.emptySet()).stream())
+                        )
+                        .map(Scopes::getScopeName)
+                        .collect(Collectors.toSet())
+            );
             log.info("login - completed for userId={}", userFromRequest.getPkUserId());
             return response;
 

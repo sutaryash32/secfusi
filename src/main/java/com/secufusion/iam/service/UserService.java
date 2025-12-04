@@ -195,11 +195,11 @@ public class UserService {
             return mapToDto(savedUser);
 
         } catch (KeycloakOperationException ex) {
-            log.error("❌ KeycloakOperationException during user creation. message={} cause={}", ex.getMessage(), ex.getCause());
+            log.error("❌ KeycloakOperationException during user creation. message={} cause={}", ex.getMessage(), ex.getCause().getMessage());
             throw ex;
         } catch (Exception ex) {
             log.error("❌ Unexpected error while creating user username={} message={} stackTrace={}",
-                    dto.getUserName(), ex.getMessage(), ex);
+                    dto.getUserName(), ex.getMessage(), ex.getMessage());
             throw new KeycloakOperationException(
                     "USER_CREATION_FAILED", 3002,
                     "Unexpected error while creating user"
@@ -270,10 +270,10 @@ public class UserService {
             return mapToDto(user);
 
         } catch (KeycloakOperationException ex) {
-            log.error("❌ KC failure during update for userId={} message={} cause={}", userId, ex.getMessage(), ex.getCause());
+            log.error("❌ KC failure during update for userId={} message={} cause={}", userId, ex.getMessage(), ex.getCause().getMessage());
             throw ex;
         } catch (Exception ex) {
-            log.error("❌ Unexpected error updating user {} message={} stackTrace={}", userId, ex.getMessage(), ex);
+            log.error("❌ Unexpected error updating user {} message={} stackTrace={}", userId, ex.getMessage(), ex.getMessage());
             throw new KeycloakOperationException(
                     "USER_UPDATE_FAILED", 3003,
                     "Unexpected error updating user"

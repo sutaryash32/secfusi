@@ -11,8 +11,8 @@ import java.util.Set;
 @Entity
 @Table(name = "groups")
 @Data
-@ToString(exclude = {"mappedUsers", "mappedRoles"})
-@EqualsAndHashCode(exclude = {"mappedUsers", "mappedRoles"})
+@ToString(exclude = {"mappedRoles"})
+@EqualsAndHashCode(exclude = {"mappedRoles"})
 @NoArgsConstructor
 @AllArgsConstructor
 public class Groups {

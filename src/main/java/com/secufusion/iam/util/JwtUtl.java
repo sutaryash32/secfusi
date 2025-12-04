@@ -4,6 +4,7 @@ import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.secufusion.iam.entity.Tenant;
 import com.secufusion.iam.entity.User;
+import com.secufusion.iam.exception.*;
 import com.secufusion.iam.repository.TenantRepository;
 import com.secufusion.iam.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -212,7 +213,24 @@ public class JwtUtl {
         }
     }
 
+    public String getPreferredUsernameFromRequest(HttpServletRequest request) {
+        try {
+            String token = extractToken(request);
+            if (token == null) return null;
 
+            JWTClaimsSet claims = decodeToken(token);
+            if (claims == null) return null;
+
+            String username = claims.getStringClaim("preferred_username");
+            if (username == null) {
+                logger.debug("getPreferredUsernameFromRequest: 'preferred_username' claim not found");
+            }
+            return username;
+        } catch (Exception e) {
+            logger.error("getPreferredUsernameFromRequest: unexpected error", e);
+            return null;
+        }
+    }
     /**
      * Get userId (sub) from request's JWT.
      *
@@ -242,36 +260,46 @@ public class JwtUtl {
         log.info("validateRequestToken: start");
         if (token == null) {
             log.error("validateRequestToken: provided token is null");
-            throw new IllegalArgumentException("Token is null");
+            throw new InvalidTokenException("Token is null");
         }
 
         String headerToken = extractToken(request);
         if (headerToken == null) {
             log.error("validateRequestToken: authorization header is missing or token not present");
-            throw new IllegalArgumentException("Authorization header is missing");
+            throw new MissingAuthorizationException("Authorization header is missing");
         }
 
         // Compare exact tokens; log masked values to avoid exposing them
         if (!headerToken.equals(token)) {
             log.warn("validateRequestToken: token mismatch (header vs provided). headerTokenMask={}, providedTokenMask={}",
                     maskToken(headerToken), maskToken(token));
-            throw new SecurityException("Token mismatch");
+            throw new TokenMismatchException("Token mismatch");
         }
 
         try {
             // Decode token to check expiration
             JWTClaimsSet claims = decodeToken(token);
+            if (claims == null) {
+                log.error("validateRequestToken: failed to decode token");
+                throw new TokenValidationException("Failed to decode token");
+            }
+
             java.util.Date exp = claims.getExpirationTime();
             log.debug("validateRequestToken: token expiration: {}", exp);
             if (exp != null && exp.before(new java.util.Date())) {
                 log.info("validateRequestToken: token is expired");
-                return false;
+                throw new TokenExpiredException("Token is expired");
             }
+
             log.info("validateRequestToken: token is valid");
             return true;
+        } catch (TokenValidationException | TokenExpiredException | TokenMismatchException |
+                 MissingAuthorizationException | InvalidTokenException e) {
+            // Re-throw known custom exceptions unchanged
+            throw e;
         } catch (Exception e) {
             log.error("validateRequestToken: token validation failed: {}", e.getMessage(), e);
-            return false;
+            throw new TokenValidationException("Unexpected error during token validation", e);
         }
     }
 
