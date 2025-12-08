@@ -132,26 +132,6 @@ public class RolesController {
         return ResponseEntity.ok(role);
     }
 
-    /**
-     * Get roles as key/value pairs for dropdowns.
-     *
-     * @return list of RoleDropdownResponse (id/name)
-     */
-    @Operation(summary = "Get roles for dropdown", description = "Return roles as key/value pairs (id/name) for dropdowns.")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Dropdown roles returned",
-                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = RoleDropdownResponse.class))),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "500", description = "Internal server error")
-    })
-    @GetMapping("/dropdown")
-    public ResponseEntity<List<RoleDropdownResponse>> getRolesForDropdown(@RequestParam(required = false) String action) {
-        logger.info("GET /roles/dropdown - getRolesForDropdown called");
-        List<RoleDropdownResponse> dropdownList = roleService.getRolesForDropdown(action);
-        logger.info("GET /roles/dropdown - returning {} items", dropdownList != null ? dropdownList.size() : 0);
-        return ResponseEntity.ok(dropdownList);
-    }
-
     @PostMapping("/activate")
     public ResponseEntity<Roles> activateRole(
             HttpServletRequest request,

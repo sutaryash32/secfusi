@@ -247,6 +247,10 @@ public class UserService {
             user.setUserName(dto.getUserName());
             user.setPhoneNo(dto.getPhoneNumber());
             user.setMappedGroups(dto.getGroups());
+            String status = dto.getStatus();
+            if (status != null && !status.trim().isEmpty()) {
+                user.setStatus(status.trim().toUpperCase());
+            }
             userRepository.save(user);
 
             log.info("✔ Local DB user updated. userId={} username={}", userId, dto.getUserName());
@@ -707,51 +711,48 @@ public class UserService {
     // ========================================================================
 
     /**
-     * Check whether a mobile number exists in DB. Returns a readable message.
+     * Check whether a mobile number exists in DB.
      */
-    public String checkMobileNumber(String mobileNumber){
+    public boolean checkMobileNumber(String mobileNumber){
         log.info("➡️ [CHECK MOBILE] Start. mobileNumber={}", maskPhone(mobileNumber));
-        boolean check = userRepository.existsByPhoneNo(mobileNumber);
-        log.debug("DB existsByPhoneNo returned: {}", check);
-        if (check){
+        boolean exists = userRepository.existsByPhoneNo(mobileNumber);
+        log.debug("DB existsByPhoneNo returned: {}", exists);
+        if (exists){
             log.info("✔ Mobile number exists in DB. mobileNumber={}", maskPhone(mobileNumber));
-            return "Mobile Number already exists.";
         } else{
             log.info("✔ Mobile number is available. mobileNumber={}", maskPhone(mobileNumber));
-            return "Mobile Number is available.";
         }
+        return exists;
     }
 
     /**
-     * Check whether an email exists in DB. Returns a readable message.
+     * Check whether an email exists in DB.
      */
-    public String checkEmail(String email){
+    public boolean checkEmail(String email){
         log.info("➡️ [CHECK EMAIL] Start. emailSummary={}", summarizeEmail(email));
-        boolean check = userRepository.existsByEmail(email);
-        log.debug("DB existsByEmail returned: {}", check);
-        if (check){
+        boolean exists = userRepository.existsByEmail(email);
+        log.debug("DB existsByEmail returned: {}", exists);
+        if (exists){
             log.info("✔ Email exists in DB. emailSummary={}", summarizeEmail(email));
-            return "Email already exists.";
         } else{
             log.info("✔ Email is available. emailSummary={}", summarizeEmail(email));
-            return "Email is available.";
         }
+        return exists;
     }
 
     /**
-     * Check whether a username exists in DB. Returns a readable message.
+     * Check whether a username exists in DB.
      */
-    public String checkUserName(String userName) {
+    public boolean checkUserName(String userName) {
         log.info("➡️ [CHECK USERNAME] Start. userName={}", userName);
-        boolean check = userRepository.existsByUserName(userName);
-        log.debug("DB existsByUserName returned: {}", check);
-        if(check){
+        boolean exists = userRepository.existsByUserName(userName);
+        log.debug("DB existsByUserName returned: {}", exists);
+        if(exists){
             log.info("✔ Username exists in DB. username={}", userName);
-            return "Username already exists.";
-        }else {
+        } else {
             log.info("✔ Username is available. username={}", userName);
-            return "Username is available.";
         }
+        return exists;
     }
 
     // ========================================================================

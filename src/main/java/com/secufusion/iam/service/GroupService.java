@@ -134,7 +134,8 @@ public class GroupService {
         log.debug("assignUserToGroup: start - groupId={} userId={} userName={}",
                 group.getPkGroupId(), user.getPkUserId(), user.getUserName());
 
-        groupsRepository.save(group);
+        Groups save = groupsRepository.save(group);
+        User save1 = userRepository.save(user);
 
         log.info("assignUserToGroup: Assigned user '{}' (id={}) to group '{}' (id={})",
                 user.getUserName(), user.getPkUserId(), group.getName(), group.getPkGroupId());
@@ -204,45 +205,12 @@ public class GroupService {
         log.info("getAllGroups: Fetching all groups for tenantId={}", tenantId);
        List<Groups> result = groupsRepository.findByTenantId(tenantId)
                .stream()
-               .filter(g -> (g.getIsAdmin() == null || g.getIsAdmin() != 'Y')
-                       && (g.getIsDefault() == null || g.getIsDefault() != 'Y'))
+//               .filter(g -> (g.getIsAdmin() == null || g.getIsAdmin() != 'Y')
+//                       && (g.getIsDefault() == null || g.getIsDefault() != 'Y'))
                .toList();
         log.debug("getAllGroups: found {} groups for tenantId={}", result.size(), tenantId);
         return result;
     }
-
-    /**
-     * Get groups formatted for dropdown (includes mapped roles).
-     */
-    public List<GroupsDropdown> getGroupsForDropdown(HttpServletRequest request) {
-        Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
-        if (tenantFromRequest == null) {
-            log.error("getGroupsForDropdown: tenant not present in request");
-            throw new ResourceNotFoundException("Tenant not found in request");
-        }
-        String tenantId = tenantFromRequest.getTenantID();
-        log.info("getGroupsForDropdown: Fetching all groups for tenantId={}", tenantId);
-        List<Groups> groupsList = groupsRepository.findByTenantId(tenantId);
-        List<GroupsDropdown> dropdown = groupsList.stream()
-                .map(group -> {
-                    // Convert mapped roles to dropdown DTOs safely
-                    Set<RoleDropdownResponse> roles = Optional.ofNullable(group.getMappedRoles())
-                            .orElse(Collections.emptySet())
-                            .stream()
-                            .map(r -> new RoleDropdownResponse(r.getPkRoleId(), r.getName()))
-                            .collect(java.util.stream.Collectors.toSet());
-
-                    log.debug("getGroupsForDropdown: group id={} name={} rolesCount={}",
-                            group.getPkGroupId(), group.getName(), roles.size());
-
-                    return new GroupsDropdown(group.getPkGroupId(), group.getName(), roles);
-                })
-                .toList();
-
-        log.debug("getGroupsForDropdown: returning {} dropdown entries for tenantId={}", dropdown.size(), tenantId);
-        return dropdown;
-    }
-
 
     /**
      * Update a group (name, description, isAdmin, active, mapped roles).
@@ -289,4 +257,22 @@ public class GroupService {
         return groupsRepository.save(existing);
     }
 
+    public List<Groups> getGroupsByTenant(HttpServletRequest request, String tenantId) {
+        log.info("getGroupsByTenant: Fetching groups for tenantId={}", tenantId);
+        //validate tenant that requesting tenant can access requested tenantId by parent-child relationship
+        Tenant requestingTenant = jwtUtl.getTenantFromRequest(request);
+        if (requestingTenant == null) {
+            log.error("getGroupsByTenant: tenant not present in request");
+            throw new ResourceNotFoundException("Tenant not found in request");
+        }
+        //validate by parent heirarchy
+        if (!tenantRepository.isTenantAccessibleByAnother(requestingTenant.getTenantID(), tenantId)) {
+            log.error("getGroupsByTenant: tenantId={} not accessible by requesting tenantId={}",
+                    tenantId, requestingTenant.getTenantID());
+            throw new ResourceNotFoundException("Requested tenant not accessible");
+        }
+        List<Groups> groups = groupsRepository.findByTenantId(tenantId);
+        log.debug("getGroupsByTenant: found {} groups for tenantId={}", groups.size(), tenantId);
+        return groups;
+    }
 }

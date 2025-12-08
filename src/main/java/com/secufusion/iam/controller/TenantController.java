@@ -176,50 +176,6 @@ public class TenantController {
     }
 
     /**
-     * Return tenant types available to the caller.
-     *
-     * @param request HTTP servlet request (for auth/context)
-     * @return list of TenantType enums
-     */
-    @GetMapping("/types")
-    @Operation(
-            summary = "Get tenant types",
-            description = "Return tenant types available to the caller.",
-            responses = {
-                    @ApiResponse(responseCode = "200", description = "Tenant types returned",
-                            content = @Content(mediaType = "application/json",
-                                    array = @ArraySchema(schema = @Schema(implementation = TenantType.class))))
-            }
-    )
-    public ResponseEntity<List<TenantType>> getAllTenantTypes(@Parameter(hidden = true) HttpServletRequest request) {
-        log.debug("getAllTenantTypes - start");
-        List<TenantType> types = tenantService.getTenantTypesByTenantType(request);
-        log.debug("getAllTenantTypes - completed: count={}", types != null ? types.size() : 0);
-        return ResponseEntity.ok(types);
-    }
-
-    /**
-     * Return billing types metadata for tenants.
-     *
-     * @return list of maps describing billing types
-     */
-    @GetMapping("/billing")
-    @Operation(
-            summary = "Get billing types",
-            description = "Return billing types metadata for tenants.",
-            responses = {
-                    @ApiResponse(responseCode = "200", description = "Billing types returned",
-                            content = @Content(mediaType = "application/json"))
-            }
-    )
-    public ResponseEntity<List<Map<String, Object>>> getBillingTypes() {
-        log.debug("getBillingTypes - fetching billing types");
-        List<Map<String, Object>> billing = tenantService.getTenantBillingTypes();
-        log.debug("getBillingTypes - completed: count={}", billing != null ? billing.size() : 0);
-        return ResponseEntity.ok(billing);
-    }
-
-    /**
      * Check availability / existence for tenant fields.
      * Supports one parameter at a time: tenantName, domainName, phoneNumber, tenantEmail.
      *
@@ -239,7 +195,7 @@ public class TenantController {
                     @ApiResponse(responseCode = "400", description = "No parameters provided")
             }
     )
-    public ResponseEntity<String> checkTenant(
+    public ResponseEntity<Boolean> checkTenant(
             @Parameter(name = "tenantName", description = "Tenant name to check", required = false) @RequestParam(required = false) String tenantName,
             @Parameter(name = "domainName", description = "Domain name to check", required = false) @RequestParam(required = false) String domainName,
             @Parameter(name = "phoneNumber", description = "Phone number to check", required = false) @RequestParam(required = false) String phoneNumber,
@@ -249,31 +205,31 @@ public class TenantController {
                 tenantName, domainName, phoneNumber, tenantEmail);
 
         if (tenantName != null) {
-            String result = tenantService.checkTenantNameAvailability(tenantName);
+            boolean result = tenantService.checkTenantNameAvailability(tenantName);
             log.info("checkTenant - tenantName check result={}", result);
             return ResponseEntity.ok(result);
         }
 
         if (domainName != null) {
-            String result = tenantService.checkExistsByDomain(domainName);
+            boolean result = tenantService.checkExistsByDomain(domainName);
             log.info("checkTenant - domainName check result={}", result);
             return ResponseEntity.ok(result);
         }
 
         if (phoneNumber != null) {
-            String result = tenantService.checkPhoneNumber(phoneNumber);
+            boolean result = tenantService.checkPhoneNumber(phoneNumber);
             log.info("checkTenant - phoneNumber check result={}", result);
             return ResponseEntity.ok(result);
         }
 
         if (tenantEmail != null) {
-            String result = tenantService.checkEmail(tenantEmail);
+            boolean result = tenantService.checkEmail(tenantEmail);
             log.info("checkTenant - tenantEmail check result={}", result);
             return ResponseEntity.ok(result);
         }
 
         log.warn("checkTenant - no parameters provided");
-        return ResponseEntity.badRequest().body("");
+        return ResponseEntity.badRequest().body(false);
     }
 
 }

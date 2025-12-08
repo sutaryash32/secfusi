@@ -293,36 +293,36 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "No valid parameter supplied or bad request")
     })
     @GetMapping("/check")
-    public ResponseEntity<String> uniqueValidations(
+    public ResponseEntity<Boolean> uniqueValidations(
             @Parameter(description = "Username to check", required = false) @RequestParam(required = false) String userName,
             @Parameter(description = "Phone number to check", required = false) @RequestParam(required = false) String phoneNumber,
             @Parameter(description = "Email to check", required = false) @RequestParam(required = false) String email) {
         log.info("API: Unique validations requested");
         if (userName != null) {
             log.debug("Checking username uniqueness for {}", userName);
-            String result = userService.checkUserName(userName);
-            if (result != null) {
+            boolean result = userService.checkUserName(userName);
+            if (result) {
                 log.info("Username validation returned result for {}", userName);
                 return ResponseEntity.ok(result);
             }
         }
         if (phoneNumber != null) {
             log.debug("Checking phone number uniqueness for {}", phoneNumber);
-            String result = userService.checkMobileNumber(phoneNumber);
-            if (result != null) {
+            boolean result = userService.checkMobileNumber(phoneNumber);
+            if (result) {
                 log.info("Phone number validation returned result for {}", phoneNumber);
                 return ResponseEntity.ok(result);
             }
         }
         if (email != null) {
             log.debug("Checking email uniqueness for {}", email);
-            String result = userService.checkEmail(email);
-            if (result != null) {
+            boolean result = userService.checkEmail(email);
+            if (result) {
                 log.info("Email validation returned result for {}", email);
                 return ResponseEntity.ok(result);
             }
         }
         log.warn("Unique validation request did not supply a result for any parameter");
-        return ResponseEntity.badRequest().body("");
+        return ResponseEntity.badRequest().body(false);
     }
 }

@@ -1,16 +1,19 @@
 package com.secufusion.iam.service;
 
+import com.secufusion.iam.dto.GroupsDropdown;
 import com.secufusion.iam.dto.IndustryDTO;
-import com.secufusion.iam.entity.Cities;
-import com.secufusion.iam.entity.Country;
-import com.secufusion.iam.entity.Region;
-import com.secufusion.iam.entity.States;
+import com.secufusion.iam.dto.RoleDropdownResponse;
+import com.secufusion.iam.entity.*;
+import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.*;
+import com.secufusion.iam.util.JwtUtl;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
+import java.util.*;
 
 /**
  * Service that provides dropdown data for regions, countries, states and cities.
@@ -34,6 +37,18 @@ public class DropdownService {
 
     @Autowired
     private IndustryRepository industryRepository;
+
+    @Autowired
+    private JwtUtl jwtUtl;
+
+    @Autowired
+    private TenantTypeRepository tenantTypeRepository;
+
+    @Autowired
+    private GroupsRepository groupsRepository;
+
+    @Autowired
+    private RolesRepository rolesRepository;
 
     /**
      * Retrieve all regions.
@@ -109,6 +124,110 @@ public class DropdownService {
                         industry.getLastModifiedBy(),
                         industry.getLastModifiedTimestamp()
                 ))
+                .toList();
+    }
+
+    @Transactional
+    public List<Map<String, Object>> getTenantBillingTypes() {
+        log.info("Fetching static tenant billing types.");
+        List<Map<String, Object>> billingTypes = List.of(
+                Map.of("id", 1, "billingType", "Trial"),
+                Map.of("id", 2, "billingType", "Monthly"),
+                Map.of("id", 3, "billingType", "Quarterly"),
+                Map.of("id", 4, "billingType", "Yearly")
+        );
+        log.debug("Returning {} billing types.", billingTypes.size());
+        return billingTypes;
+    }
+
+    @Transactional
+    public List<TenantType> getTenantTypesByTenantType(HttpServletRequest request) {
+        Tenant tenantFromEmail = jwtUtl.getTenantFromRequest(request);
+        log.info("Fetching tenant types for tenantId={}, tenantType={}",
+                tenantFromEmail.getTenantID(), tenantFromEmail.getTenantType());
+
+        List<TenantType> types = tenantTypeRepository.findAll();
+        log.debug("Fetched {} tenant types from DB.", types.size());
+
+        String tenantType = tenantFromEmail.getTenantType();
+        if (tenantType == null) {
+            return Collections.emptyList();
+        }
+
+        switch (tenantType.trim().toLowerCase(Locale.ROOT)) {
+            case "master mssp":
+            case "master_mssp":
+            case "mastermssp":
+                // show remaining 2 (exclude master)
+                return types.stream()
+                        .filter(t -> ! "master mssp".equalsIgnoreCase(t.getTenantTypeName()))
+                        .collect(java.util.stream.Collectors.toList());
+            case "mssp":
+                // show enterprise only
+                return types.stream()
+                        .filter(t -> "enterprise".equalsIgnoreCase(t.getTenantTypeName()))
+                        .collect(java.util.stream.Collectors.toList());
+            case "enterprise":
+                // enterprise -> none
+                return Collections.emptyList();
+            default:
+                return types;
+        }
+    }
+
+    /**
+     * Get groups formatted for dropdown (includes mapped roles).
+     */
+    public List<GroupsDropdown> getGroupsForDropdown(HttpServletRequest request) {
+        Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
+        if (tenantFromRequest == null) {
+            log.error("getGroupsForDropdown: tenant not present in request");
+            throw new ResourceNotFoundException("Tenant not found in request");
+        }
+        String tenantId = tenantFromRequest.getTenantID();
+        log.info("getGroupsForDropdown: Fetching all groups for tenantId={}", tenantId);
+        List<Groups> groupsList = groupsRepository.findByTenantId(tenantId);
+        List<GroupsDropdown> dropdown = groupsList.stream()
+                .map(group -> {
+                    // Convert mapped roles to dropdown DTOs safely
+                    Set<RoleDropdownResponse> roles = Optional.ofNullable(group.getMappedRoles())
+                            .orElse(Collections.emptySet())
+                            .stream()
+                            .map(r -> new RoleDropdownResponse(r.getPkRoleId(), r.getName()))
+                            .collect(java.util.stream.Collectors.toSet());
+
+                    log.debug("getGroupsForDropdown: group id={} name={} rolesCount={}",
+                            group.getPkGroupId(), group.getName(), roles.size());
+
+                    return new GroupsDropdown(group.getPkGroupId(), group.getName(), roles);
+                })
+                .toList();
+
+        log.debug("getGroupsForDropdown: returning {} dropdown entries for tenantId={}", dropdown.size(), tenantId);
+        return dropdown;
+    }
+
+    /**
+     * Get roles for dropdown usage. Currently returns all roles (filters commented out).
+     *
+     * @return list of RoleDropdownResponse
+     */
+    public List<RoleDropdownResponse> getRolesForDropdown(String action) {
+        log.info("Fetching roles for dropdown mode={}", action);
+        List<Roles> rolesList = rolesRepository.findAll();
+        return rolesList.stream()
+                .filter(role -> Boolean.TRUE.equals(role.getActive()))
+                .filter(role -> {
+                    Character isSuper = role.getIsSuperRole();
+                    Character isDefault = role.getIsDefault();
+                    if ("admin".equalsIgnoreCase(action)) {
+                        return isSuper != null && isSuper == 'Y';
+                    } else if ("all".equalsIgnoreCase(action)) {
+                        return true;
+                    }
+                    return (isSuper == null || isSuper != 'Y') && (isDefault == null || isDefault != 'Y');
+                })
+                .map(role -> new RoleDropdownResponse(role.getPkRoleId(), role.getName()))
                 .toList();
     }
 }

@@ -14,7 +14,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * DefaultTenantInitializer
@@ -212,7 +214,10 @@ public class DefaultTenantInitializer {
                         defaultAdminUser.getUserName());
 
                 try {
-                    groupService.assignUserToGroup(adminGroup, defaultAdminUser);
+                    Set<Groups> groupsToAssign = new HashSet<>();
+                    groupsToAssign.add(adminGroup);
+                    defaultAdminUser.setMappedGroups(groupsToAssign);
+                    userRepository.save(defaultAdminUser);
                     log.info("[STEP 5] Default admin user mapped to group '{}'", expectedGroupName);
                 } catch (Exception e) {
                     log.error("[STEP 5] Failed to assign user to group: {}", e.getMessage(), e);

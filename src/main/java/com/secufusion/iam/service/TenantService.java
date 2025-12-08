@@ -810,6 +810,9 @@ public class TenantService {
         t.setBillingCycleType(req.getBillingCycleType());
         t.setUpdatedBy(userFromRequest.getPkUserId());
         t.setUpdatedAt(LocalDateTime.now());
+        if (req.getStatus() != null && !req.getStatus().trim().isEmpty()) {
+            t.setStatus(req.getStatus().toUpperCase());
+        }
         tenantRepository.save(t);
         log.info("Tenant updated successfully. tenantId={}", id);
         return buildResponse(t);
@@ -932,98 +935,26 @@ public class TenantService {
         return types;
     }
 
-    @Transactional
-    public List<TenantType> getTenantTypesByTenantType(HttpServletRequest request) {
-        Tenant tenantFromEmail = jwtUtl.getTenantFromRequest(request);
-        log.info("Fetching tenant types for tenantId={}, tenantType={}",
-                tenantFromEmail.getTenantID(), tenantFromEmail.getTenantType());
+public boolean checkTenantNameAvailability(String tenantName) {
+    boolean exists = tenantRepository.existsByTenantName(tenantName);
+    return !exists;
+}
 
-        List<TenantType> types = tenantTypeRepository.findAll();
-        log.debug("Fetched {} tenant types from DB.", types.size());
+public boolean checkExistsByDomain(String domain) {
+    String domainName = normalizeDomainForDB(domain);
+    boolean exist = tenantRepository.existsByDomain(domainName);
+    return exist;
+}
 
-        String tenantType = tenantFromEmail.getTenantType();
-        if (tenantType == null) {
-            return Collections.emptyList();
-        }
+public boolean checkPhoneNumber(String phoneNumber) {
+    boolean exist = tenantRepository.existsByPhoneNo(phoneNumber);
+    return exist;
+}
 
-        switch (tenantType.trim().toLowerCase(Locale.ROOT)) {
-            case "master mssp":
-            case "master_mssp":
-            case "mastermssp":
-                // show remaining 2 (exclude master)
-                return types.stream()
-                        .filter(t -> ! "master mssp".equalsIgnoreCase(t.getTenantTypeName()))
-                        .collect(java.util.stream.Collectors.toList());
-            case "mssp":
-                // show enterprise only
-                return types.stream()
-                        .filter(t -> "enterprise".equalsIgnoreCase(t.getTenantTypeName()))
-                        .collect(java.util.stream.Collectors.toList());
-            case "enterprise":
-                // enterprise -> none
-                return Collections.emptyList();
-            default:
-                return types;
-        }
-    }
-
-    @Transactional
-    public List<Map<String, Object>> getTenantBillingTypes() {
-        log.info("Fetching static tenant billing types.");
-        List<Map<String, Object>> billingTypes = List.of(
-                Map.of("id", 1, "billingType", "Trial"),
-                Map.of("id", 2, "billingType", "Monthly"),
-                Map.of("id", 3, "billingType", "Quarterly"),
-                Map.of("id", 4, "billingType", "Yearly")
-        );
-        log.debug("Returning {} billing types.", billingTypes.size());
-        return billingTypes;
-    }
-
-    public String checkTenantNameAvailability(String tenantName) {
-        boolean exists = tenantRepository.existsByTenantName(tenantName);
-
-        if (exists) {
-            return "Tenant name already exists.";
-        } else {
-            return "Tenant name is available.";
-        }
-    }
-
-
-    public String checkExistsByDomain(String domain) {
-
-        String domainName = normalizeDomainForDB(domain);
-        boolean exist = tenantRepository.existsByDomain(domainName);
-
-        if (exist) {
-            return "Domain Name already exists.";
-        } else {
-            return "Domain name is available.";
-        }
-    }
-
-    public String checkPhoneNumber(String phoneNumber) {
-
-        boolean exist = tenantRepository.existsByPhoneNo(phoneNumber);
-
-        if (exist) {
-            return "Phone Number already exists.";
-        } else {
-            return "Phone Number is available.";
-        }
-    }
-
-    public String checkEmail(String email) {
-
-        boolean exist = tenantRepository.existsByEmail(email);
-
-        if (exist) {
-            return "Email already exists.";
-        } else {
-            return "Email is available.";
-        }
-    }
+public boolean checkEmail(String email) {
+    boolean exist = tenantRepository.existsByEmail(email);
+    return exist;
+}
 
     public List<TenantResponse> getTenantHierarchy(HttpServletRequest request) {
         Tenant parentTenant = jwtUtl.getTenantFromRequest(request);

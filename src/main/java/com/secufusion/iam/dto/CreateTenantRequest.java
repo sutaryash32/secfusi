@@ -32,4 +32,5 @@ public class CreateTenantRequest {
     private String adminPhoneNumber;
     private String adminEmail;
     private String adminPassword;
+    private String status;
 }

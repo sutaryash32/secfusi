@@ -91,6 +91,68 @@ public class KeycloakAdminUtil {
         }
     }
 
+    public void updateRealmTokenLifeSpan(String realm, Integer accessTokenLifespanSeconds) {
+        try {
+            RealmResource rr = keycloak.realm(realm);
+            RealmRepresentation rep = rr.toRepresentation();
+
+            if (rep == null) {
+                throw new KeycloakOperationException("REALM_NOT_FOUND", 404, "Realm not found: " + realm);
+            }
+
+            if (accessTokenLifespanSeconds == null) {
+                log.debug("No accessTokenLifespan provided for realm {}, nothing to update", realm);
+                return;
+            }
+
+            if (accessTokenLifespanSeconds <= 0) {
+                throw new KeycloakOperationException("INVALID_INPUT", 400, "accessTokenLifespan must be positive");
+            }
+
+            rep.setAccessTokenLifespan(accessTokenLifespanSeconds);
+            rr.update(rep);
+            log.info("Updated access token lifespan for realm {} to {} seconds", realm, accessTokenLifespanSeconds);
+        } catch (KeycloakOperationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap("REALM_UPDATE_TOKEN_SETTINGS_FAILED", 500, "Failed updating access token settings for realm " + realm, e);
+        }
+    }
+
+    public void addIdentityProvider(String realm, IdentityProviderRepresentation idpRep) {
+        log.info("Adding identity provider '{}' to realm {}", idpRep != null ? idpRep.getAlias() : "null", realm);
+        Response resp = null;
+        try {
+            if (idpRep == null) {
+                throw new KeycloakOperationException("INVALID_INPUT", 400, "IdentityProviderRepresentation must not be null");
+            }
+            RealmResource rr = keycloak.realm(realm);
+            resp = rr.identityProviders().create(idpRep);
+            int status = resp.getStatus();
+            log.debug("Identity provider creation response status={}", status);
+            if (status != 201 && status != 409) {
+                String body = resp.readEntity(String.class);
+                throw new KeycloakOperationException("IDP_CREATE_FAILED", 500, "Identity provider creation failed: " + body);
+            }
+            if (status == 409) {
+                log.warn("Identity provider already exists: realm={}, alias={}", realm, idpRep.getAlias());
+            } else {
+                log.info("Identity provider created: realm={}, alias={}", realm, idpRep.getAlias());
+            }
+        } catch (KeycloakOperationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap("IDP_CREATE_FAILED", 500, "Failed to create identity provider in realm " + realm, e);
+        } finally {
+            if (resp != null) {
+                try {
+                    resp.close();
+                } catch (Exception e) {
+                    log.warn("Failed to close identity provider creation response: {}", e.getMessage(), e);
+                }
+            }
+        }
+    }
     /**
      * Delete a realm by name.
      */
