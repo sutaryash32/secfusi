@@ -117,21 +117,13 @@ public class GroupController {
         return ResponseEntity.ok(groups);
     }
 
-    /**
-     * Get groups formatted for dropdowns (id + display name).
-     *
-     * @param request servlet request (for auth/context)
-     * @return list of groups for dropdown
-     */
-    @Operation(summary = "Groups dropdown", description = "Get groups formatted for dropdown selection")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Dropdown list returned")
-    })
-    @GetMapping("/dropdown")
-    public ResponseEntity<List<GroupsDropdown>> getGroupsForDropdown(HttpServletRequest request) {
-        logger.debug("Fetching groups for dropdown");
-        List<GroupsDropdown> dropdownList = groupService.getGroupsForDropdown(request);
-        logger.debug("Dropdown items returned={}", dropdownList != null ? dropdownList.size() : 0);
-        return ResponseEntity.ok(dropdownList);
+    @GetMapping("/tenant")
+    public ResponseEntity<List<Groups>> getGroupsByTenant(HttpServletRequest request,
+                                                          @Parameter(description = "Tenant id", required = true)
+                                                            @RequestParam String tenantId) {
+        logger.debug("Fetching groups for tenantId={}", tenantId);
+        List<Groups> groups = groupService.getGroupsByTenant(request, tenantId);
+        logger.debug("Number of groups fetched for tenantId {}: {}", tenantId, groups != null ? groups.size() : 0);
+        return ResponseEntity.ok(groups);
     }
 }

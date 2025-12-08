@@ -2,6 +2,7 @@ package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.AuthDetailsDto;
 import com.secufusion.iam.dto.LoginResponseDto;
+import com.secufusion.iam.openFeatureService.service.FeatureFlagService;
 import com.secufusion.iam.service.AuthConfigService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,10 @@ public class AuthController {
 
     @Autowired
     private AuthConfigService authConfigService;
+
+    @Autowired
+    private FeatureFlagService featureFlagService;
+
 
     @Operation(summary = "Get tenant config (validated)",
             description = "Returns tenant authentication configuration after validating the Referer header and request host.")
@@ -95,6 +100,10 @@ public class AuthController {
     })
     @GetMapping("/tenant-config")
     public ResponseEntity<AuthDetailsDto> getTenantConfig(@Parameter(description = "Host/domain", required = true) @RequestParam String host) {
+//        String flagKey = "api.users.get.enabled";
+//        if (!featureFlagService.isApiEnabled(flagKey)) {
+//            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+//        }
         return ResponseEntity.ok(authConfigService.getTenantConfig(host));
     }
 

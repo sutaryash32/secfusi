@@ -2,22 +2,20 @@ package com.secufusion.iam.entity;
 
 import com.secufusion.iam.dto.EventDto;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.hibernate.annotations.GenericGenerator;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 
+@EqualsAndHashCode(callSuper = true)
 @Entity
 @Table(name = "events")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Event {
+public class Event extends Auditable {
 
     @Id
     @GeneratedValue(generator = "uuid")
@@ -49,7 +47,7 @@ public class Event {
     public static EventDto toDto(Event event) {
         EventDto dto = new EventDto();
         dto.setUrl(event.getUrl());
-        dto.setTimeStamp(event.getTimeStamp().toString());
+        dto.setTimeStamp(String.valueOf(event.getTimeStamp()));
         return dto;
     }
 }

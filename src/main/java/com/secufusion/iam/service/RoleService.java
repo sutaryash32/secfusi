@@ -73,8 +73,18 @@ public class RoleService {
                     .findByNameAndIsDefaultAndIsSuperRole(roleName, 'Y', 'Y');
 
             if (existing.isPresent()) {
-                log.info("Role '{}' already exists with roleId={}", roleName, existing.get().getPkRoleId());
-                return existing.get();
+                Roles existingRole = existing.get();
+                log.info("Role '{}' already exists with roleId={}", roleName, existingRole.getPkRoleId());
+
+                // Ensure scopes are fully assigned for existing default/super role.
+                try {
+                    assignScopesByRoleType(existingRole);
+                } catch (Exception ex) {
+                    log.warn("Failed to ensure scopes for existing role {}: {}", existingRole.getPkRoleId(), ex.getMessage(), ex);
+                }
+
+                // Return the freshest persisted entity if available
+                return rolesRepository.findById(existingRole.getPkRoleId()).orElse(existingRole);
             }
 
             log.warn("Role '{}' not found → Creating...", roleName);
@@ -116,8 +126,18 @@ public class RoleService {
                     .findByNameAndIsDefaultAndIsSuperRole(roleName, 'Y', 'Y');
 
             if (existing.isPresent()) {
-                log.info("Role '{}' already exists with roleId={}", roleName, existing.get().getPkRoleId());
-                return existing.get();
+                Roles existingRole = existing.get();
+                log.info("Role '{}' already exists with roleId={}", roleName, existingRole.getPkRoleId());
+
+                // Ensure scopes are fully assigned for existing default/super role.
+                try {
+                    assignScopesByRoleType(existingRole);
+                } catch (Exception ex) {
+                    log.warn("Failed to ensure scopes for existing role {}: {}", existingRole.getPkRoleId(), ex.getMessage(), ex);
+                }
+
+                // Return the freshest persisted entity if available
+                return rolesRepository.findById(existingRole.getPkRoleId()).orElse(existingRole);
             }
 
             log.warn("Role '{}' not found → Creating...", roleName);
@@ -145,48 +165,58 @@ public class RoleService {
         }
     }
 
-    @Transactional
-    public Roles createOrGetEnterpriseAdminRole(String tenantId, String adminUserId) {
+  @Transactional
+  public Roles createOrGetEnterpriseAdminRole(String tenantId, String adminUserId) {
 
-        final String roleName = "ENTERPRISE ADMIN";
-        log.info("Checking for role '{}'", roleName);
+      final String roleName = "ENTERPRISE ADMIN";
+      log.info("Checking for role '{}'", roleName);
 
-        try {
-            Tenant tenant = tenantRepository.findById(tenantId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
+      try {
+          Tenant tenant = tenantRepository.findById(tenantId)
+                  .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
 
-            Optional<Roles> existing = rolesRepository
-                    .findByNameAndIsDefaultAndIsSuperRole(roleName, 'Y', 'Y');
+          Optional<Roles> existing = rolesRepository
+                  .findByNameAndIsDefaultAndIsSuperRole(roleName, 'Y', 'Y');
 
-            if (existing.isPresent()) {
-                log.info("Role '{}' already exists with roleId={}", roleName, existing.get().getPkRoleId());
-                return existing.get();
-            }
+          if (existing.isPresent()) {
+              Roles existingRole = existing.get();
+              log.info("Role '{}' already exists with roleId={}", roleName, existingRole.getPkRoleId());
 
-            log.warn("Role '{}' not found → Creating...", roleName);
+              // Ensure scopes are fully assigned for existing default/super role.
+              try {
+                  assignScopesByRoleType(existingRole);
+              } catch (Exception ex) {
+                  log.warn("Failed to ensure scopes for existing role {}: {}", existingRole.getPkRoleId(), ex.getMessage(), ex);
+              }
 
-            Roles role = new Roles();
-            role.setName(roleName);
-            role.setDescription("Enterprise Administrator Role");
-            role.setTenant(tenant);
-            role.setCreatedBy(adminUserId);
-            role.setActive(true);
-            role.setCreatedTime(LocalDateTime.now());
-            role.setIsSuperRole('Y');
-            role.setIsDefault('Y');
+              // Return the freshest persisted entity if available
+              return rolesRepository.findById(existingRole.getPkRoleId()).orElse(existingRole);
+          }
 
-            Roles savedRole = rolesRepository.save(role);
-            log.info("Created new role '{}' with id={}", roleName, savedRole.getPkRoleId());
+          log.warn("Role '{}' not found → Creating...", roleName);
 
-            assignScopesByRoleType(savedRole);
+          Roles role = new Roles();
+          role.setName(roleName);
+          role.setDescription("Enterprise Administrator Role");
+          role.setTenant(tenant);
+          role.setCreatedBy(adminUserId);
+          role.setActive(true);
+          role.setCreatedTime(LocalDateTime.now());
+          role.setIsSuperRole('Y');
+          role.setIsDefault('Y');
 
-            return savedRole;
+          Roles savedRole = rolesRepository.save(role);
+          log.info("Created new role '{}' with id={}", roleName, savedRole.getPkRoleId());
 
-        } catch (Exception e) {
-            log.error("Failed to create or fetch '{}' role: {}", roleName, e.getMessage(), e);
-            return null;
-        }
-    }
+          assignScopesByRoleType(savedRole);
+
+          return savedRole;
+
+      } catch (Exception e) {
+          log.error("Failed to create or fetch '{}' role: {}", roleName, e.getMessage(), e);
+          return null;
+      }
+  }
 
     private void assignScopesByRoleType(Roles role) {
         try {
@@ -378,32 +408,6 @@ public class RoleService {
         log.info("Fetching roleId={} for tenantId={}", id, tenantFromRequest.getTenantID());
         return rolesRepository.findRoleAccessibleByTenant(id, tenantFromRequest.getTenantID());
     }
-
-    /**
-     * Get roles for dropdown usage. Currently returns all roles (filters commented out).
-     *
-     * @return list of RoleDropdownResponse
-     */
-    public List<RoleDropdownResponse> getRolesForDropdown(String action) {
-        log.info("Fetching roles for dropdown mode={}", action);
-        List<Roles> rolesList = rolesRepository.findAll();
-        return rolesList.stream()
-                .filter(role -> Boolean.TRUE.equals(role.getActive()))
-                .filter(role -> {
-                    Character isSuper = role.getIsSuperRole();
-                    Character isDefault = role.getIsDefault();
-                    if ("admin".equalsIgnoreCase(action)) {
-                        return isSuper != null && isSuper == 'Y';
-                    } else if ("all".equalsIgnoreCase(action)) {
-                        return true;
-                    }
-                    return (isSuper == null || isSuper != 'Y') && (isDefault == null || isDefault != 'Y');
-                })
-                .map(role -> new RoleDropdownResponse(role.getPkRoleId(), role.getName()))
-                .toList();
-    }
-
-
 
     @Transactional
     public Roles updateRoleActive(HttpServletRequest request, String roleId) {

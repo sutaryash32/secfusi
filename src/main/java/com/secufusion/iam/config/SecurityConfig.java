@@ -24,7 +24,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))  // <-- ENABLE CORS HERE
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/iam/public/**").permitAll()
-                        .requestMatchers("/tenant-config/**").permitAll()
+                        .requestMatchers("/tenant-config/**","/hello","/actuator/**").permitAll()
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
@@ -52,39 +52,4 @@ public class SecurityConfig {
 
         return source;
     }
-//    @Bean
-//    public AuthenticationEntryPoint customJwtEntryPoint() {
-//        return new AuthenticationEntryPoint() {
-//            @Override
-//            public void commence(HttpServletRequest request, HttpServletResponse response,
-//                                 AuthenticationException authException) throws IOException {
-//
-//                Throwable cause = authException.getCause();
-//                String message = "Invalid token";
-//
-//                if (cause instanceof JwtValidationException jwtEx) {
-//                    if (jwtEx.getErrors().stream().anyMatch(e -> e.getDescription().contains("expired"))) {
-//                        message = "TOKEN_EXPIRED";
-//                    }
-//                }
-//
-//                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-//                response.setContentType("application/json");
-//                new ObjectMapper().writeValue(response.getWriter(),
-//                        Map.of("error", message, "status", 401));
-//            }
-//        };
-//    }
-//
-//    @Bean
-//    public JwtAuthenticationConverter jwtAuthenticationConverter() {
-//        JwtGrantedAuthoritiesConverter realmConverter = new JwtGrantedAuthoritiesConverter();
-//        realmConverter.setAuthoritiesClaimName("realm_access.roles");
-//        realmConverter.setAuthorityPrefix("ROLE_");
-//
-//        JwtAuthenticationConverter authenticationConverter = new JwtAuthenticationConverter();
-//        authenticationConverter.setJwtGrantedAuthoritiesConverter(realmConverter);
-//
-//        return authenticationConverter;
-//    }
 }
