@@ -1,8 +1,8 @@
 name: $(MajorVersion).$(MinorVersion).$(Build)$(rev:.r)
 
 trigger:
-- develop
-- release*
+# - develop
+# - release*
 
 pool:
   vmImage: 'ubuntu-latest'
@@ -57,4 +57,4 @@ steps:
     targetRepoName: sfn-iam-api
     azureorginizationname: secufusion
     azureprojectname: SFCloud-MSSP
-    azurepattoken: $(azuredevopspat)
+    azuredevopspat: $(azuredevopspat)
