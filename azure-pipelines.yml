@@ -1,8 +1,8 @@
 name: $(MajorVersion).$(MinorVersion).$(Build)$(rev:.r)
 
 trigger:
-# - develop
-# - release*
+- develop
+- release*
 
 pool:
   vmImage: 'ubuntu-latest'
