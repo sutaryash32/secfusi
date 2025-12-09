@@ -1,0 +1,60 @@
+name: $(MajorVersion).$(MinorVersion).$(Build)$(rev:.r)
+
+trigger:
+- develop
+- release*
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+
+variables:
+- group: SecufusionVariableGroup
+
+parameters:
+- name: applicationName
+  default: 'sfn-iam-api'
+- name: buildnumber
+  default: '$(Build.BuildNumber)'
+
+resources:
+  repositories: 
+    - repository: azuretemplates
+      type: git
+      ref: develop 
+      name: SFCloud-MSSP/Templates-repo
+
+steps:
+- task: Bash@3
+  inputs:
+    targetType: 'inline'
+    script: |
+      java -version
+      mvn install -DskipTests
+      ls 
+      pwd
+
+- template: getbranchtype.yml@azuretemplates
+
+- template: getversion.yml@azuretemplates
+  parameters:
+      buildnumber: ${{ parameters.buildnumber }}
+      azuredevopspat: $(azuredevopspat)
+      applicationName: ${{ parameters.applicationName }}
+
+
+- template: pushtoazureartifacts.yml@azuretemplates
+  parameters:
+      buildnumber: '$(version)'
+      artifactfeed: $(artifactfeed)
+      applicationName: ${{ parameters.applicationName }}
+      buildfilespath: ./target
+      artifactname: $(artifactname)
+
+- template: createazuregittag.yml@azuretemplates
+  parameters:
+    version: $(version)
+    targetRepoName: sfn-iam-api
+    azureorginizationname: secufusion
+    azureprojectname: SFCloud-MSSP
+    azurepattoken: $(azuredevopspat)
