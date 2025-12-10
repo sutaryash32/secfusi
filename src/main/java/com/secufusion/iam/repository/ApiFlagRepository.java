@@ -1,13 +1,12 @@
-package com.secufusion.iam.openFeatureService.repository;
+package com.secufusion.iam.repository;
 
-import com.secufusion.iam.openFeatureService.dto.PathIdProjection;
-import com.secufusion.iam.openFeatureService.entity.ApiFlagEntity;
+import com.secufusion.iam.dto.PathIdProjection;
+import com.secufusion.iam.entity.ApiFlagEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 @Repository

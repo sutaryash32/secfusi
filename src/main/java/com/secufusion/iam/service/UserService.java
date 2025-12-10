@@ -789,4 +789,8 @@ public class UserService {
         String domain = at > 0 ? email.substring(at) : "";
         return first + "****" + domain;
     }
+
+    public User findByEmailAndTenant(String email, String tenantId) {
+        return userRepository.findByEmailAndTenant_TenantID(email, tenantId).orElse(null);
+    }
 }

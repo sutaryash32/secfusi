@@ -155,10 +155,15 @@ public class AuthConfigService {
                 token != null);
 
         try {
+            if (request == null) {
+                log.error("HttpServletRequest is null");
+                throw new ResourceNotFoundException("Invalid request");
+            }
+
             // Validate token against request
             log.debug("Validating request token");
             if (!jwtUtil.validateRequestToken(request, token)) {
-                log.warn("Token validation failed for request from {}", request != null ? request.getRemoteAddr() : "unknown");
+                log.warn("Token validation failed for request from {}", request.getRemoteAddr());
                 throw new ResourceNotFoundException("Invalid or missing token");
             }
             log.info("Token validated successfully (token length={})", token != null ? token.length() : 0);
@@ -171,6 +176,29 @@ public class AuthConfigService {
                 throw new ResourceNotFoundException("User not found in token/request");
             }
             log.info("User extracted: pkUserId={}, userName={}", userFromRequest.getPkUserId(), userFromRequest.getUserName());
+
+            // Resolve tenant from the request using jwtUtil and validate it matches the token/user tenant
+            log.debug("Resolving tenant from request via jwtUtil");
+            Tenant tenantFromRequest = jwtUtil.getTenantFromRequest(request);
+            if (tenantFromRequest == null) {
+                log.error("Tenant extraction returned null from request for userId={}", userFromRequest.getPkUserId());
+                throw new ResourceNotFoundException("Tenant not found in token/request");
+            }
+            if (userFromRequest.getTenant() == null) {
+                log.error("User tenant is null for userId={}", userFromRequest.getPkUserId());
+                throw new ResourceNotFoundException("Tenant information missing for user");
+            }
+
+            // Compare tenant identity (prefer comparing tenant ID if available)
+            boolean tenantMatches = Objects.equals(tenantFromRequest.getTenantID(), userFromRequest.getTenant().getTenantID())
+                    || Objects.equals(tenantFromRequest.getTenantName(), userFromRequest.getTenant().getTenantName());
+            if (!tenantMatches) {
+                log.warn("Tenant mismatch: requestTenant={} tokenTenant={} for userId={}",
+                        tenantFromRequest.getTenantName(),
+                        userFromRequest.getTenant().getTenantName(),
+                        userFromRequest.getPkUserId());
+                throw new ResourceNotFoundException("Tenant mismatch between request and token");
+            }
 
             // Map user to response DTO
             LoginResponseDto response = new LoginResponseDto();
@@ -213,12 +241,6 @@ public class AuthConfigService {
                             .collect(Collectors.toSet());
 
             response.setMappedGroups(mappedGroups);
-
-            // Ensure tenant is available on user and map related tenant fields
-            if (userFromRequest.getTenant() == null) {
-                log.error("User tenant is null for userId={}", userFromRequest.getPkUserId());
-                throw new ResourceNotFoundException("Tenant information missing for user");
-            }
 
             response.setTenantId(userFromRequest.getTenant().getTenantID());
             response.setFullName(userFromRequest.getFirstName() + " " + userFromRequest.getLastName());

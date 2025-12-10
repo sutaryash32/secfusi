@@ -1,12 +1,11 @@
-package com.secufusion.iam.openFeatureService.controller;
+package com.secufusion.iam.controller;
 
-import com.secufusion.iam.openFeatureService.config.FeatureFlagFilter;
-import com.secufusion.iam.openFeatureService.dto.CreateApiRequest;
-import com.secufusion.iam.openFeatureService.dto.ToggleRequest;
-import com.secufusion.iam.openFeatureService.entity.ApiFlagEntity;
-import com.secufusion.iam.openFeatureService.entity.TenantApiMappingEntity;
-import com.secufusion.iam.openFeatureService.repository.ApiFlagRepository;
-import com.secufusion.iam.openFeatureService.repository.TenantApiMappingRepository;
+import com.secufusion.iam.dto.CreateApiRequest;
+import com.secufusion.iam.dto.ToggleRequest;
+import com.secufusion.iam.entity.ApiFlagEntity;
+import com.secufusion.iam.entity.TenantApiMappingEntity;
+import com.secufusion.iam.repository.ApiFlagRepository;
+import com.secufusion.iam.repository.TenantApiMappingRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -38,9 +37,6 @@ public class ApiFlagAdminController {
     private ApiFlagRepository apiFlagRepo;
     @Autowired
     private TenantApiMappingRepository tenantMappingRepo;
-    @Autowired
-    private FeatureFlagFilter featureFlagFilter;
-
     /**
      * Create a new API definition used for feature flagging.
      *
@@ -65,11 +61,6 @@ public class ApiFlagAdminController {
         // Persist and refresh runtime cache
         ApiFlagEntity save = apiFlagRepo.save(api);
         log.debug("API saved with id: {} and key: {}", save.getId(), save.getApiKey());
-
-        // Refresh in-memory filter/cache so the new API becomes available immediately
-        featureFlagFilter.refreshCache();
-        log.info("Feature flag cache refreshed after creating API with id: {}", save.getId());
-
         return ResponseEntity.ok(save);
     }
 
@@ -119,10 +110,6 @@ public class ApiFlagAdminController {
         TenantApiMappingEntity save = tenantMappingRepo.save(mapping);
         log.debug("Saved tenant-api mapping id: {}, tenantId: {}, apiId: {}, enabled: {}",
                 save.getId(), save.getTenantId(), api.getId(), save.isEnabled());
-
-        // Refresh cache so the change takes effect immediately
-        featureFlagFilter.refreshCache();
-        log.info("Feature flag cache refreshed after toggling mapping id: {}", save.getId());
 
         return ResponseEntity.ok(save);
     }

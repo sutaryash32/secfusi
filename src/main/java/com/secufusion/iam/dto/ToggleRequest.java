@@ -1,4 +1,4 @@
-package com.secufusion.iam.openFeatureService.dto;
+package com.secufusion.iam.dto;
 
 import lombok.Data;
 

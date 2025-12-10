@@ -275,4 +275,12 @@ public class GroupService {
         log.debug("getGroupsByTenant: found {} groups for tenantId={}", groups.size(), tenantId);
         return groups;
     }
+
+    public boolean deleteGroupsByTenantId(String tenantID) {
+        log.info("deleteGroupsByTenantId: Deleting groups for tenantId={}", tenantID);
+        List<Groups> groupsToDelete = groupsRepository.findByTenantId(tenantID);
+        groupsRepository.deleteAll(groupsToDelete);
+        log.debug("deleteGroupsByTenantId: Deleted {} groups for tenantId={}", groupsToDelete.size(), tenantID);
+        return true;
+    }
 }
