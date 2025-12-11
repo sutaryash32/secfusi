@@ -209,16 +209,20 @@ public class KeycloakAdminUtil {
 
 
     public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
-        log.info("Adding identity provider '{}' to realm {}", dto != null ? dto.getAlias() : "null", realm);
+        log.info("Adding identity provider '{}' to realm {}", dto.getAlias(), realm);
 
         Response resp = null;
+
         try {
             if (dto == null) {
-                throw new KeycloakOperationException("INVALID_INPUT", 400, "CreateIdentityProviderRequest must not be null");
+                throw new KeycloakOperationException("INVALID_INPUT", 400,
+                        "CreateIdentityProviderRequest must not be null");
             }
 
+            RealmResource rr = keycloak.realm(realm);
+
             // -------------------------------
-            // 1️⃣ Build Keycloak IDP Representation
+            // 1️⃣ Build IDP object
             // -------------------------------
             IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
             idpRep.setAlias(dto.getAlias());
@@ -229,9 +233,7 @@ public class KeycloakAdminUtil {
             idpRep.setTrustEmail(Boolean.TRUE.equals(dto.getTrustEmail()));
             idpRep.setDisplayName(dto.getDisplayName());
 
-            // -------------------------------
-            // 2️⃣ Convert DTO → Keycloak config map
-            // -------------------------------
+            // IDP Configuration
             Map<String, String> config = new HashMap<>();
             put(config, "clientId", dto.getClientId());
             put(config, "clientSecret", dto.getClientSecret());
@@ -241,169 +243,64 @@ public class KeycloakAdminUtil {
             put(config, "issuer", dto.getIssuer());
             put(config, "redirectUri", dto.getRedirectUri());
             put(config, "tenantId", dto.getTenantId());
-            // add default scopes if not provided
-                put(config, "scopes", "openid email profile");
+            config.put("scopes", "openid email profile");
+            config.put("disableUserInfo", "true");
 
             idpRep.setConfig(config);
 
             // -------------------------------
-            // 3️⃣ Create IDP in Keycloak (or ignore if exists)
+            // 2️⃣ Create IDP in Keycloak
             // -------------------------------
-            RealmResource rr = keycloak.realm(realm);
             resp = rr.identityProviders().create(idpRep);
 
             int status = resp.getStatus();
-            log.debug("Identity provider creation response status={}", status);
+            log.debug("IDP create response = {}", status);
 
             if (status != 201 && status != 409) {
                 String body = resp.readEntity(String.class);
-                throw new KeycloakOperationException("IDP_CREATE_FAILED", 500, "Identity provider creation failed: " + body);
+                throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
+                        "Identity provider creation failed: " + body);
             }
 
             if (status == 409) {
-                log.warn("Identity provider already exists: realm={}, alias={}", realm, dto.getAlias());
+                log.warn("Identity provider '{}' already exists in realm {}", dto.getAlias(), realm);
             } else {
-                log.info("Identity provider created: realm={}, alias={}", realm, dto.getAlias());
+                log.info("Identity provider '{}' created successfully in realm {}", dto.getAlias(), realm);
             }
 
             // -------------------------------
-            // 4️⃣ Create tenant-specific copy of first-broker-login flow and sanitize it
+            // 3️⃣ Update IDP config (optional patches)
             // -------------------------------
-            String customFlowAlias = ensureCustomFirstBrokerFlow(keycloak,realm,rr, dto.getAlias());
+            IdentityProviderResource idpRes = rr.identityProviders().get(dto.getAlias());
+            IdentityProviderRepresentation rep = idpRes.toRepresentation();
+
+            rep.setTrustEmail(true);
+            rep.getConfig().put("disableUserInfo", "true");
+            rep.getConfig().put("scopes", "openid email profile");
+
+            idpRes.update(rep);
 
             // -------------------------------
-            // 5️⃣ Patch the IDP to set desired flags and assign the custom first-login flow
-            // (use update to ensure the provider configuration reflects our choices)
+            // 4️⃣ Return redirect URL
             // -------------------------------
-            IdentityProviderRepresentation current = rr.identityProviders().get(dto.getAlias()).toRepresentation();
+            return buildAzureRedirectUrl(realm, dto.getAlias());
 
-            // set recommended flags
-            current.setTrustEmail(true); // trust Azure's verified email
-            current.setConfig(current.getConfig() == null ? new HashMap<>() : current.getConfig());
-            current.getConfig().put("disableUserInfo", "true");   // disable userinfo endpoint
-            current.getConfig().put("scopes", "openid email profile");
-            // assign our custom flow
-            current.setFirstBrokerLoginFlowAlias(customFlowAlias);
-
-            // update provider
-            rr.identityProviders().get(dto.getAlias()).update(current);
-
-            // -------------------------------
-            // 6️⃣ Build and return Azure Redirect URL
-            // -------------------------------
-            String redirectUrl = buildAzureRedirectUrl(realm, dto.getAlias());
-            return redirectUrl;
-
-        } catch (KeycloakOperationException e) {
-            throw e;
         } catch (Exception e) {
-            throw new KeycloakOperationException("IDP_CREATE_FAILED", 500, "Failed to create identity provider in realm " + realm, e);
+            throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
+                    "Failed to create identity provider in realm " + realm, e);
         } finally {
-            if (resp != null) {
-                try {
-                    resp.close();
-                } catch (Exception e) {
-                    log.warn("Failed to close response: {}", e.getMessage(), e);
-                }
-            }
+            if (resp != null) resp.close();
         }
     }
-
-    private String ensureCustomFirstBrokerFlow(Keycloak keycloak, String realm, RealmResource rr, String idpAlias) {
-
-        AuthenticationManagementResource authMgmt = rr.flows();
-
-        final String BUILTIN_FLOW = "first broker login";
-        final String customFlowAlias = BUILTIN_FLOW + " - " + idpAlias + " custom";
-
-        // -------------------------
-        // 1️⃣ COPY FLOW (USING ADMIN CLIENT ONLY)
-        // -------------------------
-        try {
-            List<AuthenticationFlowRepresentation> flows = authMgmt.getFlows();
-            boolean exists = flows.stream().anyMatch(f -> customFlowAlias.equals(f.getAlias()));
-
-            if (!exists) {
-
-                Map<String, Object> copyRequest = new HashMap<>();
-                copyRequest.put("newName", customFlowAlias);
-
-                authMgmt.copy(BUILTIN_FLOW, copyRequest);
-
-                log.info("Custom flow created: {}", customFlowAlias);
-            } else {
-                log.info("Custom flow already exists: {}", customFlowAlias);
-            }
-        } catch (Exception ex) {
-            log.error("Failed to copy flow {} -> {} | {}", BUILTIN_FLOW, customFlowAlias, ex.getMessage());
-        }
-
-
-        // -------------------------
-        // 2️⃣ UPDATE EXECUTIONS (SET REQUIREMENTS)
-        // -------------------------
-        try {
-            List<AuthenticationExecutionInfoRepresentation> executions =
-                    authMgmt.getExecutions(customFlowAlias);
-
-            for (AuthenticationExecutionInfoRepresentation exec : executions) {
-
-                String name = exec.getDisplayName();
-                if (name == null) continue;
-
-                if (name.contains("Automatically set existing user")) {
-                    updateExecutionRequirement(authMgmt, customFlowAlias, exec, "ALTERNATIVE");
-                }
-                else if (name.contains("Create User If Unique")) {
-                    updateExecutionRequirement(authMgmt, customFlowAlias, exec, "ALTERNATIVE");
-                }
-                else if (name.contains("Confirm link existing account")
-                        || name.contains("Verify existing account by Email")
-                        || name.contains("Verify Existing Account by Re-authentication")
-                        || name.contains("Username Password Form")
-                ) {
-                    updateExecutionRequirement(authMgmt, customFlowAlias, exec, "DISABLED");
-                }
-            }
-        } catch (Exception ex) {
-            log.error("Error updating executions for flow {} | {}", customFlowAlias, ex.getMessage());
-        }
-
-        return customFlowAlias;
-    }
-
-    private void updateExecutionRequirement(AuthenticationManagementResource authMgmt,
-                                            String flowAlias,
-                                            AuthenticationExecutionInfoRepresentation exec,
-                                            String requirement) {
-
-        exec.setRequirement(requirement);
-        authMgmt.updateExecutions(flowAlias, exec);
-
-        log.info("Updated execution {} → {}", exec.getDisplayName(), requirement);
-    }
-
-
-
-
-
-
-
-
 
     public String updateIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
         log.info("Updating identity provider '{}' in realm {}", dto != null ? dto.getAlias() : "null", realm);
-
         try {
             if (dto == null) {
-                throw new KeycloakOperationException("INVALID_INPUT", 400,
-                        "CreateIdentityProviderRequest must not be null");
+                throw new KeycloakOperationException("INVALID_INPUT", 400, "CreateIdentityProviderRequest must not be null");
             }
-
             RealmResource rr = keycloak.realm(realm);
             IdentityProviderResource idpResource = rr.identityProviders().get(dto.getAlias());
-
-            // Ensure existing IDP is present
             IdentityProviderRepresentation existing;
             try {
                 existing = idpResource.toRepresentation();
@@ -411,11 +308,8 @@ public class KeycloakAdminUtil {
                     throw new KeycloakOperationException("IDP_NOT_FOUND", 404, "Identity provider not found: " + dto.getAlias());
                 }
             } catch (Exception e) {
-                // wrap NotFound and other errors
                 throw new KeycloakOperationException("IDP_LOOKUP_FAILED", 500, "Failed to lookup identity provider " + dto.getAlias(), e);
             }
-
-            // Build updated representation
             IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
             idpRep.setAlias(dto.getAlias());
             idpRep.setProviderId(dto.getProviderId());
@@ -424,7 +318,6 @@ public class KeycloakAdminUtil {
             idpRep.setLinkOnly(dto.getLinkOnly());
             idpRep.setTrustEmail(dto.getTrustEmail());
             idpRep.setDisplayName(dto.getDisplayName());
-
             Map<String, String> config = new HashMap<>();
             put(config, "clientId", dto.getClientId());
             put(config, "clientSecret", dto.getClientSecret());
@@ -433,10 +326,7 @@ public class KeycloakAdminUtil {
             put(config, "userInfoUrl", dto.getUserInfoUrl());
             put(config, "issuer", dto.getIssuer());
             put(config, "redirectUri", dto.getRedirectUri());
-
             idpRep.setConfig(config);
-
-            // Perform update
             try {
                 idpResource.update(idpRep);
                 log.info("Identity provider updated: realm={}, alias={}", realm, dto.getAlias());
@@ -444,7 +334,6 @@ public class KeycloakAdminUtil {
             } catch (Exception e) {
                 throw new KeycloakOperationException("IDP_UPDATE_FAILED", 500, "Failed to update identity provider " + dto.getAlias() + " in realm " + realm, e);
             }
-
         } catch (KeycloakOperationException e) {
             throw e;
         } catch (Exception e) {

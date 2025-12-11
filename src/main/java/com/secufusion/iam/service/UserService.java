@@ -70,7 +70,7 @@ public class UserService {
 
         log.info("➡️ [CREATE USER] Start (explicit tenantId). tenantId={}, dtoSummary={}", tenantId, summarizeDto(dto));
         log.debug("createUser() received DTO details: username={}, email={}, firstName={}, lastName={}, phone={}",
-                dto.getUserName(), dto.getEmail(), dto.getFirstName(), dto.getLastName(), dto.getPhoneNumber());
+                dto.getEmail(), dto.getEmail(), dto.getFirstName(), dto.getLastName(), dto.getPhoneNumber());
 
         // Load tenant or fail fast
         Tenant tenant = tenantRepository.findById(tenantId)
@@ -87,7 +87,7 @@ public class UserService {
 
         log.info("➡️ [CREATE USER] Start (from request). dtoSummary={}", summarizeDto(dto));
         log.debug("createUser(request) received DTO details: username={}, email={}, firstName={}, lastName={}, phone={}",
-                dto.getUserName(), dto.getEmail(), dto.getFirstName(), dto.getLastName(), dto.getPhoneNumber());
+                dto.getEmail(), dto.getEmail(), dto.getFirstName(), dto.getLastName(), dto.getPhoneNumber());
 
         Tenant tenant = jwtUtl.getTenantFromRequest(request);
         if (tenant == null) {
@@ -119,14 +119,14 @@ public class UserService {
             user.setFirstName(dto.getFirstName());
             user.setLastName(dto.getLastName());
             user.setEmail(dto.getEmail());
-            user.setUserName(dto.getUserName());
+            user.setUserName(dto.getEmail());
             user.setPhoneNo(dto.getPhoneNumber());
             user.setTenant(tenant);
             user.setStatus("CREATING");
             user.setCreatedAt(LocalDateTime.now());
             user.setCreatedBy(dto.getCreatedBy());
 
-            log.debug("Persisting local user to DB with status=C:\\'CREATING\\' (pre-keycloak). username={}", dto.getUserName());
+            log.debug("Persisting local user to DB with status=C:\\'CREATING\\' (pre-keycloak). username={}", dto.getEmail());
             User savedUser = userRepository.save(user);
 
             log.info("✔ Local user created successfully in DB. userId={} username={}",
@@ -136,11 +136,11 @@ public class UserService {
 
             // Create user in Keycloak
             log.debug("Calling Keycloak createUser API. realm={} username={} email={}",
-                    tenant.getRealmName(), dto.getUserName(), dto.getEmail());
+                    tenant.getRealmName(), dto.getEmail(), dto.getEmail());
 
             String kcUserId = kcUtil.createUser(
                     tenant.getRealmName(),
-                    dto.getUserName(),
+                    dto.getEmail(),
                     dto.getEmail(),
                     dto.getFirstName(),
                     dto.getLastName(),
@@ -150,7 +150,7 @@ public class UserService {
             log.debug("Keycloak createUser returned id={}", kcUserId);
             if (kcUserId == null) {
                 log.error("❌ Keycloak returned null userId. Username may already exist in realm. realm={} username={}",
-                        tenant.getRealmName(), dto.getUserName());
+                        tenant.getRealmName(), dto.getEmail());
                 throw new KeycloakOperationException(
                         "KC_USER_CREATION_FAILED", 3001,
                         "Failed to create user in Keycloak (duplicate?)"
@@ -199,7 +199,7 @@ public class UserService {
             throw ex;
         } catch (Exception ex) {
             log.error("❌ Unexpected error while creating user username={} message={} stackTrace={}",
-                    dto.getUserName(), ex.getMessage(), ex.getMessage());
+                    dto.getEmail(), ex.getMessage(), ex.getMessage());
             throw new KeycloakOperationException(
                     "USER_CREATION_FAILED", 3002,
                     "Unexpected error while creating user"
@@ -225,7 +225,7 @@ public class UserService {
     public UsersDto updateUser(String userId, UsersDto dto) {
 
         log.info("➡️ [UPDATE USER] Start. userId={} dtoSummary={}", userId, summarizeDto(dto));
-        log.debug("updateUser() incoming DTO details: username={}, email={}, phone={}", dto.getUserName(), dto.getEmail(), dto.getPhoneNumber());
+        log.debug("updateUser() incoming DTO details: username={}, email={}, phone={}", dto.getEmail(), dto.getEmail(), dto.getPhoneNumber());
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> {
@@ -244,7 +244,7 @@ public class UserService {
             user.setFirstName(dto.getFirstName());
             user.setLastName(dto.getLastName());
             user.setEmail(dto.getEmail());
-            user.setUserName(dto.getUserName());
+            user.setUserName(dto.getEmail());
             user.setPhoneNo(dto.getPhoneNumber());
             user.setMappedGroups(dto.getGroups());
             String status = dto.getStatus();
@@ -253,16 +253,16 @@ public class UserService {
             }
             userRepository.save(user);
 
-            log.info("✔ Local DB user updated. userId={} username={}", userId, dto.getUserName());
+            log.info("✔ Local DB user updated. userId={} username={}", userId, dto.getEmail());
 
             // Update Keycloak
             log.debug("Invoking Keycloak updateUser. realm={} kcUserId={} newUsername={} newEmail={}",
-                    tenant.getRealmName(), user.getKeycloakUserId(), dto.getUserName(), dto.getEmail());
+                    tenant.getRealmName(), user.getKeycloakUserId(), dto.getEmail(), dto.getEmail());
 
             kcUtil.updateUser(
                     tenant.getRealmName(),
                     user.getKeycloakUserId(),
-                    dto.getUserName(),
+                    dto.getEmail(),
                     dto.getEmail(),
                     dto.getFirstName(),
                     dto.getLastName()
@@ -327,7 +327,7 @@ public class UserService {
         try {
 
             boolean identityChanged =
-                    !dto.getUserName().equals(user.getUserName()) ||
+                    !dto.getEmail().equals(user.getUserName()) ||
                             !dto.getEmail().equals(user.getEmail()) ||
                             !dto.getFirstName().equals(user.getFirstName()) ||
                             !dto.getLastName().equals(user.getLastName());
@@ -338,7 +338,7 @@ public class UserService {
             user.setFirstName(dto.getFirstName());
             user.setLastName(dto.getLastName());
             user.setEmail(dto.getEmail());
-            user.setUserName(dto.getUserName());
+            user.setUserName(dto.getEmail());
             user.setPhoneNo(dto.getPhoneNumber());
             user.setUpdatedAt(LocalDateTime.now());
             user.setLastUpdatedBy(requestingUser.getPkUserId());
@@ -357,7 +357,7 @@ public class UserService {
                 kcUtil.updateUser(
                         userTenant.getRealmName(),
                         user.getKeycloakUserId(),
-                        dto.getUserName(),
+                        dto.getEmail(),
                         dto.getEmail(),
                         dto.getFirstName(),
                         dto.getLastName()
@@ -534,15 +534,28 @@ public class UserService {
      * Return all users in the system. This method is verbose in logs to know how many users returned.
      */
     public List<UsersDto> getAllUsers(HttpServletRequest request) {
-        log.info("➡️ [GET ALL USERS] Start fetching all users from DB");
+        log.info("➡️ [GET ALL USERS] Start fetching users for requesting tenant from DB");
 
         Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
+        if (tenantFromRequest == null) {
+            log.error("❌ Could not resolve tenant from request while fetching all users.");
+            throw new ResourceNotFoundException("Tenant not found from request");
+        }
 
-        List<UsersDto> list = userRepository.findAllUsersByTenantHierarchy(tenantFromRequest.getTenantID()).stream()
+        log.debug("Resolved tenant for getAllUsers: tenantId={} realm={}", tenantFromRequest.getTenantID(), tenantFromRequest.getRealmName());
+
+        List<UsersDto> list = userRepository.findByTenant(tenantFromRequest).stream()
+                .filter(u -> {
+                    try {
+                        return !u.isDefaultUser();
+                    } catch (NoSuchMethodError | NullPointerException ex) {
+                        return true;
+                    }
+                })
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
 
-        log.info("✔ Total users fetched={}", list.size());
+        log.info("✔ Total users fetched for tenantId={} ={}", tenantFromRequest.getTenantID(), list.size());
         log.debug("User fetch complete. Sample size for debug: {}", Math.min(list.size(), 10));
         return list;
     }
@@ -594,7 +607,7 @@ public class UserService {
         String realm = tenant.getRealmName();
 
         log.info("➡️ [VALIDATE USER] Start. tenantId={} realm={} excludeUserId={}", tenantId, realm, excludeUserId);
-        log.debug("validateUserFields() parameters: username={} email={} phone={}", dto.getUserName(), dto.getEmail(), dto.getPhoneNumber());
+        log.debug("validateUserFields() parameters: username={} email={} phone={}", dto.getEmail(), dto.getEmail(), dto.getPhoneNumber());
 
         // ----- DB UNIQUE CHECKS -----
         log.debug("Checking DB uniqueness for EMAIL, USERNAME, PHONE");
@@ -613,11 +626,11 @@ public class UserService {
                 });
 
         // USERNAME
-        userRepository.findByUserNameAndTenant_TenantID(dto.getUserName(), tenantId)
+        userRepository.findByUserNameAndTenant_TenantID(dto.getEmail(), tenantId)
                 .ifPresent(existing -> {
                     log.debug("DB username search found existing user: existingId={} existingUsername={}", existing.getPkUserId(), existing.getUserName());
                     if (!existing.getPkUserId().equals(excludeUserId)) {
-                        log.error("❌ Username already exists in tenant. tenantId={} username={}", tenantId, dto.getUserName());
+                        log.error("❌ Username already exists in tenant. tenantId={} username={}", tenantId, dto.getEmail());
                         throw new KeycloakOperationException(
                                 "USERNAME_EXISTS", 3102, "Username already exists in this tenant");
                     } else {
@@ -640,12 +653,12 @@ public class UserService {
 
 
         // ----- KEYCLOAK UNIQUE CHECK -----
-        log.debug("Checking Keycloak realm uniqueness for username/email. realm={} username={} email={}", realm, dto.getUserName(), dto.getEmail());
+        log.debug("Checking Keycloak realm uniqueness for username/email. realm={} username={} email={}", realm, dto.getEmail(), dto.getEmail());
 
         List<UserRepresentation> kcUsers =
                 kcUtil.findUsersByUsernameOrEmail(
                         realm,
-                        dto.getUserName(),
+                        dto.getEmail(),
                         dto.getEmail()
                 );
 
@@ -668,7 +681,7 @@ public class UserService {
             }
 
             log.error("❌ KC user conflict detected for realm={} username={} email={} existingKcId={}",
-                    realm, dto.getUserName(), dto.getEmail(), kc.getId());
+                    realm, dto.getEmail(), dto.getEmail(), kc.getId());
 
             throw new KeycloakOperationException(
                     "KC_USER_EXISTS", 3104,
@@ -676,7 +689,7 @@ public class UserService {
             );
         }
 
-        log.info("✔ Validation passed for user={} realm={}", dto.getUserName(), realm);
+        log.info("✔ Validation passed for user={} realm={}", dto.getEmail(), realm);
     }
 
 
@@ -702,7 +715,7 @@ public class UserService {
         dto.setUpdatedAt(user.getUpdatedAt());
         dto.setStatus(user.getStatus());
         dto.setGroups(user.getMappedGroups());
-        log.debug("Mapped UsersDto: pkUserId={} username={} email={}", dto.getPkUserId(), dto.getUserName(), dto.getEmail());
+        log.debug("Mapped UsersDto: pkUserId={} username={} email={}", dto.getPkUserId(), dto.getEmail(), dto.getEmail());
         return dto;
     }
 
@@ -765,7 +778,7 @@ public class UserService {
     private String summarizeDto(UsersDto dto) {
         if (dto == null) return "null";
         return String.format("username=%s email=%s phone=%s",
-                dto.getUserName(), summarizeEmail(dto.getEmail()), maskPhone(dto.getPhoneNumber()));
+                dto.getEmail(), summarizeEmail(dto.getEmail()), maskPhone(dto.getPhoneNumber()));
     }
 
     /**

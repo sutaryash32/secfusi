@@ -151,12 +151,22 @@ public class TenantService {
 
         // Validation
         validateInputForNew(req);
-
-        User userFromRequest = jwtUtl.getUserFromRequest(request);
+        User userFromRequest = null;
+        String createdBy = null;
+        try {
+            userFromRequest = jwtUtl.getUserFromRequest(request);
+            if (userFromRequest != null) {
+                createdBy = userFromRequest.getPkUserId();
+            } else {
+                log.warn("No user found in request; proceeding without createdBy.");
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get user from request, continuing without createdBy. error={}", e.getMessage());
+        }
         // Create tenant skeleton
         Tenant tenant = buildTenantSkeleton(req);
         tenant.setStatus("CREATING");
-        tenant.setCreatedBy(userFromRequest.getPkUserId());
+        tenant.setCreatedBy(createdBy);
         tenant.setParentTenantId(parentTenant != null ? parentTenant.getTenantID() : null);
         Tenant savedTenant = tenantRepository.save(tenant);
         log.info("Created tenant skeleton in DB. tenantId={}, status={}",
@@ -165,7 +175,7 @@ public class TenantService {
         // Create admin skeleton
         User admin = buildAdminSkeleton(req, savedTenant);
         admin.setStatus("CREATING");
-        admin.setCreatedBy(userFromRequest.getPkUserId());
+        admin.setCreatedBy(createdBy);
         User savedUser = userRepository.save(admin);
         req.setAdminUserName(savedUser.getUserName());
         log.info("Created admin user skeleton in DB. userId={}, username={}, status={}",
@@ -393,13 +403,16 @@ public class TenantService {
         User admin = new User();
         admin.setFirstName(req.getAdminFirstName());
         admin.setLastName(req.getAdminLastName());
-        String generatedUsername;
-        if (req.getAdminUserName() != null && !req.getAdminUserName().trim().isEmpty()) {
-            generatedUsername = req.getAdminUserName().trim().toLowerCase();
-        } else {
-            generatedUsername = generateUniqueUsername(req.getAdminFirstName(), req.getAdminLastName());
+//        String generatedUsername;
+//        if (req.getAdminUserName() != null && !req.getAdminUserName().trim().isEmpty()) {
+//            generatedUsername = req.getAdminUserName().trim().toLowerCase();
+//        } else {
+//            generatedUsername = generateUniqueUsername(req.getAdminFirstName(), req.getAdminLastName());
+//        }
+        admin.setUserName(req.getAdminEmail());
+        if("Master MSSP".equalsIgnoreCase(req.getTenantType())){
+            admin.setUserName(req.getAdminUserName());
         }
-        admin.setUserName(generatedUsername);
         admin.setEmail(req.getAdminEmail());
         admin.setPhoneNo(req.getAdminPhoneNumber());
         admin.setTenant(tenant);

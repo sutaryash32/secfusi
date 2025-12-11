@@ -84,6 +84,12 @@ public class JwtTenantUserValidationFilter extends OncePerRequestFilter {
         }
 
         try {
+            // Bypass validations for one specific endpoint: POST /events
+            if ("/events".contains(request.getRequestURI()) && "POST".equalsIgnoreCase(request.getMethod())) {
+                log.debug("Skipping JWT/tenant/user validation for POST /events");
+                filterChain.doFilter(request, response);
+                return;
+            }
             // ============================================================
             // 2️⃣ Extract details from JWT
             // ============================================================
