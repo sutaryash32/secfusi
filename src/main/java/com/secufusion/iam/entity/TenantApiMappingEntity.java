@@ -1,4 +1,4 @@
-package com.secufusion.iam.openFeatureService.entity;
+package com.secufusion.iam.entity;
 
 
 import jakarta.persistence.*;

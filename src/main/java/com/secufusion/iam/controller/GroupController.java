@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 
+import java.nio.file.AccessDeniedException;
 import java.util.List;
 
 /**
@@ -70,7 +71,7 @@ public class GroupController {
         @PutMapping("/{id}")
         public ResponseEntity<Groups> updateGroup(HttpServletRequest request,
                                                   @Parameter(description = "Group id", required = true) @PathVariable String id,
-                                                  @RequestBody Groups groups) {
+                                                  @RequestBody Groups groups) throws AccessDeniedException {
             logger.info("Request to update group: id={}, name={}", id, groups != null ? groups.getName() : "null");
             Groups updatedGroup = groupService.updateGroup(request, id, groups);
             logger.info("Group updated with id={}", updatedGroup != null ? updatedGroup.getPkGroupId() : "null");

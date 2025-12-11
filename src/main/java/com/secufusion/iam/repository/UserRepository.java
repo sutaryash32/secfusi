@@ -58,4 +58,7 @@ public interface UserRepository extends JpaRepository<User, Serializable> {
     )
     List<User> findAllUsersByTenantHierarchy(@Param("tenantId") String tenantId);
 
+    Optional<User> findByEmailIgnoreCase(String email);
+
+    Optional<User> findByUserNameIgnoreCase(String preferred);
 }

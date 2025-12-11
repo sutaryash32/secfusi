@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.AccessDeniedException;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
@@ -393,7 +394,7 @@ public class RoleService {
     public List<Roles> getAllRoles(HttpServletRequest request) {
         Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
         log.info("Fetching all roles for tenantId={}", tenantFromRequest.getTenantID());
-        return rolesRepository.findByTenant_TenantID(tenantFromRequest.getTenantID()).stream().filter(role -> role.getIsSuperRole() != 'Y').toList();
+        return rolesRepository.findByTenant_TenantID(tenantFromRequest.getTenantID()).stream().toList();
     }
 
     /**
@@ -410,7 +411,7 @@ public class RoleService {
     }
 
     @Transactional
-    public Roles updateRoleActive(HttpServletRequest request, String roleId) {
+    public Roles updateRoleActive(HttpServletRequest request, String roleId) throws AccessDeniedException {
         Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
         User userFromRequest = jwtUtl.getUserFromRequest(request);
 
@@ -418,6 +419,11 @@ public class RoleService {
         if (existing == null) {
             log.warn("Role not found or not accessible for active toggle. roleId={} tenantId={}", roleId, tenantFromRequest.getTenantID());
             throw new ResourceNotFoundException("Role not found or not accessible for tenant.");
+        }
+        if(existing.getIsDefault() != null && existing.getIsDefault() == 'Y'
+                && existing.getIsSuperRole() != null && existing.getIsSuperRole() == 'Y') {
+            log.warn("Attempt to update on default super role denied. roleId={} tenantId={}", roleId, tenantFromRequest.getTenantID());
+            throw new AccessDeniedException("Cannot update for a Default Super role.");
         }
 
         boolean currentlyActive = Boolean.TRUE.equals(existing.getActive());

@@ -14,6 +14,9 @@ import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashSet;
+import java.util.Set;
+
 /**
  * Utility service to extract and decode JWT tokens from HTTP requests and
  * obtain user details such as username, email, userId and tenant.
@@ -190,28 +193,64 @@ public class JwtUtl {
             JWTClaimsSet claims = decodeToken(token);
             if (claims == null) return null;
 
-            String email = claims.getStringClaim("email");
-            if (email == null) {
-                logger.debug("getUserFromRequest: 'email' claim is missing");
-                return null;
-            }
-
             if (userRepository == null) {
                 logger.error("getUserFromRequest: userRepository is not initialized");
                 return null;
             }
 
-            try {
-                return userRepository.findByEmail(email).orElse(null);
-            } catch (Exception repoEx) {
-                logger.error("getUserFromRequest: error querying userRepository for email {}", email, repoEx);
-                return null;
+            String email = claims.getStringClaim("email");
+            String preferred = claims.getStringClaim("preferred_username");
+
+            logger.debug("Lookup claims - email: {}, preferred: {}", email, preferred);
+
+            // Use a Set to avoid duplicate queries
+            Set<String> candidates = new LinkedHashSet<>();
+
+            if (email != null) candidates.add(email);
+            if (preferred != null) candidates.add(preferred);
+
+            // Also add lowercase variants (case ignore safety)
+            candidates.addAll(
+                    candidates.stream()
+                            .map(String::toLowerCase)
+                            .toList()
+            );
+
+            // Now try all combinations: email, preferred, username
+            for (String candidate : candidates) {
+
+                // Try email lookup
+                try {
+                    User u = userRepository.findByEmailIgnoreCase(candidate).orElse(null);
+                    if (u != null) {
+                        logger.debug("Found user by emailIgnoreCase({})", candidate);
+                        return u;
+                    }
+                } catch (Exception ex) {
+                    logger.warn("Failed lookup: findByEmailIgnoreCase({})", candidate, ex);
+                }
+
+                // Try username lookup
+                try {
+                    User u = userRepository.findByUserNameIgnoreCase(candidate).orElse(null);
+                    if (u != null) {
+                        logger.debug("Found user by userNameIgnoreCase({})", candidate);
+                        return u;
+                    }
+                } catch (Exception ex) {
+                    logger.warn("Failed lookup: findByUserNameIgnoreCase({})", candidate, ex);
+                }
             }
-        } catch (Exception e) {
-            logger.error("getUserFromRequest: unexpected error", e);
+
+            logger.debug("No user found using any lookup strategy (email/preferred/username)");
+            return null;
+
+        } catch (Exception ex) {
+            logger.error("getUserFromRequest: unexpected error", ex);
             return null;
         }
     }
+
 
     public String getPreferredUsernameFromRequest(HttpServletRequest request) {
         try {
