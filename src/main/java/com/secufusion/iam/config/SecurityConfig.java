@@ -24,7 +24,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))  // <-- ENABLE CORS HERE
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/iam/public/**").permitAll()
-                        .requestMatchers("/tenant-config/**","/hello","/actuator/**").permitAll()
+                        .requestMatchers("/tenant-config/**","/hello","/actuator/**","/api/tenant-config/**").permitAll()
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",

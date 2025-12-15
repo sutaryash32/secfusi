@@ -204,11 +204,21 @@ public class GroupService {
         }
         String tenantId = tenantFromRequest.getTenantID();
         log.info("getAllGroups: Fetching all groups for tenantId={}", tenantId);
-       List<Groups> result = groupsRepository.findByTenantId(tenantId)
-               .stream()
-//               .filter(g -> (g.getIsAdmin() == null || g.getIsAdmin() != 'Y')
-//                       && (g.getIsDefault() == null || g.getIsDefault() != 'Y'))
-               .toList();
+        List<Groups> result = groupsRepository.findByTenantId(tenantId)
+                .stream()
+                .peek(g -> {
+                    String creatorId = g.getCreatedBy();
+                    if (creatorId != null && !creatorId.isBlank()) {
+                        userRepository.findById(creatorId)
+                                .ifPresent(u -> {
+                                    if (u.getEmail() != null) {
+                                        g.setCreatedBy(u.getEmail());
+                                    }
+                                });
+                    }
+                })
+                .toList();
+
         log.debug("getAllGroups: found {} groups for tenantId={}", result.size(), tenantId);
         return result;
     }
