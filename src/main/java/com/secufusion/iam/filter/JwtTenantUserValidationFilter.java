@@ -70,6 +70,7 @@ public class JwtTenantUserValidationFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain)
             throws ServletException, IOException {
+        log.info(">> JwtTenantUserValidationFilter executed for: " + request.getRequestURI());
 
         String authHeader = request.getHeader("Authorization");
 

@@ -715,6 +715,7 @@ public class UserService {
         dto.setUpdatedAt(user.getUpdatedAt());
         dto.setStatus(user.getStatus());
         dto.setGroups(user.getMappedGroups());
+        dto.setFkTenantId(user.getTenant().getTenantID());
         log.debug("Mapped UsersDto: pkUserId={} username={} email={}", dto.getPkUserId(), dto.getEmail(), dto.getEmail());
         return dto;
     }
