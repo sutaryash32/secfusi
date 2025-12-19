@@ -21,7 +21,7 @@ resources:
   repositories: 
     - repository: azuretemplates
       type: git
-      ref: develop 
+      ref: main 
       name: SFCloud-MSSP/Templates
 
 steps:
@@ -49,7 +49,8 @@ steps:
       applicationName: ${{ parameters.applicationName }}
       buildfilespath: ./target
       buildnumber: $(version)
-      azuredevopspat: $(azuredevopspat)
+      artifactname: $(artifactname)
+
 
 - template: createazuregittag.yml@azuretemplates
   parameters:
