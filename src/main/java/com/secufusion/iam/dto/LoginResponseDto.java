@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Data
@@ -18,7 +19,8 @@ public class LoginResponseDto {
     private String userType;
     private String accessToken;
     private String tenantId;
-    Set<String> mappedScopes;
+//    Set<String> mappedScopes;
+    private Map<String, Map<String, Set<String>>> permissionMatrix;
     Set<GroupsLean> mappedGroups;
     String fullName;
     String firstName;

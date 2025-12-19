@@ -96,32 +96,154 @@ public class KeycloakAdminUtil {
         }
     }
 
-    public void updateRealmTokenLifeSpan(String realm, Integer accessTokenLifespanSeconds) {
-        try {
-            RealmResource rr = keycloak.realm(realm);
-            RealmRepresentation rep = rr.toRepresentation();
+    public void updateRealmTokenSettings(
+            String realm,
+            Integer accessTokenLifespanSeconds,
+            Integer refreshTokenIdleSeconds,
+            Integer sessionMaxLifespanSeconds
+    ) {
+        RealmRepresentation original = null;
 
-            if (rep == null) {
-                throw new KeycloakOperationException("REALM_NOT_FOUND", 404, "Realm not found: " + realm);
+        try {
+            // -------------------------------
+            // Validation
+            // -------------------------------
+            if (realm == null || realm.isBlank()) {
+                throw new KeycloakOperationException(
+                        "INVALID_INPUT", 400, "Realm name must not be null or empty");
             }
 
-            if (accessTokenLifespanSeconds == null) {
-                log.debug("No accessTokenLifespan provided for realm {}, nothing to update", realm);
+            if (accessTokenLifespanSeconds != null && accessTokenLifespanSeconds < 60) {
+                throw new KeycloakOperationException(
+                        "INVALID_INPUT", 400, "Access token lifespan must be >= 60 seconds");
+            }
+
+            if (refreshTokenIdleSeconds != null && refreshTokenIdleSeconds < 300) {
+                throw new KeycloakOperationException(
+                        "INVALID_INPUT", 400, "Refresh token idle timeout must be >= 300 seconds");
+            }
+
+            if (sessionMaxLifespanSeconds != null &&
+                    sessionMaxLifespanSeconds < accessTokenLifespanSeconds) {
+                throw new KeycloakOperationException(
+                        "INVALID_INPUT", 400,
+                        "Session max lifespan must be >= access token lifespan");
+            }
+
+            RealmResource rr = keycloak.realm(realm);
+
+            // -------------------------------
+            // Snapshot for rollback
+            // -------------------------------
+            original = rr.toRepresentation();
+            RealmRepresentation updated = rr.toRepresentation();
+
+            boolean changed = false;
+
+            // -------------------------------
+            // Apply changes
+            // -------------------------------
+            if (accessTokenLifespanSeconds != null &&
+                    !Objects.equals(updated.getAccessTokenLifespan(), accessTokenLifespanSeconds)) {
+                updated.setAccessTokenLifespan(accessTokenLifespanSeconds);
+                changed = true;
+            }
+
+            if (refreshTokenIdleSeconds != null &&
+                    !Objects.equals(updated.getSsoSessionIdleTimeout(), refreshTokenIdleSeconds)) {
+                updated.setSsoSessionIdleTimeout(refreshTokenIdleSeconds);
+                changed = true;
+            }
+
+            if (sessionMaxLifespanSeconds != null &&
+                    !Objects.equals(updated.getSsoSessionMaxLifespan(), sessionMaxLifespanSeconds)) {
+                updated.setSsoSessionMaxLifespan(sessionMaxLifespanSeconds);
+                changed = true;
+            }
+
+            if (!changed) {
+                log.info("No token settings changed for realm {}", realm);
                 return;
             }
 
-            if (accessTokenLifespanSeconds <= 0) {
-                throw new KeycloakOperationException("INVALID_INPUT", 400, "accessTokenLifespan must be positive");
+            // -------------------------------
+            // Update realm
+            // -------------------------------
+            rr.update(updated);
+
+            // -------------------------------
+            // Audit success
+            // -------------------------------
+            auditTokenUpdate(
+                    realm,
+                    original,
+                    updated,
+                    "SUCCESS",
+                    null
+            );
+
+            log.info(
+                    "Updated token settings for realm {} | accessToken={} refreshIdle={} sessionMax={}",
+                    realm,
+                    accessTokenLifespanSeconds,
+                    refreshTokenIdleSeconds,
+                    sessionMaxLifespanSeconds
+            );
+
+        } catch (Exception e) {
+
+            // -------------------------------
+            // Rollback on failure
+            // -------------------------------
+            if (original != null) {
+                try {
+                    keycloak.realm(realm).update(original);
+                    log.warn("Rolled back token settings for realm {}", realm);
+                } catch (Exception rollbackEx) {
+                    log.error("Rollback failed for realm {}", realm, rollbackEx);
+                }
             }
 
-            rep.setAccessTokenLifespan(accessTokenLifespanSeconds);
-            rr.update(rep);
-            log.info("Updated access token lifespan for realm {} to {} seconds", realm, accessTokenLifespanSeconds);
-        } catch (KeycloakOperationException e) {
-            throw e;
-        } catch (Exception e) {
-            throw wrap("REALM_UPDATE_TOKEN_SETTINGS_FAILED", 500, "Failed updating access token settings for realm " + realm, e);
+            // -------------------------------
+            // Audit failure
+            // -------------------------------
+            auditTokenUpdate(
+                    realm,
+                    original,
+                    null,
+                    "FAILED",
+                    e.getMessage()
+            );
+
+            throw wrap(
+                    "REALM_UPDATE_TOKEN_SETTINGS_FAILED",
+                    500,
+                    "Failed updating token settings for realm " + realm,
+                    e
+            );
         }
+    }
+
+    private void auditTokenUpdate(
+            String realm,
+            RealmRepresentation before,
+            RealmRepresentation after,
+            String status,
+            String errorMessage
+    ) {
+        log.info(
+                "AUDIT | realm={} | status={} | accessTokenBefore={} | accessTokenAfter={} | " +
+                        "refreshIdleBefore={} | refreshIdleAfter={} | sessionMaxBefore={} | sessionMaxAfter={} | error={}",
+                realm,
+                status,
+                before != null ? before.getAccessTokenLifespan() : null,
+                after != null ? after.getAccessTokenLifespan() : null,
+                before != null ? before.getSsoSessionIdleTimeout() : null,
+                after != null ? after.getSsoSessionIdleTimeout() : null,
+                before != null ? before.getSsoSessionMaxLifespan() : null,
+                after != null ? after.getSsoSessionMaxLifespan() : null,
+                errorMessage
+        );
     }
 
 //    public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {

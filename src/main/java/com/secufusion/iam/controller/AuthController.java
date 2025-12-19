@@ -120,4 +120,12 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/login/test-by-email")
+    public ResponseEntity<LoginResponseDto> loginByEmail(
+            @RequestParam String email) {
+
+        LoginResponseDto response = authConfigService.loginByEmail(email);
+        return ResponseEntity.ok(response);
+    }
+
 }

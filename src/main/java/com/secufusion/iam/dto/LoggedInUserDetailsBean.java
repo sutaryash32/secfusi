@@ -3,6 +3,7 @@ package com.secufusion.iam.dto;
 import com.secufusion.iam.entity.*;
 import lombok.Data;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -27,11 +28,15 @@ public class LoggedInUserDetailsBean {
     private Set<String> groups;       // group names
     private Set<String> roles;        // role names
     private Set<String> scopes;       // allowed scopes
-    private Set<String> unfilteredScopes; // scopes before filtering (optional)
+    private Set<String> unfilteredScopes;
+    private Map<String, Map<String, Set<String>>> permissionMatrix;
 
-    public static LoggedInUserDetailsBean from(User user, Tenant tenant,
-                                               Set<String> finalScopes,
-                                               Set<String> rawScopes) {
+    public static LoggedInUserDetailsBean from(
+            User user,
+            Tenant tenant,
+            Set<String> finalScopes,
+            Set<String> rawScopes
+    ) {
 
         LoggedInUserDetailsBean bean = new LoggedInUserDetailsBean();
 
@@ -47,7 +52,9 @@ public class LoggedInUserDetailsBean {
         bean.setTenantStatus(tenant.getStatus());
         bean.setUserStatus(user.getStatus());
 
-        // Collect groups, roles, scopes
+        // -------------------------------
+        // Groups
+        // -------------------------------
         bean.setGroups(
                 user.getMappedGroups()
                         .stream()
@@ -55,6 +62,9 @@ public class LoggedInUserDetailsBean {
                         .collect(Collectors.toSet())
         );
 
+        // -------------------------------
+        // Roles
+        // -------------------------------
         bean.setRoles(
                 user.getMappedGroups()
                         .stream()
@@ -63,14 +73,44 @@ public class LoggedInUserDetailsBean {
                         .collect(Collectors.toSet())
         );
 
+        // -------------------------------
+        // Flat scopes
+        // -------------------------------
         bean.setScopes(finalScopes);
         bean.setUnfilteredScopes(rawScopes);
 
+        // -------------------------------
+        // Admin flag
+        // -------------------------------
         bean.setAdminUser(
                 user.getMappedGroups()
                         .stream()
                         .anyMatch(g -> g.getIsAdmin() != null && g.getIsAdmin() == 'Y')
         );
+
+        // -------------------------------
+        // ✅ Permission Matrix (OLD LOGIC)
+        // menu_name → sub_menu → actions
+        // -------------------------------
+        Map<String, Map<String, Set<String>>> permissionMatrix =
+                user.getMappedGroups()
+                        .stream()
+                        .flatMap(g -> g.getMappedRoles().stream())
+                        .flatMap(r -> r.getScopes().stream())
+                        // user actually has the scope
+                        .filter(scope -> finalScopes.contains(scope.getScopeName()))
+                        .collect(Collectors.groupingBy(
+                                Scopes::getMenuName,
+                                Collectors.groupingBy(
+                                        Scopes::getSubMenu,
+                                        Collectors.mapping(
+                                                Scopes::getAction,
+                                                Collectors.toSet()
+                                        )
+                                )
+                        ));
+
+        bean.setPermissionMatrix(permissionMatrix);
 
         return bean;
     }
