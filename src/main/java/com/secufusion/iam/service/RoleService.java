@@ -1,6 +1,5 @@
 package com.secufusion.iam.service;
 
-import com.secufusion.iam.dto.RoleDropdownResponse;
 import com.secufusion.iam.dto.RolesDto;
 import com.secufusion.iam.entity.Roles;
 import com.secufusion.iam.entity.Scopes;
@@ -62,37 +61,77 @@ public class RoleService {
      */
     @Transactional
     public Roles createOrGetMasterMsspAdminRole(String tenantId, String adminUserId) {
+        return createOrGetDefaultAdminRole(
+                tenantId,
+                adminUserId,
+                "MASTER MSSP ADMIN",
+                "Master MSSP Administrator Role"
+        );
+    }
 
-        final String roleName = "MASTER MSSP ADMIN";
+
+    @Transactional
+    public Roles createOrGetMsspAdminRole(String tenantId, String adminUserId) {
+        return createOrGetDefaultAdminRole(
+                tenantId,
+                adminUserId,
+                "MSSP ADMIN",
+                "MSSP Administrator Role"
+        );
+    }
+
+
+    @Transactional
+    public Roles createOrGetEnterpriseAdminRole(String tenantId, String adminUserId) {
+        return createOrGetDefaultAdminRole(
+                tenantId,
+                adminUserId,
+                "ENTERPRISE ADMIN",
+                "Enterprise Administrator Role"
+        );
+    }
+
+
+    @Transactional
+    private Roles createOrGetDefaultAdminRole(
+            String tenantId,
+            String adminUserId,
+            String roleName,
+            String description
+    ) {
+
         log.info("Checking for role '{}'", roleName);
 
         try {
             Tenant tenant = tenantRepository.findById(tenantId)
                     .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
 
-            Optional<Roles> existing = rolesRepository
-                    .findByNameAndIsDefaultAndIsSuperRole(roleName, 'Y', 'Y');
+            Optional<Roles> existing =
+                    rolesRepository.findByNameAndIsDefaultAndIsSuperRole(roleName, 'Y', 'Y');
 
             if (existing.isPresent()) {
                 Roles existingRole = existing.get();
-                log.info("Role '{}' already exists with roleId={}", roleName, existingRole.getPkRoleId());
+                log.info("Role '{}' already exists with roleId={}",
+                        roleName, existingRole.getPkRoleId());
 
-                // Ensure scopes are fully assigned for existing default/super role.
+                // Ensure scopes are assigned
                 try {
                     assignScopesByRoleType(existingRole);
                 } catch (Exception ex) {
-                    log.warn("Failed to ensure scopes for existing role {}: {}", existingRole.getPkRoleId(), ex.getMessage(), ex);
+                    log.warn("Failed to ensure scopes for role {}: {}",
+                            existingRole.getPkRoleId(), ex.getMessage(), ex);
                 }
 
-                // Return the freshest persisted entity if available
-                return rolesRepository.findById(existingRole.getPkRoleId()).orElse(existingRole);
+                return rolesRepository
+                        .findById(existingRole.getPkRoleId())
+                        .orElse(existingRole);
             }
 
             log.warn("Role '{}' not found → Creating...", roleName);
 
             Roles role = new Roles();
             role.setName(roleName);
-            role.setDescription("Master MSSP Administrator Role");
+            role.setDescription(description);
             role.setTenant(tenant);
             role.setCreatedBy(adminUserId);
             role.setActive(true);
@@ -101,176 +140,63 @@ public class RoleService {
             role.setIsDefault('Y');
 
             Roles savedRole = rolesRepository.save(role);
-            log.info("Created new role '{}' with id={}", roleName, savedRole.getPkRoleId());
+            log.info("Created new role '{}' with id={}",
+                    roleName, savedRole.getPkRoleId());
 
             assignScopesByRoleType(savedRole);
 
             return savedRole;
 
         } catch (Exception e) {
-            log.error("Failed to create or fetch '{}' role: {}", roleName, e.getMessage(), e);
+            log.error("Failed to create or fetch '{}' role: {}",
+                    roleName, e.getMessage(), e);
             return null; // do not block onboarding
         }
     }
 
+
     @Transactional
-    public Roles createOrGetMsspAdminRole(String tenantId, String adminUserId) {
+    public void assignScopesByRoleType(Roles role) {
 
-        final String roleName = "MSSP ADMIN";
-        log.info("Checking for role '{}'", roleName);
+        List<String> allowedTenantTypes = allowedTenantTypesForRole(role);
 
-        try {
-            Tenant tenant = tenantRepository.findById(tenantId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
+        if (allowedTenantTypes.isEmpty()) {
+            log.warn("No tenant types mapped for role '{}'", role.getName());
+            return;
+        }
 
-            Optional<Roles> existing = rolesRepository
-                    .findByNameAndIsDefaultAndIsSuperRole(roleName, 'Y', 'Y');
+        log.info("Assigning scopes for role='{}' tenantTypes={}",
+                role.getName(), allowedTenantTypes);
 
-            if (existing.isPresent()) {
-                Roles existingRole = existing.get();
-                log.info("Role '{}' already exists with roleId={}", roleName, existingRole.getPkRoleId());
+        List<Scopes> scopes =
+                scopesRepository.findByUserTypes(
+                        allowedTenantTypes
+                                .stream()
+                                .map(String::toUpperCase)
+                                .toList()
+                );
 
-                // Ensure scopes are fully assigned for existing default/super role.
-                try {
-                    assignScopesByRoleType(existingRole);
-                } catch (Exception ex) {
-                    log.warn("Failed to ensure scopes for existing role {}: {}", existingRole.getPkRoleId(), ex.getMessage(), ex);
-                }
+        if (scopes.isEmpty()) {
+            log.warn("No scopes found for role='{}'", role.getName());
+            return;
+        }
 
-                // Return the freshest persisted entity if available
-                return rolesRepository.findById(existingRole.getPkRoleId()).orElse(existingRole);
-            }
+        // Prevent duplicate mappings
+        Set<Scopes> existingScopes =
+                Optional.ofNullable(role.getScopes()).orElse(new HashSet<>());
 
-            log.warn("Role '{}' not found → Creating...", roleName);
+        int before = existingScopes.size();
+        existingScopes.addAll(scopes);
 
-            Roles role = new Roles();
-            role.setName(roleName);
-            role.setDescription("MSSP Administrator Role");
-            role.setTenant(tenant);
-            role.setCreatedBy(adminUserId);
-            role.setActive(true);
-            role.setCreatedTime(LocalDateTime.now());
-            role.setIsSuperRole('Y');
-            role.setIsDefault('Y');
-
-            Roles savedRole = rolesRepository.save(role);
-            log.info("Created new role '{}' with id={}", roleName, savedRole.getPkRoleId());
-
-            assignScopesByRoleType(savedRole);
-
-            return savedRole;
-
-        } catch (Exception e) {
-            log.error("Failed to create or fetch '{}' role: {}", roleName, e.getMessage(), e);
-            return null;
+        if (existingScopes.size() > before) {
+            role.setScopes(existingScopes);
+            rolesRepository.save(role);
+            log.info("Assigned {} new scopes to role '{}'",
+                    existingScopes.size() - before, role.getName());
+        } else {
+            log.info("Role '{}' already has all required scopes", role.getName());
         }
     }
-
-  @Transactional
-  public Roles createOrGetEnterpriseAdminRole(String tenantId, String adminUserId) {
-
-      final String roleName = "ENTERPRISE ADMIN";
-      log.info("Checking for role '{}'", roleName);
-
-      try {
-          Tenant tenant = tenantRepository.findById(tenantId)
-                  .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
-
-          Optional<Roles> existing = rolesRepository
-                  .findByNameAndIsDefaultAndIsSuperRole(roleName, 'Y', 'Y');
-
-          if (existing.isPresent()) {
-              Roles existingRole = existing.get();
-              log.info("Role '{}' already exists with roleId={}", roleName, existingRole.getPkRoleId());
-
-              // Ensure scopes are fully assigned for existing default/super role.
-              try {
-                  assignScopesByRoleType(existingRole);
-              } catch (Exception ex) {
-                  log.warn("Failed to ensure scopes for existing role {}: {}", existingRole.getPkRoleId(), ex.getMessage(), ex);
-              }
-
-              // Return the freshest persisted entity if available
-              return rolesRepository.findById(existingRole.getPkRoleId()).orElse(existingRole);
-          }
-
-          log.warn("Role '{}' not found → Creating...", roleName);
-
-          Roles role = new Roles();
-          role.setName(roleName);
-          role.setDescription("Enterprise Administrator Role");
-          role.setTenant(tenant);
-          role.setCreatedBy(adminUserId);
-          role.setActive(true);
-          role.setCreatedTime(LocalDateTime.now());
-          role.setIsSuperRole('Y');
-          role.setIsDefault('Y');
-
-          Roles savedRole = rolesRepository.save(role);
-          log.info("Created new role '{}' with id={}", roleName, savedRole.getPkRoleId());
-
-          assignScopesByRoleType(savedRole);
-
-          return savedRole;
-
-      } catch (Exception e) {
-          log.error("Failed to create or fetch '{}' role: {}", roleName, e.getMessage(), e);
-          return null;
-      }
-  }
-
-    private void assignScopesByRoleType(Roles role) {
-        try {
-            List<Scopes> scopesToAssign;
-
-            String roleName = role.getName().toUpperCase();
-
-            switch (roleName) {
-
-                case "MASTER MSSP ADMIN":
-                    // Assign ALL scopes
-                    log.info("Assigning ALL scopes to Master MSSP role...");
-                    scopesToAssign = scopesRepository.findAll();
-                    break;
-
-                case "MSSP ADMIN":
-                    // Assign MSSP + Enterprise scopes
-                    log.info("Assigning MSSP + Enterprise scopes to MSSP role...");
-                    scopesToAssign = scopesRepository.findByUserTypeIn(
-                            List.of("MSSP", "ENTERPRISE")
-                    );
-                    break;
-
-                case "ENTERPRISE ADMIN":
-                    // Assign Enterprise-only scopes
-                    log.info("Assigning Enterprise scopes to Enterprise role...");
-                    scopesToAssign = scopesRepository.findByUserType("ENTERPRISE");
-                    break;
-
-                default:
-                    log.warn("Unknown role '{}' – no scopes assigned", role.getName());
-                    return;
-            }
-
-            if (scopesToAssign == null || scopesToAssign.isEmpty()) {
-                log.warn("No scopes found for role {} → nothing to assign", role.getName());
-                return;
-            }
-
-            log.info("Assigning {} scopes to role {} ...", scopesToAssign.size(), role.getName());
-
-            role.setScopes(new HashSet<>(scopesToAssign));
-            role = rolesRepository.save(role);
-
-            log.info("Successfully assigned scopes to role {}", role.getName());
-
-        } catch (Exception ex) {
-            log.error("Error assigning scopes for role {}: {}", role.getName(), ex.getMessage(), ex);
-        }
-    }
-
-
-
 
     /**
      * Create a new role for the tenant extracted from the request JWT.
@@ -381,7 +307,6 @@ public class RoleService {
         role.setCreatedTime(LocalDateTime.now());
         role.setIsSuperRole('N');
         role.setIsDefault('N');
-        role.setCreatedTime(LocalDateTime.now());
         return role;
     }
 
@@ -440,4 +365,18 @@ public class RoleService {
         log.info("Role active toggled pkRoleId={} active={} updatedBy={}", saved.getPkRoleId(), saved.getActive(), userFromRequest.getPkUserId());
         return saved;
     }
+
+
+    private List<String> allowedTenantTypesForRole(Roles role) {
+
+        String roleName = role.getName().toUpperCase();
+
+        return switch (roleName) {
+            case "MASTER MSSP ADMIN" -> List.of("MASTER MSSP", "MSSP");
+            case "MSSP ADMIN"        -> List.of("MSSP");
+            case "ENTERPRISE ADMIN"  -> List.of("ENTERPRISE");
+            default -> List.of();
+        };
+    }
+
 }

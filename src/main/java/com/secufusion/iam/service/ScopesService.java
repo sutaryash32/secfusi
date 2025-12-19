@@ -3,13 +3,18 @@ package com.secufusion.iam.service;
 import com.secufusion.iam.dto.LoggedInUserDetailsBean;
 import com.secufusion.iam.entity.Scopes;
 import com.secufusion.iam.entity.Tenant;
+import com.secufusion.iam.entity.TenantType;
+import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.ScopesRepository;
+import com.secufusion.iam.repository.TenantTypeRepository;
 import com.secufusion.iam.util.JwtUtl;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -23,6 +28,8 @@ public class ScopesService {
     @Autowired
     private JwtUtl jwtUtl;
 
+    @Autowired
+    private TenantTypeRepository tenantTypeRepository;
 
     /**
      * Retrieve the list of scopes applicable for the tenant extracted from the provided HTTP request.
@@ -61,8 +68,8 @@ public class ScopesService {
         // 1️⃣ Get scopes based on tenant type
         List<Scopes> tenantScopes = switch (tenantType) {
             case "master mssp" -> scopesRepository.findAll();
-            case "mssp"       -> scopesRepository.findByUserTypeIn(List.of("MSSP", "ENTERPRISE"));
-            case "enterprise" -> scopesRepository.findByUserType("ENTERPRISE");
+            case "mssp"       -> scopesRepository.findByUserTypes(List.of("MSSP", "ENTERPRISE"));
+            case "enterprise" -> scopesRepository.findByUserTypes(List.of("ENTERPRISE"));
             default -> {
                 log.warn("Unknown tenant type '{}' → returning empty list", tenantType);
                 yield List.of();
@@ -82,6 +89,70 @@ public class ScopesService {
         log.debug("Completed getAllScopes in {}ms", System.currentTimeMillis() - start);
 
         return filtered;
+    }
+
+    @Transactional
+    public Scopes updateScopeTenantTypes(
+            String scopeId,
+            Set<String> tenantTypes
+    ) {
+
+        Scopes scope = scopesRepository.findByPkScopeId(scopeId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Scope not found: " + scopeId));
+
+        List<TenantType> resolvedTenantTypes =
+                tenantTypeRepository.findByTenantTypeNameIgnoreCaseIn(
+                        tenantTypes.stream()
+                                .map(String::trim)
+                                .toList()
+                );
+
+        if (resolvedTenantTypes.isEmpty()) {
+            throw new ResourceNotFoundException("No valid tenant types provided");
+        }
+
+        scope.setTenantTypes(new HashSet<>(resolvedTenantTypes));
+
+        Scopes saved = scopesRepository.save(scope);
+        log.info("Updated tenantTypes for scopeId={} -> {}",
+                scopeId, tenantTypes);
+
+        return saved;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Scopes> getAllScopes() {
+        return scopesRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Scopes getScopeById(String scopeId) {
+        return scopesRepository.findByPkScopeId(scopeId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Scope not found: " + scopeId));
+    }
+
+    // ---------------------------------------------------
+    // GET SCOPES BY MENU NAME
+    // ---------------------------------------------------
+    @Transactional(readOnly = true)
+    public List<Scopes> getScopesByMenu(String menuName) {
+        return scopesRepository.findByMenuNameIgnoreCase(menuName);
+    }
+
+    // ---------------------------------------------------
+    // GET SCOPES BY MENU + SUBMENU
+    // ---------------------------------------------------
+    @Transactional(readOnly = true)
+    public List<Scopes> getScopesByMenuAndSubMenu(
+            String menuName,
+            String subMenu
+    ) {
+        return scopesRepository
+                .findByMenuNameIgnoreCaseAndSubMenuIgnoreCase(
+                        menuName, subMenu
+                );
     }
 
 }

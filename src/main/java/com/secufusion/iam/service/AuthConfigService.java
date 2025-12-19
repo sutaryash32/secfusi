@@ -6,6 +6,7 @@ import com.secufusion.iam.entity.*;
 import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.AuthProviderConfigRepository;
 import com.secufusion.iam.repository.TenantRepository;
+import com.secufusion.iam.repository.UserRepository;
 import com.secufusion.iam.util.JwtUtl;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -16,7 +17,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Service responsible for loading tenant auth configuration and creating JWT decoders.
@@ -33,6 +33,9 @@ public class AuthConfigService {
 
     @Autowired
     private JwtUtl jwtUtil;
+
+    @Autowired
+    private UserRepository userRepository;
 
     /**
      * Load authentication details for a tenant identified by host (domain or tenantName).
@@ -246,16 +249,23 @@ public class AuthConfigService {
             response.setFullName(userFromRequest.getFirstName() + " " + userFromRequest.getLastName());
             response.setMobilePhone(userFromRequest.getPhoneNo());
             response.setMappedTenant(new TenantLean(userFromRequest.getTenant().getTenantID(), userFromRequest.getTenant().getTenantName()));
-            response.setMappedScopes(
-                Optional.ofNullable(userFromRequest.getMappedGroups())
-                        .orElse(Collections.emptySet())
-                        .stream()
-                        .flatMap(g -> Optional.ofNullable(g.getMappedRoles()).orElse(Collections.emptySet()).stream()
-                                .flatMap(r -> Optional.ofNullable(r.getScopes()).orElse(Collections.emptySet()).stream())
-                        )
-                        .map(Scopes::getScopeName)
-                        .collect(Collectors.toSet())
-            );
+            Map<String, Map<String, Set<String>>> permissionMatrix =
+                    userFromRequest.getMappedGroups()
+                            .stream()
+                            .flatMap(g -> g.getMappedRoles().stream())
+                            .flatMap(r -> r.getScopes().stream())
+                            .collect(Collectors.groupingBy(
+                                    Scopes::getMenuName,
+                                    Collectors.groupingBy(
+                                            Scopes::getSubMenu,
+                                            Collectors.mapping(
+                                                    Scopes::getAction,
+                                                    Collectors.toSet()
+                                            )
+                                    )
+                            ));
+            response.setPermissionMatrix(permissionMatrix);
+
             log.info("login - completed for userId={}", userFromRequest.getPkUserId());
             return response;
 
@@ -268,4 +278,121 @@ public class AuthConfigService {
             throw e;
         }
     }
+
+    public LoginResponseDto loginByEmail(String email) {
+        log.info("loginByEmail - start for email={}", email);
+
+        try {
+            if (email == null || email.isBlank()) {
+                throw new ResourceNotFoundException("Email must not be null or empty");
+            }
+
+            // Fetch user by email (case-insensitive recommended)
+            User user = userRepository.findByEmailIgnoreCase(email)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found for email: " + email));
+
+            if (user.getTenant() == null) {
+                throw new ResourceNotFoundException("Tenant information missing for user");
+            }
+
+
+            Tenant tenant = user.getTenant();
+
+            String tenantType =
+                    Optional.ofNullable(tenant.getTenantType())
+                            .map(String::trim)
+                            .map(String::toUpperCase)
+                            .orElseThrow(() ->
+                                    new ResourceNotFoundException("Tenant type not found"));
+
+            // -------------------------------
+            // Build Login Response
+            // -------------------------------
+            LoginResponseDto response = new LoginResponseDto();
+            response.setUserId(user.getPkUserId());
+            response.setUsername(user.getUserName());
+            response.setEmail(user.getEmail());
+            response.setFirstName(user.getFirstName());
+            response.setLastName(user.getLastName());
+            response.setFullName(user.getFirstName() + " " + user.getLastName());
+            response.setUserType(tenant.getTenantType());
+            response.setTenantId(tenant.getTenantID());
+            response.setMappedTenant(new TenantLean(
+                    tenant.getTenantID(),
+                    tenant.getTenantName()
+            ));
+
+            // -------------------------------
+            // Groups → GroupsLean
+            // -------------------------------
+            Set<GroupsLean> mappedGroups =
+                    Optional.ofNullable(user.getMappedGroups())
+                            .orElse(Collections.emptySet())
+                            .stream()
+                            .map(group -> {
+
+                                Set<RolesLean> roles =
+                                        Optional.ofNullable(group.getMappedRoles())
+                                                .orElse(Collections.emptySet())
+                                                .stream()
+                                                .map(role ->
+                                                        new RolesLean(
+                                                                role.getPkRoleId(),
+                                                                role.getName()
+                                                        )
+                                                )
+                                                .collect(Collectors.toSet());
+
+                                return new GroupsLean(
+                                        group.getPkGroupId(),
+                                        group.getName(),
+                                        roles
+                                );
+                            })
+                            .collect(Collectors.toSet());
+
+            response.setMappedGroups(mappedGroups);
+
+            // -------------------------------
+// 🔥 Permission Matrix (Tenant-Type Filtered)
+// -------------------------------
+            Map<String, Map<String, Set<String>>> permissionMatrix =
+                    Optional.ofNullable(user.getMappedGroups())
+                            .orElse(Collections.emptySet())
+                            .stream()
+                            .flatMap(group -> group.getMappedRoles().stream())
+                            .flatMap(role -> role.getScopes().stream())
+                            // 🔥 FILTER BY TENANT TYPE
+                            .filter(scope ->
+                                    Optional.ofNullable(scope.getTenantTypes())
+                                            .orElse(Collections.emptySet())
+                                            .stream()
+                                            .anyMatch(tt ->
+                                                    tt.getTenantTypeName() != null &&
+                                                            tt.getTenantTypeName().equalsIgnoreCase(tenantType)
+                                            )
+                            )
+                            .collect(Collectors.groupingBy(
+                                    Scopes::getMenuName,
+                                    Collectors.groupingBy(
+                                            Scopes::getSubMenu,
+                                            Collectors.mapping(
+                                                    Scopes::getAction,
+                                                    Collectors.toSet()
+                                            )
+                                    )
+                            ));
+
+            response.setPermissionMatrix(permissionMatrix);
+
+
+            log.info("loginByEmail - completed for userId={}", user.getPkUserId());
+            return response;
+
+        } catch (Exception e) {
+            log.error("Unexpected error in loginByEmail for email={}", email, e);
+            throw e;
+        }
+    }
+
 }

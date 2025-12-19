@@ -248,9 +248,26 @@ public class TenantService {
         savedUser.setMappedGroups(groupsToAssign);
         log.info("[AUTO-CONFIG] Admin user assigned to Admin group");
         try {
-            kcUtil.updateRealmTokenLifeSpan(savedTenant.getRealmName(), 3600);
+            // Post-realm-creation: apply token & session defaults
+            kcUtil.updateRealmTokenSettings(
+                    savedTenant.getRealmName(),
+                    900,    // access token: 15 min
+                    1800,   // refresh token idle: 30 min
+                    28800   // session max: 8 hours
+            );
+
+            log.info(
+                    "Post-create realm token settings applied for realm={}",
+                    savedTenant.getRealmName()
+            );
+
         } catch (Exception e) {
-            log.warn("Failed to update realm token lifespan for '{}', continuing. error={}", savedTenant.getRealmName(), e.getMessage());
+            // Non-fatal: realm exists, tokens can be fixed later
+            log.warn(
+                    "Post-create token settings update failed for realm={}, continuing. error={}",
+                    savedTenant.getRealmName(),
+                    e.getMessage()
+            );
         }
         // Register rollback compensation: if DB rolls back, delete realm if created
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
