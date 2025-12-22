@@ -1,13 +1,11 @@
 package com.secufusion.iam.controller;
 
-import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.entity.Scopes;
 import com.secufusion.iam.service.ScopesService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,7 +41,8 @@ public class ScopesController {
      */
     @Operation(summary = "Get all scopes", description = "Returns a list of all available scopes.")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "List of scopes returned"),
+            @ApiResponse(responseCode = "200", description = "List of scopes returned",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = Scopes.class))),
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @GetMapping
@@ -52,5 +51,83 @@ public class ScopesController {
         List<Scopes> scopesList = scopesService.getAllScopes(request);
         logger.debug("Scopes retrieved: count={}", scopesList != null ? scopesList.size() : 0);
         return ResponseEntity.ok(new ResponseDto<>(scopesList, String.valueOf(HttpStatus.OK.value())));
+    }
+
+
+    @Operation(summary = "Update scope tenant types",
+            description = "Update the tenant types associated with the given scope.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Scope updated",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = Scopes.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "404", description = "Scope not found"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @PutMapping("/{scopeId}/tenant-types")
+    public ResponseEntity<Scopes> updateScopeTenantTypes(@PathVariable String scopeId,
+            @RequestBody UpdateScopeTenantTypesRequest request
+    ) {
+        return ResponseEntity.ok(
+                scopesService.updateScopeTenantTypes(
+                        scopeId,
+                        request.getTenantTypes()
+                )
+        );
+    }
+
+    // ---------------------------------------------------
+    // GET SCOPE BY ID
+    // ---------------------------------------------------
+    @Operation(summary = "Get scope by id", description = "Retrieve a single scope by its id.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Scope returned",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = Scopes.class))),
+            @ApiResponse(responseCode = "404", description = "Scope not found"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @GetMapping("/{scopeId}")
+    public ResponseEntity<Scopes> getScopeById(@PathVariable String scopeId
+    ) {
+        return ResponseEntity.ok(
+                scopesService.getScopeById(scopeId)
+        );
+    }
+
+    // ---------------------------------------------------
+    // GET SCOPES BY MENU NAME
+    // ---------------------------------------------------
+    @Operation(summary = "Get scopes by menu", description = "Retrieve scopes belonging to a specific menu.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Scopes returned",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = Scopes.class))),
+            @ApiResponse(responseCode = "404", description = "No scopes found for menu"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @GetMapping("/menu/{menuName}")
+    public ResponseEntity<List<Scopes>> getScopesByMenu(@PathVariable String menuName
+    ) {
+        return ResponseEntity.ok(
+                scopesService.getScopesByMenu(menuName)
+        );
+    }
+
+    // ---------------------------------------------------
+    // GET SCOPES BY MENU + SUBMENU
+    // ---------------------------------------------------
+    @Operation(summary = "Get scopes by menu and submenu", description = "Retrieve scopes for a specific menu and submenu.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Scopes returned",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = Scopes.class))),
+            @ApiResponse(responseCode = "404", description = "No scopes found for menu/submenu"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @GetMapping("/menu/{menuName}/submenu/{subMenu}")
+    public ResponseEntity<List<Scopes>> getScopesByMenuAndSubMenu(@PathVariable String menuName,@PathVariable String subMenu
+    ) {
+        return ResponseEntity.ok(
+                scopesService.getScopesByMenuAndSubMenu(
+                        menuName, subMenu
+                )
+        );
     }
 }

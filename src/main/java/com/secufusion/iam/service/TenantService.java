@@ -1,5 +1,6 @@
 package com.secufusion.iam.service;
 
+import com.secufusion.iam.dto.CreateIdentityProviderRequest;
 import com.secufusion.iam.dto.CreateTenantRequest;
 import com.secufusion.iam.dto.TenantResponse;
 import com.secufusion.iam.entity.*;
@@ -80,6 +81,9 @@ public class TenantService {
     private CityRepository cityRepository;
 
     @Autowired
+    private SsoConfigurationRepository ssoConfigurationRepository;
+
+    @Autowired
     private JwtUtl jwtUtl;
 
 
@@ -117,7 +121,7 @@ public class TenantService {
     // ============================================================================ CREATE (RESUMABLE FLOW)
 
     @Transactional
-    public TenantResponse createTenant(HttpServletRequest request, CreateTenantRequest req){
+    public TenantResponse createTenant(HttpServletRequest request, CreateTenantRequest req) {
 
         Tenant parentTenant = jwtUtl.getTenantFromRequest(request);
 
@@ -147,12 +151,22 @@ public class TenantService {
 
         // Validation
         validateInputForNew(req);
-
-        User userFromRequest = jwtUtl.getUserFromRequest(request);
+        User userFromRequest = null;
+        String createdBy = null;
+        try {
+            userFromRequest = jwtUtl.getUserFromRequest(request);
+            if (userFromRequest != null) {
+                createdBy = userFromRequest.getPkUserId();
+            } else {
+                log.warn("No user found in request; proceeding without createdBy.");
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get user from request, continuing without createdBy. error={}", e.getMessage());
+        }
         // Create tenant skeleton
         Tenant tenant = buildTenantSkeleton(req);
         tenant.setStatus("CREATING");
-        tenant.setCreatedBy(userFromRequest.getPkUserId());
+        tenant.setCreatedBy(createdBy);
         tenant.setParentTenantId(parentTenant != null ? parentTenant.getTenantID() : null);
         Tenant savedTenant = tenantRepository.save(tenant);
         log.info("Created tenant skeleton in DB. tenantId={}, status={}",
@@ -161,7 +175,7 @@ public class TenantService {
         // Create admin skeleton
         User admin = buildAdminSkeleton(req, savedTenant);
         admin.setStatus("CREATING");
-        admin.setCreatedBy(userFromRequest.getPkUserId());
+        admin.setCreatedBy(createdBy);
         User savedUser = userRepository.save(admin);
         req.setAdminUserName(savedUser.getUserName());
         log.info("Created admin user skeleton in DB. userId={}, username={}, status={}",
@@ -229,7 +243,32 @@ public class TenantService {
 
         groupService.assignUserToGroup(adminGroup, savedUser);
         log.info("[AUTO-CONFIG] Admin user assigned to Admin group");
+        Set<Groups> groupsToAssign = new HashSet<>();
+        groupsToAssign.add(adminGroup);
+        savedUser.setMappedGroups(groupsToAssign);
+        log.info("[AUTO-CONFIG] Admin user assigned to Admin group");
+        try {
+            // Post-realm-creation: apply token & session defaults
+            kcUtil.updateRealmTokenSettings(
+                    savedTenant.getRealmName(),
+                    900,    // access token: 15 min
+                    1800,   // refresh token idle: 30 min
+                    28800   // session max: 8 hours
+            );
 
+            log.info(
+                    "Post-create realm token settings applied for realm={}",
+                    savedTenant.getRealmName()
+            );
+
+        } catch (Exception e) {
+            // Non-fatal: realm exists, tokens can be fixed later
+            log.warn(
+                    "Post-create token settings update failed for realm={}, continuing. error={}",
+                    savedTenant.getRealmName(),
+                    e.getMessage()
+            );
+        }
         // Register rollback compensation: if DB rolls back, delete realm if created
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -381,13 +420,16 @@ public class TenantService {
         User admin = new User();
         admin.setFirstName(req.getAdminFirstName());
         admin.setLastName(req.getAdminLastName());
-        String generatedUsername;
-        if (req.getAdminUserName() != null && !req.getAdminUserName().trim().isEmpty()) {
-            generatedUsername = req.getAdminUserName().trim().toLowerCase();
-        } else {
-            generatedUsername = generateUniqueUsername(req.getAdminFirstName(), req.getAdminLastName());
+//        String generatedUsername;
+//        if (req.getAdminUserName() != null && !req.getAdminUserName().trim().isEmpty()) {
+//            generatedUsername = req.getAdminUserName().trim().toLowerCase();
+//        } else {
+//            generatedUsername = generateUniqueUsername(req.getAdminFirstName(), req.getAdminLastName());
+//        }
+        admin.setUserName(req.getAdminEmail());
+        if("Master MSSP".equalsIgnoreCase(req.getTenantType())){
+            admin.setUserName(req.getAdminUserName());
         }
-        admin.setUserName(generatedUsername);
         admin.setEmail(req.getAdminEmail());
         admin.setPhoneNo(req.getAdminPhoneNumber());
         admin.setTenant(tenant);
@@ -863,6 +905,35 @@ public class TenantService {
                     t.getRealmName(), e.getMessage(), e);
         }
 
+        // Delete AuthProviderConfig (if exists)
+        try {
+            authProviderConfigRepository.findByTenant(t).ifPresent(cfg -> {
+                log.debug("Deleting AuthProviderConfig for tenantId={}", id);
+                authProviderConfigRepository.delete(cfg);
+            });
+        } catch (Exception e) {
+            log.warn("Failed to delete AuthProviderConfig for tenantId={}, error={}", id, e.getMessage(), e);
+        }
+
+        // Delete SSO configurations for tenant
+        try {
+            List<SsoConfiguration> ssoList = ssoConfigurationRepository.findByFkTenantId(t.getTenantID());
+            if (!ssoList.isEmpty()) {
+                log.debug("Deleting {} SSO configurations for tenantId={}", ssoList.size(), id);
+                ssoConfigurationRepository.deleteAll(ssoList);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to delete SSO configurations for tenantId={}, error={}", id, e.getMessage(), e);
+        }
+
+        // Delete groups associated with tenant (via GroupService)
+        try {
+            log.debug("Deleting groups for tenantId={}", id);
+            groupService.deleteGroupsByTenantId(t.getTenantID());
+        } catch (Exception e) {
+            log.warn("Failed to delete groups for tenantId={}, error={}", id, e.getMessage(), e);
+        }
+
         List<User> users = userRepository.findByTenant(t);
         log.debug("Deleting {} users for tenantId={}", users.size(), id);
         userRepository.deleteAll(users);
@@ -979,4 +1050,200 @@ public boolean checkEmail(String email) {
             collectChildren(child.getTenantID(), result); // recursive
         }
     }
+
+    public String addProviderToTenant(HttpServletRequest request,
+                                      CreateIdentityProviderRequest providerRequest) {
+
+        Tenant byTenantID = jwtUtl.getTenantFromRequest(request);
+        String realm = byTenantID.getRealmName();
+
+        String redirectUrl = null;
+        boolean kcSuccess = false;
+        try {
+            redirectUrl = kcUtil.addIdentityProvider(realm, providerRequest);
+            kcSuccess = true;
+        } catch (Exception e) {
+            log.error("Failed to add identity provider to Keycloak for realm {}: {}", realm, e.getMessage(), e);
+            // continue to persist config as inactive below
+        }
+
+        // Persist SSO configuration in DB. If KC call succeeded mark ACTIVE, otherwise INACTIVE.
+        SsoConfiguration cfg = new SsoConfiguration();
+        cfg.setAlias(providerRequest.getAlias());
+        cfg.setProviderId(providerRequest.getProviderId());
+        cfg.setTenantId(byTenantID.getTenantID());
+        cfg.setClientId(providerRequest.getClientId());
+        cfg.setClientSecret(providerRequest.getClientSecret());
+        cfg.setAuthorizationUrl(providerRequest.getAuthorizationUrl());
+        cfg.setTokenUrl(providerRequest.getTokenUrl());
+        cfg.setUserInfoUrl(providerRequest.getUserInfoUrl());
+        cfg.setIssuer(providerRequest.getIssuer());
+        cfg.setRedirectUri(redirectUrl != null ? redirectUrl : providerRequest.getRedirectUri());
+        cfg.setSetAsDefaultLogin(Boolean.TRUE.equals(providerRequest.getSetAsDefaultLogin()));
+        cfg.setActive(kcSuccess ? "ACTIVE" : "INACTIVE");
+
+        // If activating this config, ensure only one active per tenant by deactivating others
+        if ("ACTIVE".equalsIgnoreCase(cfg.getActive())) {
+            List<SsoConfiguration> others = ssoConfigurationRepository.findByFkTenantId(byTenantID.getTenantID());
+            for (SsoConfiguration other : others) {
+                other.setActive("INACTIVE");
+            }
+            if (!others.isEmpty()) {
+                ssoConfigurationRepository.saveAll(others);
+            }
+        }
+
+        SsoConfiguration saved = ssoConfigurationRepository.save(cfg);
+
+        // If Keycloak succeeded and user requested default login, set it in KC
+            try {
+                kcUtil.setAsDefaultIdentityProvider(realm, providerRequest.getAlias());
+            } catch (Exception e) {
+                log.warn("Failed to set provider as default in Keycloak for realm {}: {}", realm, e.getMessage(), e);
+            }
+
+
+        return redirectUrl;
+    }
+
+    @Transactional
+    public SsoConfiguration activateSsoConfiguration(HttpServletRequest request, String alias) {
+//        Tenant t = tenantRepository.findByTenantID(tenantId).orElseThrow(() -> {
+//            log.warn("Tenant not found for activating SSO config. tenantId={}", tenantId);
+//            return new ResourceNotFoundException("Tenant not found: " + tenantId);
+//        });
+        Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
+
+        List<SsoConfiguration> configs = ssoConfigurationRepository.findByFkTenantId(tenantFromRequest.getTenantID());
+        // deactivate all first
+        for (SsoConfiguration c : configs) {
+            c.setActive("INACTIVE");
+        }
+        if (!configs.isEmpty()) {
+            ssoConfigurationRepository.saveAll(configs);
+        }
+
+        SsoConfiguration target = ssoConfigurationRepository.findByFkTenantIdAndAlias(tenantFromRequest.getTenantID(), alias)
+                .orElseThrow(() -> {
+                    log.warn("SSO config not found for activation. tenantId={}, alias={}", tenantFromRequest.getTenantID(), alias);
+                    return new ResourceNotFoundException("SSO configuration not found for alias: " + alias);
+                });
+
+        target.setActive("ACTIVE");
+        return ssoConfigurationRepository.save(target);
+    }
+
+    @Transactional
+    public SsoConfiguration deactivateSsoConfiguration(HttpServletRequest request, String alias) {
+        Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
+        String tenantId = tenantFromRequest.getTenantID();
+        SsoConfiguration target = ssoConfigurationRepository.findByFkTenantIdAndAlias(tenantId, alias)
+                .orElseThrow(() -> {
+                    log.warn("SSO config not found for deactivation. tenantId={}, alias={}", tenantId, alias);
+                    return new ResourceNotFoundException("SSO configuration not found for alias: " + alias);
+                });
+        target.setActive("INACTIVE");
+        return ssoConfigurationRepository.save(target);
+    }
+
+   @Transactional
+   public SsoConfiguration updateSsoConfiguration(String id, HttpServletRequest request, CreateIdentityProviderRequest payload) {
+       Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
+         String tenantId = tenantFromRequest.getTenantID();
+
+       log.info("Updating SSO configuration. id={}, tenantId={}, alias={}", id, tenantId, payload != null ? payload.getAlias() : "null");
+
+       Optional<Tenant> byTenantID = tenantRepository.findByTenantID(tenantId);
+       String realm = byTenantID.map(Tenant::getRealmName).orElseThrow(() -> {
+           log.warn("Tenant not found for updating identity provider. tenantId={}", tenantId);
+           return new ResourceNotFoundException("Tenant not found: " + tenantId);
+       });
+
+       SsoConfiguration existing = ssoConfigurationRepository.findById(id).orElseThrow(() -> {
+           log.warn("SSO config not found for update. id={}", id);
+           return new ResourceNotFoundException("SSO configuration not found: " + id);
+       });
+
+       try {
+           log.debug("Applying payload fields to existing SSO config. id={}, aliasBefore={}, providerIdBefore={}",
+                   id, existing.getAlias(), existing.getProviderId());
+
+           // update allowed fields
+           existing.setAlias(payload.getAlias());
+           existing.setProviderId(payload.getProviderId());
+           existing.setClientId(payload.getClientId());
+           existing.setClientSecret(payload.getClientSecret());
+           existing.setAuthorizationUrl(payload.getAuthorizationUrl());
+           existing.setTokenUrl(payload.getTokenUrl());
+           existing.setUserInfoUrl(payload.getUserInfoUrl());
+           existing.setIssuer(payload.getIssuer());
+           existing.setRedirectUri(payload.getRedirectUri());
+           existing.setSetAsDefaultLogin(payload.getSetAsDefaultLogin());
+
+           log.debug("Attempting to update identity provider in Keycloak for realm={}, alias={}", realm, payload.getAlias());
+           String updatedUrl;
+           try {
+               updatedUrl = kcUtil.updateIdentityProvider(realm, payload);
+               log.info("Keycloak updateIdentityProvider completed for realm={}, alias={}, returnedRedirectUrl={}", realm, payload.getAlias(), updatedUrl);
+               if (updatedUrl != null && !updatedUrl.isBlank()) {
+                   existing.setRedirectUri(updatedUrl);
+               }
+           } catch (Exception e) {
+               log.warn("Keycloak updateIdentityProvider failed for realm={}, alias={}: {}", realm, payload.getAlias(), e.getMessage(), e);
+               throw new KeycloakOperationException("KC_UPDATE_IDP_FAILED", 1031, "Failed to update identity provider in Keycloak.", e);
+           }
+
+           SsoConfiguration saved = ssoConfigurationRepository.save(existing);
+           log.info("SSO configuration saved to DB. id={}, alias={}", id, saved.getAlias());
+           return saved;
+       } catch (KeycloakOperationException kex) {
+           throw kex;
+       } catch (Exception e) {
+           log.error("Unexpected error while updating SSO configuration. id={}, tenantId={}, error={}", id, tenantId, e.getMessage(), e);
+           throw new KeycloakOperationException("SSO_UPDATE_FAILED", 1032, "Unable to update SSO configuration.", e);
+       }
+   }
+
+    @Transactional(readOnly = true)
+    public Optional<SsoConfiguration> getActiveSsoConfiguration(String tenantId) {
+        return ssoConfigurationRepository.findByFkTenantIdAndActive(tenantId, "ACTIVE");
+    }
+
+   public String createExtensionClient(String tenantId, String redirectUrl, HttpServletRequest request) {
+
+       Tenant requester = jwtUtl.getTenantFromRequest(request);
+       if (requester == null) {
+           throw new KeycloakOperationException("ACCESS_DENIED", 1022, "Unauthorized tenant");
+       }
+
+       String tenantTypeLower = Optional.ofNullable(requester.getTenantType())
+               .map(String::trim)
+               .map(s -> s.toLowerCase(Locale.ROOT))
+               .orElse("");
+       if (!tenantTypeLower.equals("master mssp") &&
+           !tenantTypeLower.equals("master_mssp") &&
+           !tenantTypeLower.equals("mastermssp")) {
+           log.warn("Access denied: tenantType={} cannot create extension client for tenantId={}", requester.getTenantType(), tenantId);
+           throw new KeycloakOperationException("ACCESS_DENIED", 1022, "Access denied to tenant.");
+       }
+
+       Tenant targetTenant = tenantRepository.findByTenantID(tenantId).orElseThrow(() -> {
+           log.warn("Tenant not found for creating extension client. tenantId={}", tenantId);
+           return new ResourceNotFoundException("Tenant not found: " + tenantId);
+       });
+
+       String tenantName = targetTenant.getTenantName().replaceAll("\\s+", "");
+       String clientId = tenantName + "Extension";
+       String realm = targetTenant.getRealmName();
+
+       try {
+           kcUtil.createExtensionClient(realm, clientId,redirectUrl);
+       } catch (Exception e) {
+           log.error("Failed to create extension client for realm {}: {}", realm, e.getMessage(), e);
+           throw new KeycloakOperationException("EXTENSION_CLIENT_CREATION_FAILED", 1030, "Unable to create extension client.");
+       }
+
+       return "Extension client '" + clientId + "' successfully created under realm '" + realm + "'";
+   }
+
 }

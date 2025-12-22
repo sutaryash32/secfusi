@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.AccessDeniedException;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -158,7 +159,7 @@ public class GroupService {
                 });
 
         groups.setTenantId(tenantId);
-        groups.setCreatedBy(creator.getPkUserId());
+        groups.setCreatedBy(creator.getUserName());
         groups.setActive(true);
         groups.setCreatedTime(LocalDateTime.now());
         groups.setIsAdmin('N');
@@ -203,11 +204,21 @@ public class GroupService {
         }
         String tenantId = tenantFromRequest.getTenantID();
         log.info("getAllGroups: Fetching all groups for tenantId={}", tenantId);
-       List<Groups> result = groupsRepository.findByTenantId(tenantId)
-               .stream()
-//               .filter(g -> (g.getIsAdmin() == null || g.getIsAdmin() != 'Y')
-//                       && (g.getIsDefault() == null || g.getIsDefault() != 'Y'))
-               .toList();
+        List<Groups> result = groupsRepository.findByTenantId(tenantId)
+                .stream()
+                .peek(g -> {
+                    String creatorId = g.getCreatedBy();
+                    if (creatorId != null && !creatorId.isBlank()) {
+                        userRepository.findById(creatorId)
+                                .ifPresent(u -> {
+                                    if (u.getEmail() != null) {
+                                        g.setCreatedBy(u.getEmail());
+                                    }
+                                });
+                    }
+                })
+                .toList();
+
         log.debug("getAllGroups: found {} groups for tenantId={}", result.size(), tenantId);
         return result;
     }
@@ -217,14 +228,19 @@ public class GroupService {
      * Ensures tenant access and handles role reconciliation.
      */
     @Transactional
-    public Groups updateGroup(HttpServletRequest request, String id, Groups incoming) {
+    public Groups updateGroup(HttpServletRequest request, String id, Groups incoming) throws AccessDeniedException {
 
         Tenant tenant = jwtUtl.getTenantFromRequest(request);
         User updater = jwtUtl.getUserFromRequest(request);
 
         Groups existing = groupsRepository.findGroupAccessibleByTenant(id, tenant.getTenantID());
         if (existing == null) {
-            throw new ResourceNotFoundException("Group not accessible");
+            throw new AccessDeniedException("Group not accessible");
+        }
+
+        if(existing.getIsAdmin() != null && existing.getIsAdmin() == 'Y'
+                && existing.getIsDefault() != null && existing.getIsDefault() == 'Y') {
+            throw new AccessDeniedException("Admin group cannot be modified");
         }
 
         // ---------------------------
@@ -251,7 +267,7 @@ public class GroupService {
             existing.setMappedRoles(incoming.getMappedRoles());
         }
 
-        existing.setUpdatedBy(updater.getPkUserId());
+        existing.setUpdatedBy(updater.getUserName());
         existing.setUpdatedTime(LocalDateTime.now());
 
         return groupsRepository.save(existing);
@@ -274,5 +290,13 @@ public class GroupService {
         List<Groups> groups = groupsRepository.findByTenantId(tenantId);
         log.debug("getGroupsByTenant: found {} groups for tenantId={}", groups.size(), tenantId);
         return groups;
+    }
+
+    public boolean deleteGroupsByTenantId(String tenantID) {
+        log.info("deleteGroupsByTenantId: Deleting groups for tenantId={}", tenantID);
+        List<Groups> groupsToDelete = groupsRepository.findByTenantId(tenantID);
+        groupsRepository.deleteAll(groupsToDelete);
+        log.debug("deleteGroupsByTenantId: Deleted {} groups for tenantId={}", groupsToDelete.size(), tenantID);
+        return true;
     }
 }

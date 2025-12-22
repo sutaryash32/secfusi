@@ -7,7 +7,6 @@ trigger:
 pool:
   vmImage: 'ubuntu-latest'
 
-
 variables:
 - group: SecufusionVariableGroup
 
@@ -16,12 +15,16 @@ parameters:
   default: 'sfn-iam-api'
 - name: buildnumber
   default: '$(Build.BuildNumber)'
+- name: rcNumber
+  type: string
+  default: '01'
+  displayName: 'RC Number (01, 02, 03, etc.)'
 
 resources:
   repositories: 
     - repository: azuretemplates
       type: git
-      ref: develop 
+      ref: main 
       name: SFCloud-MSSP/Templates
 
 steps:
@@ -42,6 +45,15 @@ steps:
       azuredevopspat: $(azuredevopspat)
       applicationName: ${{ parameters.applicationName }}
 
+# Add RC suffix for release branches
+- task: Bash@3
+  condition: startsWith(variables['Build.SourceBranchName'], 'release-')
+  inputs:
+    targetType: 'inline'
+    script: |
+      FULL_VERSION="$(version)-rc-${{ parameters.rcNumber }}"
+      echo "Full version with RC: $FULL_VERSION"
+      echo "##vso[task.setvariable variable=version]$FULL_VERSION"
 
 - template: pushtoazurefeed.yml@azuretemplates
   parameters:
@@ -49,7 +61,7 @@ steps:
       applicationName: ${{ parameters.applicationName }}
       buildfilespath: ./target
       buildnumber: $(version)
-      azuredevopspat: $(azuredevopspat)
+      artifactname: $(artifactname)
 
 - template: createazuregittag.yml@azuretemplates
   parameters:

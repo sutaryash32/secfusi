@@ -20,6 +20,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.nio.file.AccessDeniedException;
 import java.util.List;
 
 /**
@@ -137,7 +138,7 @@ public class RolesController {
     @PostMapping("/activate")
     public ResponseEntity<ResponseDto<Roles>> activateRole(
             HttpServletRequest request,
-            @RequestParam String roleId) {
+            @RequestParam String roleId) throws AccessDeniedException {
         logger.info("POST /roles/activate - activateRole called for roleId={}", roleId);
         Roles activatedRole = roleService.updateRoleActive(request, roleId);
         logger.info("POST /roles/activate - role activated for roleId={}", roleId);

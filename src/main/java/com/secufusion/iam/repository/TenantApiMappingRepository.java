@@ -1,6 +1,6 @@
-package com.secufusion.iam.openFeatureService.repository;
+package com.secufusion.iam.repository;
 
-import com.secufusion.iam.openFeatureService.entity.TenantApiMappingEntity;
+import com.secufusion.iam.entity.TenantApiMappingEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

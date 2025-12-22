@@ -1,15 +1,22 @@
 package com.secufusion.iam.service;
 
+import com.secufusion.iam.dto.LoggedInUserDetailsBean;
 import com.secufusion.iam.entity.Scopes;
 import com.secufusion.iam.entity.Tenant;
+import com.secufusion.iam.entity.TenantType;
+import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.ScopesRepository;
+import com.secufusion.iam.repository.TenantTypeRepository;
 import com.secufusion.iam.util.JwtUtl;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -21,6 +28,8 @@ public class ScopesService {
     @Autowired
     private JwtUtl jwtUtl;
 
+    @Autowired
+    private TenantTypeRepository tenantTypeRepository;
 
     /**
      * Retrieve the list of scopes applicable for the tenant extracted from the provided HTTP request.
@@ -37,53 +46,113 @@ public class ScopesService {
      * @return a list of matching {@link Scopes}, or an empty list if none are found or on error
      */
     public List<Scopes> getAllScopes(HttpServletRequest request) {
-        long startTime = System.currentTimeMillis();
-        Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
-        String tenantType = tenantFromRequest != null && tenantFromRequest.getTenantType() != null
-                ? tenantFromRequest.getTenantType().trim()
+
+        long start = System.currentTimeMillis();
+        Tenant tenant = jwtUtl.getTenantFromRequest(request);
+        String tenantType = tenant != null && tenant.getTenantType() != null
+                ? tenant.getTenantType().trim().toLowerCase()
                 : "";
 
-        log.debug("Entering getAllScopes - tenantFromRequest={}, tenantType='{}'", tenantFromRequest, tenantType);
+        LoggedInUserDetailsBean user =
+                (LoggedInUserDetailsBean) request.getAttribute("loggedInUser");
 
-        try {
-            List<Scopes> scopesToAssign;
-            String normalized = tenantType.toLowerCase();
-
-            switch (normalized) {
-                case "master mssp":
-                    log.info("Assigning ALL scopes to Master MSSP...");
-                    scopesToAssign = scopesRepository.findAll();
-                    break;
-
-                case "mssp":
-                    log.info("Assigning MSSP + Enterprise scopes to MSSP...");
-                    scopesToAssign = scopesRepository.findByUserTypeIn(List.of("MSSP", "ENTERPRISE"));
-                    break;
-
-                case "enterprise":
-                    log.info("Assigning Enterprise scopes to Enterprise...");
-                    scopesToAssign = scopesRepository.findByUserType("ENTERPRISE");
-                    break;
-
-                default:
-                    log.warn("Unknown tenant type '{}' – no scopes assigned", tenantType);
-                    log.debug("Exiting getAllScopes - returning empty list for tenantType='{}' (elapsed={}ms)", tenantType, System.currentTimeMillis() - startTime);
-                    return List.of();
-            }
-
-            if (scopesToAssign == null || scopesToAssign.isEmpty()) {
-                log.warn("No scopes found for tenant type '{}' → returning empty list", tenantType);
-                log.debug("Exiting getAllScopes - returning empty list for tenantType='{}' (elapsed={}ms)", tenantType, System.currentTimeMillis() - startTime);
-                return List.of();
-            }
-
-            log.info("Found {} scopes for tenantType='{}'", scopesToAssign.size(), tenantType);
-            log.debug("Exiting getAllScopes - success (elapsed={}ms)", System.currentTimeMillis() - startTime);
-            return scopesToAssign;
-        } catch (Exception ex) {
-            log.error("Error retrieving scopes for tenant type '{}': {}", tenantType, ex.getMessage(), ex);
-            log.debug("Exiting getAllScopes - error (elapsed={}ms)", System.currentTimeMillis() - startTime);
+        // No user → return empty
+        if (user == null || user.getScopes() == null || user.getScopes().isEmpty()) {
+            log.warn("User or user scopes missing → returning empty list");
             return List.of();
         }
+
+        Set<String> userScopes = user.getScopes();
+        log.debug("Fetching scopes for tenantType={}", tenantType);
+
+        // 1️⃣ Get scopes based on tenant type
+        List<Scopes> tenantScopes = switch (tenantType) {
+            case "master mssp" -> scopesRepository.findAll();
+            case "mssp"       -> scopesRepository.findByUserTypes(List.of("MSSP", "ENTERPRISE"));
+            case "enterprise" -> scopesRepository.findByUserTypes(List.of("ENTERPRISE"));
+            default -> {
+                log.warn("Unknown tenant type '{}' → returning empty list", tenantType);
+                yield List.of();
+            }
+        };
+
+        if (tenantScopes.isEmpty()) {
+            return List.of();
+        }
+
+        // 2️⃣ Filter only scopes that the user has
+        List<Scopes> filtered = tenantScopes.stream()
+                .filter(s -> userScopes.contains(s.getScopeName()))
+                .toList();
+
+        log.info("Returning {} scopes for tenantType={}", filtered.size(), tenantType);
+        log.debug("Completed getAllScopes in {}ms", System.currentTimeMillis() - start);
+
+        return filtered;
     }
+
+    @Transactional
+    public Scopes updateScopeTenantTypes(
+            String scopeId,
+            Set<String> tenantTypes
+    ) {
+
+        Scopes scope = scopesRepository.findByPkScopeId(scopeId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Scope not found: " + scopeId));
+
+        List<TenantType> resolvedTenantTypes =
+                tenantTypeRepository.findByTenantTypeNameIgnoreCaseIn(
+                        tenantTypes.stream()
+                                .map(String::trim)
+                                .toList()
+                );
+
+        if (resolvedTenantTypes.isEmpty()) {
+            throw new ResourceNotFoundException("No valid tenant types provided");
+        }
+
+        scope.setTenantTypes(new HashSet<>(resolvedTenantTypes));
+
+        Scopes saved = scopesRepository.save(scope);
+        log.info("Updated tenantTypes for scopeId={} -> {}",
+                scopeId, tenantTypes);
+
+        return saved;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Scopes> getAllScopes() {
+        return scopesRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Scopes getScopeById(String scopeId) {
+        return scopesRepository.findByPkScopeId(scopeId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Scope not found: " + scopeId));
+    }
+
+    // ---------------------------------------------------
+    // GET SCOPES BY MENU NAME
+    // ---------------------------------------------------
+    @Transactional(readOnly = true)
+    public List<Scopes> getScopesByMenu(String menuName) {
+        return scopesRepository.findByMenuNameIgnoreCase(menuName);
+    }
+
+    // ---------------------------------------------------
+    // GET SCOPES BY MENU + SUBMENU
+    // ---------------------------------------------------
+    @Transactional(readOnly = true)
+    public List<Scopes> getScopesByMenuAndSubMenu(
+            String menuName,
+            String subMenu
+    ) {
+        return scopesRepository
+                .findByMenuNameIgnoreCaseAndSubMenuIgnoreCase(
+                        menuName, subMenu
+                );
+    }
+
 }
