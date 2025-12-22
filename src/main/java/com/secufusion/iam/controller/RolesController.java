@@ -1,5 +1,6 @@
 package com.secufusion.iam.controller;
 
+import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.dto.RoleDropdownResponse;
 import com.secufusion.iam.dto.RolesDto;
 import com.secufusion.iam.entity.Roles;
@@ -8,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -51,11 +53,11 @@ public class RolesController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @PostMapping
-    public ResponseEntity<Roles> createRole(HttpServletRequest request, @RequestBody RolesDto roles) {
+    public ResponseEntity<ResponseDto<Roles>> createRole(HttpServletRequest request, @RequestBody RolesDto roles) {
         logger.info("POST /roles - createRole called with name={}", roles != null ? roles.getName() : "null");
         Roles savedRole = roleService.createRoles(request, roles);
         logger.info("POST /roles - role created with id={}", savedRole != null ? savedRole.getPkRoleId() : "null");
-        return ResponseEntity.ok(savedRole);
+        return ResponseEntity.ok(new ResponseDto<>(savedRole, String.valueOf(HttpStatus.CREATED.value())));
     }
 
     /**
@@ -76,14 +78,14 @@ public class RolesController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @PutMapping("/{id}")
-    public ResponseEntity<Roles> updateRole(
+    public ResponseEntity<ResponseDto<Roles>> updateRole(
             HttpServletRequest request,
             @Parameter(description = "ID of the role to update") @PathVariable String id,
             @RequestBody RolesDto roles) {
         logger.info("PUT /roles/{} - updateRole called", id);
         Roles updatedRole = roleService.updateRole(request, id, roles);
         logger.info("PUT /roles/{} - update completed", id);
-        return ResponseEntity.ok(updatedRole);
+        return ResponseEntity.ok(new ResponseDto<>(updatedRole, String.valueOf(HttpStatus.OK.value())));
     }
 
     /**
@@ -100,11 +102,11 @@ public class RolesController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @GetMapping
-    public ResponseEntity<List<Roles>> getAllRoles(HttpServletRequest request) {
+    public ResponseEntity<ResponseDto<List<Roles>>> getAllRoles(HttpServletRequest request) {
         logger.info("GET /roles - getAllRoles called");
         List<Roles> rolesList = roleService.getAllRoles(request);
         logger.info("GET /roles - returning {} roles", rolesList != null ? rolesList.size() : 0);
-        return ResponseEntity.ok(rolesList);
+        return ResponseEntity.ok(new ResponseDto<>(rolesList, String.valueOf(HttpStatus.OK.value())));
     }
 
     /**
@@ -123,22 +125,22 @@ public class RolesController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @GetMapping("/{id}")
-    public ResponseEntity<Roles> getRoleById(
+    public ResponseEntity<ResponseDto<Roles>> getRoleById(
             HttpServletRequest request,
             @Parameter(description = "ID of the role to retrieve") @PathVariable String id) {
         logger.info("GET /roles/{} - getRoleById called", id);
         Roles role = roleService.getRoleById(request, id);
         logger.info("GET /roles/{} - retrieval completed", id);
-        return ResponseEntity.ok(role);
+        return ResponseEntity.ok(new ResponseDto<>(role, String.valueOf(HttpStatus.OK.value())));
     }
 
     @PostMapping("/activate")
-    public ResponseEntity<Roles> activateRole(
+    public ResponseEntity<ResponseDto<Roles>> activateRole(
             HttpServletRequest request,
             @RequestParam String roleId) {
         logger.info("POST /roles/activate - activateRole called for roleId={}", roleId);
         Roles activatedRole = roleService.updateRoleActive(request, roleId);
         logger.info("POST /roles/activate - role activated for roleId={}", roleId);
-        return ResponseEntity.ok(activatedRole);
+        return ResponseEntity.ok(new ResponseDto<>(activatedRole, String.valueOf(HttpStatus.OK.value())));
     }
 }

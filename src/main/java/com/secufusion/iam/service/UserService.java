@@ -789,4 +789,45 @@ public class UserService {
         String domain = at > 0 ? email.substring(at) : "";
         return first + "****" + domain;
     }
+
+    @Transactional
+    public void resendVerificationEmail(String tenantId, String userId) {
+
+        log.info("Resend verification email requested for userId={}", userId);
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant not found: " + tenantId));
+        if (tenant == null) {
+            throw new ResourceNotFoundException("Tenant not found in request");
+        }
+
+        // Fetch user
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+        // Ensure user belongs to same tenant
+        if (user.getTenant() == null ||
+                !tenant.getTenantID().equals(user.getTenant().getTenantID())) {
+            throw new ResourceNotFoundException("User does not belong to this tenant");
+        }
+
+        // Ensure Keycloak user exists
+        if (user.getKeycloakUserId() == null || user.getKeycloakUserId().isBlank()) {
+            throw new ResourceNotFoundException("Keycloak user not linked");
+        }
+
+        try {
+            kcUtil.sendRequiredActionEmail(
+                    tenant.getRealmName(),
+                    user.getKeycloakUserId(),
+                    List.of("UPDATE_PASSWORD", "VERIFY_EMAIL")
+            );
+
+            log.info("Verification email re-triggered successfully for userId={}", userId);
+
+        } catch (Exception e) {
+            log.error("Failed to resend verification email for userId={}", userId, e);
+            throw new RuntimeException("Unable to resend verification email");
+        }
+    }
 }

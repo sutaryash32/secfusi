@@ -1,5 +1,6 @@
 package com.secufusion.iam.controller;
 
+import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.dto.UsersDto;
 import com.secufusion.iam.entity.Tenant;
 import com.secufusion.iam.service.UserService;
@@ -7,6 +8,7 @@ import com.secufusion.iam.util.JwtUtl;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -36,43 +38,6 @@ public class UserController {
     private JwtUtl jwtUtl;
 
     // ============================================================
-    // AUTH CUSTOM RESPONSE
-    // ============================================================
-
-    /**
-     * Return a custom authentication response extracted from the Jwt principal.
-     * Logs the user id and token length at debug level.
-     */
-    @Operation(summary = "Custom authentication response", description = "Return user information extracted from the JWT principal")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Custom auth response returned"),
-            @ApiResponse(responseCode = "400", description = "No JWT provided")
-    })
-    @GetMapping("/custom-response")
-    public ResponseEntity<Map<String, Object>> getCustomResponse(@AuthenticationPrincipal Jwt jwt) {
-
-        log.info("API: Custom auth response requested");
-        if (jwt == null) {
-            log.warn("No JWT principal available in request");
-            return ResponseEntity.badRequest().body(Map.of("message", "No JWT provided"));
-        }
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("userId", jwt.getSubject());
-        response.put("username", jwt.getClaimAsString("preferred_username"));
-        response.put("email", jwt.getClaimAsString("email"));
-        response.put("accessToken", jwt.getTokenValue());
-        response.put("message", "Login successful");
-
-        log.debug("Auth response prepared for userId={}, tokenLength={}", jwt.getSubject(),
-                jwt.getTokenValue() != null ? jwt.getTokenValue().length() : 0);
-
-        log.info("API: Custom auth response returning for user {}", jwt.getSubject());
-        return ResponseEntity.ok(response);
-    }
-
-
-    // ============================================================
     // CREATE USER UNDER TENANT
     // ============================================================
 
@@ -85,7 +50,7 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "Bad request")
     })
     @PostMapping("/{tenantId}")
-    public ResponseEntity<UsersDto> createUser(
+    public ResponseEntity<ResponseDto<UsersDto>> createUser(
             @Parameter(description = "Tenant identifier", required = true) @PathVariable String tenantId,
             @RequestBody UsersDto usersDto) {
 
@@ -93,7 +58,7 @@ public class UserController {
         log.debug("Request payload for createUser under tenant {}: {}", tenantId, usersDto);
         UsersDto created = userService.createUser(tenantId, usersDto);
         log.info("User created with id={} under tenant={}", created != null ? created.getPkUserId() : null, tenantId);
-        return ResponseEntity.ok(created);
+        return ResponseEntity.ok(new ResponseDto<>(created,String.valueOf(HttpStatus.CREATED.value()),"User created successfully"));
     }
 
     /**
@@ -105,7 +70,7 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "Unable to determine tenant from request")
     })
     @PostMapping
-    public ResponseEntity<UsersDto> createUserByTenant(
+    public ResponseEntity<ResponseDto<UsersDto>> createUserByTenant(
             HttpServletRequest request,
             @RequestBody UsersDto usersDto) {
 
@@ -121,7 +86,7 @@ public class UserController {
         UsersDto created = userService.createUser(request, usersDto);
         log.info("User created with id={} under tenant={}", created != null ? created.getPkUserId() : null,
                 tenantFromEmail.getTenantID());
-        return ResponseEntity.ok(created);
+        return ResponseEntity.ok(new ResponseDto<>(created,String.valueOf(HttpStatus.CREATED.value()),"User created successfully"));
     }
 
 
@@ -138,12 +103,12 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "Bad request")
     })
     @GetMapping("/{userId}")
-    public ResponseEntity<UsersDto> getUser(@Parameter(description = "Global user identifier", required = true) @PathVariable String userId) {
+    public ResponseEntity<ResponseDto<UsersDto>> getUser(@Parameter(description = "Global user identifier", required = true) @PathVariable String userId) {
 
         log.info("API: Fetch user {}", userId);
         UsersDto user = userService.getUser(userId);
         log.debug("Fetched user for id={} : {}", userId, user);
-        return ResponseEntity.ok(user);
+        return ResponseEntity.ok(new ResponseDto<>(user,String.valueOf(HttpStatus.OK.value()),"User fetched successfully"));
     }
 
     /**
@@ -155,7 +120,7 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "Unable to determine tenant from request")
     })
     @GetMapping("/userId")
-    public ResponseEntity<UsersDto> getUserByParents(HttpServletRequest request, @Parameter(description = "User identifier", required = true) @RequestParam String userId) {
+    public ResponseEntity<ResponseDto<UsersDto>> getUserByParents(HttpServletRequest request, @Parameter(description = "User identifier", required = true) @RequestParam String userId) {
 
         log.info("API: Fetch user {} under tenant from request", userId);
         Tenant tenantFromEmail = jwtUtl.getTenantFromRequest(request);
@@ -168,7 +133,7 @@ public class UserController {
         log.debug("Tenant resolved for getUserByParents: {}", tenantFromEmail.getTenantID());
         UsersDto user = userService.getUserByParents(request, userId);
         log.info("User fetched for id={} under tenant={}", userId, tenantFromEmail.getTenantID());
-        return ResponseEntity.ok(user);
+        return ResponseEntity.ok(new ResponseDto<>(user,String.valueOf(HttpStatus.OK.value()),"User fetched successfully"));
     }
 
 
@@ -182,12 +147,12 @@ public class UserController {
     @Operation(summary = "Get all users", description = "Return all users in the system")
     @ApiResponse(responseCode = "200", description = "List of users returned")
     @GetMapping
-    public ResponseEntity<List<UsersDto>> getAllUsers(HttpServletRequest request) {
+    public ResponseEntity<ResponseDto<List<UsersDto>>> getAllUsers(HttpServletRequest request) {
 
         log.info("API: Fetch all users");
         List<UsersDto> users = userService.getAllUsers(request);
         log.debug("Number of users fetched: {}", users != null ? users.size() : 0);
-        return ResponseEntity.ok(users);
+        return ResponseEntity.ok(new ResponseDto<>(users,String.valueOf(HttpStatus.OK.value()),"Users fetched successfully"));
     }
 
 
@@ -204,12 +169,12 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "Bad request")
     })
     @GetMapping("/tenant/{tenantId}")
-    public ResponseEntity<List<UsersDto>> getUsersByTenant(@Parameter(description = "Tenant identifier", required = true) @PathVariable String tenantId) {
+    public ResponseEntity<ResponseDto<List<UsersDto>>> getUsersByTenant(@Parameter(description = "Tenant identifier", required = true) @PathVariable String tenantId) {
 
         log.info("API: Fetch users for tenant {}", tenantId);
         List<UsersDto> users = userService.getUsersByTenantId(tenantId);
         log.debug("Users fetched for tenant {}: {}", tenantId, users != null ? users.size() : 0);
-        return ResponseEntity.ok(users);
+        return ResponseEntity.ok(new ResponseDto<>(users,String.valueOf(HttpStatus.OK.value()),"Users fetched successfully"));
     }
 
 
@@ -226,7 +191,7 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "Bad request")
     })
     @PutMapping("/{userId}")
-    public ResponseEntity<UsersDto> updateUser(
+    public ResponseEntity<ResponseDto<UsersDto>> updateUser(
             @Parameter(description = "Global user identifier", required = true) @PathVariable String userId,
             @RequestBody UsersDto usersDto) {
 
@@ -234,7 +199,7 @@ public class UserController {
         log.debug("Update payload for user {}: {}", userId, usersDto);
         UsersDto updated = userService.updateUser(userId, usersDto);
         log.info("User updated id={}", userId);
-        return ResponseEntity.ok(updated);
+        return ResponseEntity.ok(new ResponseDto<>(updated,String.valueOf(HttpStatus.OK.value()),updated != null ? "User updated successfully" : "User update failed"));
     }
 
     /**
@@ -246,7 +211,7 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "Bad request")
     })
     @PutMapping("/update")
-    public ResponseEntity<UsersDto> updateUserByParents(
+    public ResponseEntity<ResponseDto<UsersDto>> updateUserByParents(
             HttpServletRequest request,
             @Parameter(description = "User identifier", required = true) @RequestParam String userId,
             @RequestBody UsersDto usersDto) {
@@ -254,7 +219,7 @@ public class UserController {
         log.info("API: Update user {} using tenant from request", userId);
         UsersDto updated = userService.updateUsersByParent(request, userId, usersDto);
         log.info("User updated id={} by parent", userId);
-        return ResponseEntity.ok(updated);
+        return ResponseEntity.ok(new ResponseDto<>(updated,String.valueOf(HttpStatus.OK.value()),updated != null ? "User updated successfully" : "User update failed"));
     }
 
     // ============================================================
@@ -270,7 +235,7 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "Bad request")
     })
     @DeleteMapping("/{userId}")
-    public ResponseEntity<Map<String, Object>> deleteUser(@Parameter(description = "Global user identifier", required = true) @PathVariable String userId) {
+    public ResponseEntity<ResponseDto<Map<String, Object>>> deleteUser(@Parameter(description = "Global user identifier", required = true) @PathVariable String userId) {
 
         log.info("API: Delete user {}", userId);
 
@@ -281,7 +246,7 @@ public class UserController {
         resp.put("userId", userId);
 
         log.info("Delete completed for userId={}, deleted={}", userId, success);
-        return ResponseEntity.ok(resp);
+        return ResponseEntity.ok(new ResponseDto<>(resp,String.valueOf(HttpStatus.ACCEPTED.value()),success ? "User deleted successfully" : "User deletion failed"));
     }
 
     /**
@@ -293,7 +258,7 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "No valid parameter supplied or bad request")
     })
     @GetMapping("/check")
-    public ResponseEntity<Boolean> uniqueValidations(
+    public ResponseEntity<ResponseDto<Boolean>> uniqueValidations(
             @Parameter(description = "Username to check", required = false) @RequestParam(required = false) String userName,
             @Parameter(description = "Phone number to check", required = false) @RequestParam(required = false) String phoneNumber,
             @Parameter(description = "Email to check", required = false) @RequestParam(required = false) String email) {
@@ -301,28 +266,59 @@ public class UserController {
         if (userName != null) {
             log.debug("Checking username uniqueness for {}", userName);
             boolean result = userService.checkUserName(userName);
-            if (result) {
-                log.info("Username validation returned result for {}", userName);
-                return ResponseEntity.ok(result);
-            }
+            log.info("Username validation returned result for {}", userName);
+            return ResponseEntity.ok(new ResponseDto<>(result,String.valueOf(HttpStatus.OK.value()),result ? "Username Already Exists" : "Username Available"));
         }
         if (phoneNumber != null) {
             log.debug("Checking phone number uniqueness for {}", phoneNumber);
             boolean result = userService.checkMobileNumber(phoneNumber);
-            if (result) {
-                log.info("Phone number validation returned result for {}", phoneNumber);
-                return ResponseEntity.ok(result);
-            }
+            log.info("Phone number validation returned result for {}", phoneNumber);
+            return ResponseEntity.ok(new ResponseDto<>(result,String.valueOf(HttpStatus.OK.value()),result ? "Phone Number Already Exists" : "Phone Number Available"));
         }
         if (email != null) {
             log.debug("Checking email uniqueness for {}", email);
             boolean result = userService.checkEmail(email);
-            if (result) {
-                log.info("Email validation returned result for {}", email);
-                return ResponseEntity.ok(result);
-            }
+            log.info("Email validation returned result for {}", email);
+            return ResponseEntity.ok(new ResponseDto<>(result,String.valueOf(HttpStatus.OK.value()),result ? "Email Already Exists" : "Email Available"));
         }
-        log.warn("Unique validation request did not supply a result for any parameter");
-        return ResponseEntity.badRequest().body(false);
+        log.warn("No valid parameter supplied for uniqueness validation");
+        return ResponseEntity.badRequest().body(new ResponseDto<>(false,String.valueOf(HttpStatus.BAD_REQUEST.value()),"No valid parameter supplied"));
     }
+
+    /**
+     * Resend verification email for a user belonging to the specified tenant.
+     *
+     * This endpoint triggers the resend flow in the user service. The request
+     * may be authenticated; the servlet request is available for extracting
+     * auth/tenant context if needed by the service.
+     *
+     * @param request   HttpServletRequest carrying authentication details
+     * @param tenantId  Tenant identifier for which to resend the verification
+     * @param userId    User identifier to resend the verification for
+     * @return          ResponseEntity containing a confirmation message and identifiers
+     */
+    @Operation(summary = "Resend verification email", description = "Trigger resend of a user's verification email for the given tenant and user ID")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Verification email re-sent successfully"),
+            @ApiResponse(responseCode = "400", description = "Bad request"),
+            @ApiResponse(responseCode = "404", description = "Tenant or user not found")
+    })
+    @PostMapping("/tenants/{tenantId}/users/{userId}/resend-verification")
+    public ResponseEntity<ResponseDto<Map<String, Object>>> resendVerification(
+            HttpServletRequest request,
+            @Parameter(description = "Tenant identifier", required = true) @PathVariable String tenantId,
+            @Parameter(description = "User identifier", required = true) @PathVariable String userId) {
+
+        log.info("API called: resend verification for tenantId={}, userId={}", tenantId, userId);
+
+        userService.resendVerificationEmail(tenantId, userId);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("message", "Verification email has been re-sent successfully");
+        body.put("tenantId", tenantId);
+        body.put("userId", userId);
+
+        return ResponseEntity.ok(new ResponseDto<>(body,String.valueOf(HttpStatus.ACCEPTED.value()),"Verification email re-sent successfully"));
+    }
+
 }

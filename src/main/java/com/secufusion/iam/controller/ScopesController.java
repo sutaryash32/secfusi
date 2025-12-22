@@ -1,11 +1,13 @@
 package com.secufusion.iam.controller;
 
+import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.entity.Scopes;
 import com.secufusion.iam.service.ScopesService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -45,10 +47,10 @@ public class ScopesController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @GetMapping
-    public ResponseEntity<List<Scopes>> getAllScopes(HttpServletRequest request) {
+    public ResponseEntity<ResponseDto<List<Scopes>>> getAllScopes(HttpServletRequest request) {
         logger.info("Request received: GET /scopes from remoteAddr={}", request.getRemoteAddr());
         List<Scopes> scopesList = scopesService.getAllScopes(request);
         logger.debug("Scopes retrieved: count={}", scopesList != null ? scopesList.size() : 0);
-        return ResponseEntity.ok(scopesList);
+        return ResponseEntity.ok(new ResponseDto<>(scopesList, String.valueOf(HttpStatus.OK.value())));
     }
 }

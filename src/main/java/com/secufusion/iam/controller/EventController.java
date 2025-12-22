@@ -1,6 +1,7 @@
 package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.EventRequestDto;
+import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.dto.UserEventsResponseDto;
 import com.secufusion.iam.service.EventService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -94,7 +95,7 @@ public class EventController {
             @ApiResponse(responseCode = "500", description = "Internal server error", content = @Content)
     })
     @GetMapping
-    public ResponseEntity<List<UserEventsResponseDto>> getUserEvents(
+    public ResponseEntity<ResponseDto<List<UserEventsResponseDto>>> getUserEvents(
             @Parameter(description = "Tenant identifier", required = true) @RequestParam(required = true) String tenantId) {
 
         log.info("getUserEvents - entry. tenantId={}", tenantId);
@@ -107,7 +108,7 @@ public class EventController {
         try {
             List<UserEventsResponseDto> userEvents = eventService.getUserEvents(tenantId);
             log.info("getUserEvents - success. tenantId={} resultCount={}", tenantId, userEvents != null ? userEvents.size() : 0);
-            return ResponseEntity.ok(userEvents);
+            return ResponseEntity.ok(new ResponseDto<>(userEvents, String.valueOf(HttpStatus.OK.value())));
         } catch (Exception ex) {
             log.error("getUserEvents - error while retrieving user events. tenantId={}", tenantId, ex);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
