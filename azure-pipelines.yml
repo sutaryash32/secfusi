@@ -39,6 +39,17 @@ steps:
 
 - template: getbranchtype.yml@azuretemplates
 
+# ADD THIS DEBUG STEP HERE ⬇️
+- task: Bash@3
+  displayName: 'Debug - Show Feed Values'
+  inputs:
+    targetType: 'inline'
+    script: |
+      echo "Artifact feed value: $(artifactfeed)"
+      echo "Snapshot feed from variable: $(snapshotFeed)"
+      echo "Release feed from variable: $(releaseFeed)"
+# END OF DEBUG STEP ⬆️
+
 - template: getversion.yml@azuretemplates
   parameters:
       buildnumber: ${{ parameters.buildnumber }}
