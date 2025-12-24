@@ -48,6 +48,17 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(ResourceConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleResourceConflict(ResourceConflictException ex) {
+        log.warn("Resource conflict: {}", ex.getMessage());
+        return buildResponse(
+                "RESOURCE_CONFLICT",
+                4090,
+                ex.getMessage(),
+                HttpStatus.CONFLICT
+        );
+    }
+
     // ===============================
     // Handle Access Denied
     // (Used when parent tenant tries access)

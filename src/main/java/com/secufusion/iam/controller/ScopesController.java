@@ -1,16 +1,18 @@
 package com.secufusion.iam.controller;
 
+import com.secufusion.iam.dto.ResponseDto;
+import com.secufusion.iam.dto.UpdateScopeTenantTypesRequest;
 import com.secufusion.iam.entity.Scopes;
 import com.secufusion.iam.service.ScopesService;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -64,13 +66,13 @@ public class ScopesController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @PutMapping("/{scopeId}/tenant-types")
-    public ResponseEntity<Scopes> updateScopeTenantTypes(@PathVariable String scopeId,
+    public ResponseEntity<ResponseDto<Scopes>> updateScopeTenantTypes(@PathVariable String scopeId,
             @RequestBody UpdateScopeTenantTypesRequest request
     ) {
         return ResponseEntity.ok(
-                scopesService.updateScopeTenantTypes(
-                        scopeId,
-                        request.getTenantTypes()
+                new ResponseDto<>(
+                        scopesService.updateScopeTenantTypes(scopeId, request.getTenantTypes()),
+                        String.valueOf(HttpStatus.OK.value())
                 )
         );
     }
@@ -86,10 +88,13 @@ public class ScopesController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @GetMapping("/{scopeId}")
-    public ResponseEntity<Scopes> getScopeById(@PathVariable String scopeId
+    public ResponseEntity<ResponseDto<Scopes>> getScopeById(@PathVariable String scopeId
     ) {
         return ResponseEntity.ok(
-                scopesService.getScopeById(scopeId)
+                new ResponseDto<>(
+                        scopesService.getScopeById(scopeId),
+                        String.valueOf(HttpStatus.OK.value())
+                )
         );
     }
 
@@ -104,10 +109,13 @@ public class ScopesController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @GetMapping("/menu/{menuName}")
-    public ResponseEntity<List<Scopes>> getScopesByMenu(@PathVariable String menuName
+    public ResponseEntity<ResponseDto<List<Scopes>>> getScopesByMenu(@PathVariable String menuName
     ) {
         return ResponseEntity.ok(
-                scopesService.getScopesByMenu(menuName)
+                new ResponseDto<>(
+                        scopesService.getScopesByMenu(menuName),
+                        String.valueOf(HttpStatus.OK.value())
+                )
         );
     }
 
@@ -122,11 +130,12 @@ public class ScopesController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @GetMapping("/menu/{menuName}/submenu/{subMenu}")
-    public ResponseEntity<List<Scopes>> getScopesByMenuAndSubMenu(@PathVariable String menuName,@PathVariable String subMenu
+    public ResponseEntity<ResponseDto<List<Scopes>>> getScopesByMenuAndSubMenu(@PathVariable String menuName,@PathVariable String subMenu
     ) {
         return ResponseEntity.ok(
-                scopesService.getScopesByMenuAndSubMenu(
-                        menuName, subMenu
+                new ResponseDto<>(
+                        scopesService.getScopesByMenuAndSubMenu(menuName, subMenu),
+                        String.valueOf(HttpStatus.OK.value())
                 )
         );
     }
