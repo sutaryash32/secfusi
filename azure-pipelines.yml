@@ -39,7 +39,6 @@ steps:
 
 - template: getbranchtype.yml@azuretemplates
 
-# ADD THIS DEBUG STEP HERE ⬇️
 - task: Bash@3
   displayName: 'Debug - Show Feed Values'
   inputs:
@@ -48,7 +47,6 @@ steps:
       echo "Artifact feed value: $(artifactfeed)"
       echo "Snapshot feed from variable: $(snapshotFeed)"
       echo "Release feed from variable: $(releaseFeed)"
-# END OF DEBUG STEP ⬆️
 
 - template: getversion.yml@azuretemplates
   parameters:
@@ -56,14 +54,17 @@ steps:
       azuredevopspat: $(azuredevopspat)
       applicationName: ${{ parameters.applicationName }}
 
-# Add RC suffix for release branches ONLY
+# For release branches: append RC to version, keep artifactname empty
 - task: Bash@3
   condition: startsWith(variables['Build.SourceBranchName'], 'release-')
   inputs:
     targetType: 'inline'
     script: |
-      echo "Original artifactname: $(artifactname)"
-      echo "##vso[task.setvariable variable=artifactname]rc-${{ parameters.rcNumber }}-"
+      ORIGINAL_VERSION="$(version)"
+      NEW_VERSION="${ORIGINAL_VERSION}-rc-${{ parameters.rcNumber }}"
+      echo "Original version: $ORIGINAL_VERSION"
+      echo "New version with RC: $NEW_VERSION"
+      echo "##vso[task.setvariable variable=version]$NEW_VERSION"
 
 - template: pushtoazurefeed.yml@azuretemplates
   parameters:
