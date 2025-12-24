@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -111,6 +110,40 @@ public class GlobalExceptionHandler {
                 HttpStatus.INTERNAL_SERVER_ERROR
         );
     }
+
+    @ExceptionHandler({
+            InvalidTokenException.class,
+            TokenExpiredException.class,
+            TokenMismatchException.class,
+            TokenValidationException.class,
+            MissingAuthorizationException.class
+    })
+    public ResponseEntity<Map<String, Object>> handleAuthExceptions(RuntimeException ex) {
+
+        log.warn("Authentication error: {}", ex.getMessage());
+
+        return buildResponse(
+                "AUTHENTICATION_FAILED",
+                4010,
+                ex.getMessage(),
+                HttpStatus.UNAUTHORIZED
+        );
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleSpringAccessDenied(
+            org.springframework.security.access.AccessDeniedException ex) {
+
+        log.warn("Spring access denied: {}", ex.getMessage());
+
+        return buildResponse(
+                "ACCESS_DENIED",
+                4030,
+                ex.getMessage(),
+                HttpStatus.FORBIDDEN
+        );
+    }
+
 
     // ===============================
     // Helper to Build Standard Response Format

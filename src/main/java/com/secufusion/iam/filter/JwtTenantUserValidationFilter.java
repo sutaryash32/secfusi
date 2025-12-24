@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.secufusion.iam.dto.LoggedInUserDetailsBean;
 import com.secufusion.iam.entity.*;
 import com.secufusion.iam.entity.TenantApiMappingEntity;
+import com.secufusion.iam.exception.*;
 import com.secufusion.iam.repository.ApiFlagRepository;
 import com.secufusion.iam.repository.TenantApiMappingRepository;
 import com.secufusion.iam.repository.TenantRepository;
@@ -101,8 +102,7 @@ public class JwtTenantUserValidationFilter extends OncePerRequestFilter {
 
             if (email == null || tenantFromJwt == null) {
                 log.warn("Invalid token: email or tenant missing in JWT (email={}, tenant={})", email, tenantFromJwt);
-                writeError(response, HttpStatus.UNAUTHORIZED, "INVALID_TOKEN", "Invalid or missing JWT");
-                return;
+                throw new InvalidTokenException("Invalid or missing JWT");
             }
 
             String tenantId = tenantFromJwt.getTenantID();
@@ -115,13 +115,11 @@ public class JwtTenantUserValidationFilter extends OncePerRequestFilter {
             Tenant tenant = tenantRepository.findById(tenantId).orElse(null);
             if (tenant == null) {
                 log.info("Tenant not found: {}", tenantId);
-                writeError(response, HttpStatus.NOT_FOUND, "TENANT_NOT_FOUND", "Tenant does not exist");
-                return;
+                throw new ResourceNotFoundException("Tenant does not exist");
             }
             if (!"ACTIVE".equalsIgnoreCase(tenant.getStatus())) {
                 log.info("Tenant inactive: {} status={}", tenantId, tenant.getStatus());
-                writeError(response, HttpStatus.UNAUTHORIZED, "TENANT_INACTIVE", "Tenant inactive");
-                return;
+                throw new AccessDeniedException("Tenant is inactive");
             }
             log.debug("Tenant validated and active: {}", tenantId);
 
@@ -132,13 +130,11 @@ public class JwtTenantUserValidationFilter extends OncePerRequestFilter {
             User user = userService.findByEmailAndTenant(userFromRequest.getEmail(), tenantId);
             if (user == null) {
                 log.info("User not found for email '{}' in tenant '{}'", email, tenantId);
-                writeError(response, HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "User not found in tenant");
-                return;
+                throw new ResourceNotFoundException("User not found in tenant");
             }
             if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
                 log.info("User inactive: email='{}' tenant='{}' status='{}'", email, tenantId, user.getStatus());
-                writeError(response, HttpStatus.UNAUTHORIZED, "USER_INACTIVE", "User account inactive");
-                return;
+                throw new AccessDeniedException("User account inactive");
             }
             log.debug("User validated and active: email='{}' tenant='{}'", email, tenantId);
 
@@ -147,6 +143,10 @@ public class JwtTenantUserValidationFilter extends OncePerRequestFilter {
             // ============================================================
             log.debug("Resolving scopes for user '{}'", email);
             Set<String> rawScopes = resolveUserScopes(user);
+            if (rawScopes.isEmpty()) {
+                log.info("User has no scopes assigned: email='{}' tenant='{}'", email, tenantId);
+                throw new AccessDeniedException("User has no access scopes assigned");
+            }
             Set<String> effectiveScopes = new HashSet<>(rawScopes);
             log.debug("Resolved scopes for user '{}': rawCount={} effectiveCount={}", email, rawScopes.size(), effectiveScopes.size());
 
@@ -195,17 +195,21 @@ public class JwtTenantUserValidationFilter extends OncePerRequestFilter {
 
             if (!allow) {
                 log.info("API disabled by feature flag for path='{}' tenant='{}'", path, tenantId);
-                writeError(response, HttpStatus.NOT_FOUND, "API_DISABLED", "API disabled for tenant");
-                return;
+                throw new ResourceNotFoundException("API disabled for tenant");
             }
 
             // Continue normal flow
             log.debug("Request allowed - continuing filter chain for path='{}' tenant='{}'", path, tenantId);
             filterChain.doFilter(request, response);
 
-        } catch (Exception ex) {
-            log.error("Authentication/validation error: {}", ex.getMessage(), ex);
-            writeError(response, HttpStatus.UNAUTHORIZED, "AUTH_ERROR", ex.getMessage());
+        } catch (TokenExpiredException |
+                TokenMismatchException |
+                TokenValidationException |
+                InvalidTokenException ex) {
+            throw ex;
+        }
+        catch (Exception ex) {
+            throw new TokenValidationException(ex.getMessage(), ex);
         }
     }
 
@@ -246,11 +250,17 @@ public class JwtTenantUserValidationFilter extends OncePerRequestFilter {
         // Defensive null checks and logging
         if (user == null) {
             log.warn("resolveUserScopes called with null user");
-            return Collections.emptySet();
+            throw new AccessDeniedException("User must not be null");
         }
+
+        if (user.getTenant() == null || user.getTenant().getTenantType() == null) {
+            log.warn("User '{}' has no tenant or tenant type", user.getEmail());
+            throw new AccessDeniedException("User has no tenant or tenant type");
+        }
+
         if (user.getMappedGroups() == null) {
             log.debug("User '{}' has no mapped groups", user.getEmail());
-            return Collections.emptySet();
+            throw new AccessDeniedException("User has no mapped groups");
         }
 
         // Collect scope names from user's groups -> roles -> scopes
