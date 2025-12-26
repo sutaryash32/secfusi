@@ -66,13 +66,22 @@ steps:
       echo "New version with RC: $NEW_VERSION"
       echo "##vso[task.setvariable variable=version]$NEW_VERSION"
 
+- task: Bash@3
+  displayName: 'Copy SNAPSHOT jar to staging'
+  inputs:
+    targetType: 'inline'
+    script: |
+      mkdir -p $(Build.ArtifactStagingDirectory)/package
+      cp ./target/*-SNAPSHOT.jar $(Build.ArtifactStagingDirectory)/package/
+
 - template: pushtoazurefeed.yml@azuretemplates
   parameters:
       artifactfeed: $(artifactfeed)
       applicationName: ${{ parameters.applicationName }}
-      buildfilespath: ./target/*-SNAPSHOT.jar
+      buildfilespath: $(Build.ArtifactStagingDirectory)/package
       buildnumber: $(version)
       artifactname: $(artifactname)
+
 
 - template: createazuregittag.yml@azuretemplates
   parameters:
