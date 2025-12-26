@@ -47,7 +47,7 @@ public class User {
 
     private LocalDateTime updatedAt;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "fk_tenant_id")
     @JsonIgnore
     private Tenant tenant;
