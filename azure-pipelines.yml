@@ -70,7 +70,7 @@ steps:
   parameters:
       artifactfeed: $(artifactfeed)
       applicationName: ${{ parameters.applicationName }}
-      buildfilespath: ./target
+      buildfilespath: ./target/*-SNAPSHOT.jar
       buildnumber: $(version)
       artifactname: $(artifactname)
 
