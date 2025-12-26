@@ -130,21 +130,6 @@ public class GlobalExceptionHandler {
         );
     }
 
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<Map<String, Object>> handleSpringAccessDenied(
-            org.springframework.security.access.AccessDeniedException ex) {
-
-        log.warn("Spring access denied: {}", ex.getMessage());
-
-        return buildResponse(
-                "ACCESS_DENIED",
-                4030,
-                ex.getMessage(),
-                HttpStatus.FORBIDDEN
-        );
-    }
-
-
     // ===============================
     // Helper to Build Standard Response Format
     // ===============================
