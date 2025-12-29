@@ -15,4 +15,7 @@ public interface SsoConfigurationRepository extends JpaRepository<SsoConfigurati
     Optional<SsoConfiguration> findByFkTenantIdAndAlias(String tenantId, String alias);
 
     Optional<SsoConfiguration> findByFkTenantIdAndActive(String tenantId, String active);
+
+    Optional<SsoConfiguration> findByIdAndFkTenantId(
+            String id, String tenantId);
 }

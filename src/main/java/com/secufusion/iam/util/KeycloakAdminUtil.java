@@ -978,4 +978,35 @@ public class KeycloakAdminUtil {
         log.info("Extension client '{}' created successfully", clientId);
     }
 
+    public void deleteIdentityProvider(String realm, String alias) {
+        try {
+            keycloak.realm(realm)
+                    .identityProviders()
+                    .get(alias)
+                    .remove();
+
+            log.info("Deleted Identity Provider '{}' from realm '{}'", alias, realm);
+        } catch (Exception e) {
+            log.error("Failed to delete Identity Provider '{}' from realm '{}'",
+                    alias, realm, e);
+            throw e; // let service decide whether to continue
+        }
+    }
+
+    /* --------------------------------------------------
+     * (Optional) CHECK IF IDP EXISTS
+     * -------------------------------------------------- */
+    public boolean identityProviderExists(String realm, String alias) {
+        try {
+            IdentityProviderRepresentation rep =
+                    keycloak.realm(realm)
+                            .identityProviders()
+                            .get(alias)
+                            .toRepresentation();
+            return rep != null;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
 }
