@@ -115,7 +115,7 @@ public class SsoConfigurationService {
         String tenantId = tenant.getTenantID();
         log.debug("Fetching all SSO configurations for tenant={}", tenantId);
 
-        List<SsoConfigurationResponse> responses = repository.findByFkTenantId(tenantId)
+        List<SsoConfigurationResponse> responses = repository.findByTenantId(tenantId)
                 .stream()
                 .map(SsoConfigurationResponse::from)
                 .toList();
@@ -139,7 +139,7 @@ public class SsoConfigurationService {
         log.debug("Fetching SSO configuration id={} for tenant={}", id, tenantId);
 
         SsoConfiguration cfg = repository
-                .findByIdAndFkTenantId(id, tenantId)
+                .findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> {
                     log.warn("SSO configuration not found id={} tenant={}", id, tenantId);
                     return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
@@ -168,7 +168,7 @@ public class SsoConfigurationService {
         log.info("Updating SSO configuration id={} for tenant={}", id, tenantId);
 
         SsoConfiguration cfg = repository
-                .findByIdAndFkTenantId(id, tenantId)
+                .findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> {
                     log.warn("SSO configuration not found for update id={} tenant={}", id, tenantId);
                     return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
@@ -202,7 +202,7 @@ public class SsoConfigurationService {
         log.info("Deleting SSO configuration id={} for tenant={}", id, tenantId);
 
         SsoConfiguration cfg = repository
-                .findByIdAndFkTenantId(id, tenantId)
+                .findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> {
                     log.warn("SSO configuration not found for delete id={} tenant={}", id, tenantId);
                     return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
@@ -238,7 +238,7 @@ public class SsoConfigurationService {
         deactivateOthers(tenantId);
 
         SsoConfiguration cfg = repository
-                .findByIdAndFkTenantId(id, tenantId)
+                .findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> {
                     log.warn("SSO configuration not found for activate id={} tenant={}", id, tenantId);
                     return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
@@ -264,7 +264,7 @@ public class SsoConfigurationService {
      * @param tenantId target tenant id
      */
     private void deactivateOthers(String tenantId) {
-        List<SsoConfiguration> list = repository.findByFkTenantId(tenantId);
+        List<SsoConfiguration> list = repository.findByTenantId(tenantId);
         list.forEach(c -> c.setActive("INACTIVE"));
         repository.saveAll(list);
         log.debug("Deactivated {} SSO configurations for tenant={}", list.size(), tenantId);
@@ -281,7 +281,7 @@ public class SsoConfigurationService {
         SsoConfiguration cfg = new SsoConfiguration();
         cfg.setAlias(dto.getAlias());
         cfg.setProviderId(dto.getProviderId());
-        cfg.setFkTenantId(tenantId);
+        cfg.setTenantId(tenantId);
         cfg.setClientId(dto.getClientId());
         cfg.setClientSecret(dto.getClientSecret());
         cfg.setAuthorizationUrl(dto.getAuthorizationUrl());
