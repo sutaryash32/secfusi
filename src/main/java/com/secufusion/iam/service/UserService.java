@@ -65,7 +65,7 @@ public class UserService {
      *
      * Detailed logs added at every step.
      */
-  @Transactional
+    @Transactional
     public UsersDto createUser(String tenantId, UsersDto dto) {
 
         log.info("➡️ [CREATE USER] Start (explicit tenantId). tenantId={}, dtoSummary={}", tenantId, summarizeDto(dto));
@@ -105,17 +105,136 @@ public class UserService {
     /**
      * Shared internal implementation that expects a resolved Tenant.
      */
+//    private UsersDto createUserInternal(Tenant tenant, UsersDto dto) {
+//
+//        log.debug("Proceeding with createUserInternal. tenantId={} realm={} dtoSummary={}",
+//                tenant.getTenantID(), tenant.getRealmName(), summarizeDto(dto));
+//
+//        // VALIDATE (new user → excludeUserId=null)
+//        validateUserFields(tenant, dto, null);
+//
+//        try {
+//            log.debug("Creating local DB user record (prepare entity)...");
+//            User user = new User();
+//            user.setFirstName(dto.getFirstName());
+//            user.setLastName(dto.getLastName());
+//            user.setEmail(dto.getEmail());
+//            user.setUserName(dto.getEmail());
+//            user.setPhoneNo(dto.getPhoneNumber());
+//            user.setTenant(tenant);
+//            user.setStatus("CREATING");
+//            user.setCreatedAt(LocalDateTime.now());
+//            user.setCreatedBy(dto.getCreatedBy());
+//
+//            log.debug("Persisting local user to DB with status=C:\\'CREATING\\' (pre-keycloak). username={}", dto.getEmail());
+//            User savedUser = userRepository.save(user);
+//
+//            log.info("✔ Local user created successfully in DB. userId={} username={}",
+//                    savedUser.getPkUserId(), savedUser.getUserName());
+//            log.debug("Saved user details: pkUserId={} tenantId={} status={}",
+//                    savedUser.getPkUserId(), savedUser.getTenant().getTenantID(), savedUser.getStatus());
+//
+//            // Create user in Keycloak
+//            log.debug("Calling Keycloak createUser API. realm={} username={} email={}",
+//                    tenant.getRealmName(), dto.getEmail(), dto.getEmail());
+//
+//            String kcUserId = kcUtil.createUser(
+//                    tenant.getRealmName(),
+//                    dto.getEmail(),
+//                    dto.getEmail(),
+//                    dto.getFirstName(),
+//                    dto.getLastName(),
+//                    false
+//            );
+//
+//            log.debug("Keycloak createUser returned id={}", kcUserId);
+//            if (kcUserId == null) {
+//                log.error("❌ Keycloak returned null userId. Username may already exist in realm. realm={} username={}",
+//                        tenant.getRealmName(), dto.getEmail());
+//                throw new KeycloakOperationException(
+//                        "KC_USER_CREATION_FAILED", 3001,
+//                        "Failed to create user in Keycloak (duplicate?)"
+//                );
+//            }
+//
+//            log.info("✔ Keycloak user created. kcUserId={}", kcUserId);
+//
+//            // Send required actions (update password, verify email)
+//            log.debug("Triggering Keycloak required actions: kcUserId={} actions=[UPDATE_PASSWORD, VERIFY_EMAIL]", kcUserId);
+//            kcUtil.sendRequiredActionEmail(
+//                    tenant.getRealmName(),
+//                    kcUserId,
+//                    List.of("UPDATE_PASSWORD", "VERIFY_EMAIL")
+//            );
+//
+//            log.debug("Triggering welcome email via auth provider config if available. savedUserEmail={} loginUrlExists={}",
+//                    savedUser.getEmail(), tenant.getAuthProviderConfig() != null && tenant.getAuthProviderConfig().getLoginUrl() != null);
+//            kcUtil.sendWelcomeEmail(savedUser.getEmail(), tenant.getAuthProviderConfig().getLoginUrl(), savedUser.getUserName());
+//
+//            log.info("✔ Required action and welcome emails triggered for kcUserId={}", kcUserId);
+//
+//            // Role assignment
+//            log.debug("Assigning realm-admin role to Keycloak user. realm={} kcUserId={}", tenant.getRealmName(), kcUserId);
+//            kcUtil.assignRealmAdminRole(tenant.getRealmName(), kcUserId);
+//            log.info("✔ Assigned realm-admin role to kcUserId={}", kcUserId);
+//
+//            // Update DB with KC ID and mark ACTIVE
+//            log.debug("Updating saved local user with keycloak id and setting status=ACTIVE. dbUserId={} kcUserId={}",
+//                    savedUser.getPkUserId(), kcUserId);
+//            savedUser.setKeycloakUserId(kcUserId);
+//            savedUser.setStatus("ACTIVE");
+//            if (dto.getGroups() != null && !dto.getGroups().isEmpty()) {
+//                updateUserGroups(user, dto.getGroups());
+//            }
+//
+//            userRepository.save(savedUser);
+//
+//            log.info("🎉 User successfully created in DB + KC. userId={} kcUserId={}",
+//                    savedUser.getPkUserId(), kcUserId);
+//
+//            return mapToDto(savedUser);
+//
+//        } catch (KeycloakOperationException ex) {
+//            log.error("❌ KeycloakOperationException during user creation. message={} cause={}", ex.getMessage(), ex.getCause().getMessage());
+//            throw ex;
+//        } catch (Exception ex) {
+//            log.error("❌ Unexpected error while creating user username={} message={} stackTrace={}",
+//                    dto.getEmail(), ex.getMessage(), ex.getMessage());
+//            throw new KeycloakOperationException(
+//                    "USER_CREATION_FAILED", 3002,
+//                    "Unexpected error while creating user"
+//            );
+//        }
+//    }
+
+
+    @Transactional
     private UsersDto createUserInternal(Tenant tenant, UsersDto dto) {
 
-        log.debug("Proceeding with createUserInternal. tenantId={} realm={} dtoSummary={}",
-                tenant.getTenantID(), tenant.getRealmName(), summarizeDto(dto));
+        log.info("➡️ [CREATE USER - INTERNAL] tenant={} email={}",
+                tenant.getTenantID(), dto.getEmail());
 
-        // VALIDATE (new user → excludeUserId=null)
-        validateUserFields(tenant, dto, null);
+        // -------------------------------------------------
+        // 1️⃣ LOAD EXISTING USER (IDEMPOTENCY KEY = EMAIL)
+        // -------------------------------------------------
+        User user = userRepository
+                .findByEmailAndTenant_TenantID(dto.getEmail(), tenant.getTenantID())
+                .orElse(null);
 
-        try {
-            log.debug("Creating local DB user record (prepare entity)...");
-            User user = new User();
+        // -------------------------------------------------
+        // 2️⃣ VALIDATE (EXCLUDE EXISTING USER IF ANY)
+        // -------------------------------------------------
+        validateUserFields(
+                tenant,
+                dto,
+                user != null ? user.getPkUserId() : null
+        );
+
+        // -------------------------------------------------
+        // 3️⃣ CREATE DB USER IF NOT EXISTS
+        // -------------------------------------------------
+        if (user == null) {
+            user = new User();
             user.setFirstName(dto.getFirstName());
             user.setLastName(dto.getLastName());
             user.setEmail(dto.getEmail());
@@ -126,85 +245,138 @@ public class UserService {
             user.setCreatedAt(LocalDateTime.now());
             user.setCreatedBy(dto.getCreatedBy());
 
-            log.debug("Persisting local user to DB with status=C:\\'CREATING\\' (pre-keycloak). username={}", dto.getEmail());
-            User savedUser = userRepository.save(user);
+            user = userRepository.save(user);
 
-            log.info("✔ Local user created successfully in DB. userId={} username={}",
-                    savedUser.getPkUserId(), savedUser.getUserName());
-            log.debug("Saved user details: pkUserId={} tenantId={} status={}",
-                    savedUser.getPkUserId(), savedUser.getTenant().getTenantID(), savedUser.getStatus());
+            log.info("✔ DB user created. userId={}", user.getPkUserId());
+        } else {
+            log.info("ℹ️ Existing DB user found. userId={} status={}",
+                    user.getPkUserId(), user.getStatus());
+        }
 
-            // Create user in Keycloak
-            log.debug("Calling Keycloak createUser API. realm={} username={} email={}",
-                    tenant.getRealmName(), dto.getEmail(), dto.getEmail());
+        try {
+            // -------------------------------------------------
+            // 4️⃣ ENSURE KEYCLOAK USER (CREATE OR REUSE)
+            // -------------------------------------------------
+            String kcUserId = ensureKeycloakUser(tenant, dto, user);
+            user.setKeycloakUserId(kcUserId);
 
-            String kcUserId = kcUtil.createUser(
-                    tenant.getRealmName(),
-                    dto.getEmail(),
-                    dto.getEmail(),
-                    dto.getFirstName(),
-                    dto.getLastName(),
-                    false
+            // -------------------------------------------------
+            // 5️⃣ ENSURE REALM ROLES (IDEMPOTENT)
+            // -------------------------------------------------
+            kcUtil.assignRealmAdminRoleIfMissing(
+                    tenant.getRealmName(), kcUserId
             );
 
-            log.debug("Keycloak createUser returned id={}", kcUserId);
-            if (kcUserId == null) {
-                log.error("❌ Keycloak returned null userId. Username may already exist in realm. realm={} username={}",
-                        tenant.getRealmName(), dto.getEmail());
-                throw new KeycloakOperationException(
-                        "KC_USER_CREATION_FAILED", 3001,
-                        "Failed to create user in Keycloak (duplicate?)"
+            // -------------------------------------------------
+            // 6️⃣ ENSURE GROUPS (ADD ONLY MISSING)
+            // -------------------------------------------------
+            ensureGroups(user, dto.getGroups());
+
+            // -------------------------------------------------
+            // 7️⃣ SEND EMAILS (BEST EFFORT – NEVER FAIL CREATE)
+            // -------------------------------------------------
+            try {
+                kcUtil.sendRequiredActionEmail(
+                        tenant.getRealmName(),
+                        kcUserId,
+                        List.of("UPDATE_PASSWORD", "VERIFY_EMAIL")
                 );
+            } catch (Exception e) {
+                log.warn("⚠️ Email trigger failed (ignored). userId={}", user.getPkUserId());
             }
 
-            log.info("✔ Keycloak user created. kcUserId={}", kcUserId);
+            // -------------------------------------------------
+            // 8️⃣ FINALIZE
+            // -------------------------------------------------
+            user.setStatus("ACTIVE");
+            userRepository.save(user);
 
-            // Send required actions (update password, verify email)
-            log.debug("Triggering Keycloak required actions: kcUserId={} actions=[UPDATE_PASSWORD, VERIFY_EMAIL]", kcUserId);
-            kcUtil.sendRequiredActionEmail(
-                    tenant.getRealmName(),
-                    kcUserId,
-                    List.of("UPDATE_PASSWORD", "VERIFY_EMAIL")
-            );
+            log.info("🎉 User creation/reconciliation successful. userId={} kcUserId={}",
+                    user.getPkUserId(), kcUserId);
 
-            log.debug("Triggering welcome email via auth provider config if available. savedUserEmail={} loginUrlExists={}",
-                    savedUser.getEmail(), tenant.getAuthProviderConfig() != null && tenant.getAuthProviderConfig().getLoginUrl() != null);
-            kcUtil.sendWelcomeEmail(savedUser.getEmail(), tenant.getAuthProviderConfig().getLoginUrl(), savedUser.getUserName());
+            return mapToDto(user);
 
-            log.info("✔ Required action and welcome emails triggered for kcUserId={}", kcUserId);
+        } catch (KeycloakOperationException e) {
+            log.error("❌ KC failure during user creation. userId={} reason={}",
+                    user.getPkUserId(), e.getMessage());
+            throw e;
 
-            // Role assignment
-            log.debug("Assigning realm-admin role to Keycloak user. realm={} kcUserId={}", tenant.getRealmName(), kcUserId);
-            kcUtil.assignRealmAdminRole(tenant.getRealmName(), kcUserId);
-            log.info("✔ Assigned realm-admin role to kcUserId={}", kcUserId);
+        } catch (Exception e) {
+            log.error("❌ Unexpected failure during create user. email={}",
+                    dto.getEmail(), e);
 
-            // Update DB with KC ID and mark ACTIVE
-            log.debug("Updating saved local user with keycloak id and setting status=ACTIVE. dbUserId={} kcUserId={}",
-                    savedUser.getPkUserId(), kcUserId);
-            savedUser.setKeycloakUserId(kcUserId);
-            savedUser.setStatus("ACTIVE");
-            if (dto.getGroups() != null && !dto.getGroups().isEmpty()) {
-                updateUserGroups(user, dto.getGroups());
-            }
-
-            userRepository.save(savedUser);
-
-            log.info("🎉 User successfully created in DB + KC. userId={} kcUserId={}",
-                    savedUser.getPkUserId(), kcUserId);
-
-            return mapToDto(savedUser);
-
-        } catch (KeycloakOperationException ex) {
-            log.error("❌ KeycloakOperationException during user creation. message={} cause={}", ex.getMessage(), ex.getCause().getMessage());
-            throw ex;
-        } catch (Exception ex) {
-            log.error("❌ Unexpected error while creating user username={} message={} stackTrace={}",
-                    dto.getEmail(), ex.getMessage(), ex.getMessage());
             throw new KeycloakOperationException(
-                    "USER_CREATION_FAILED", 3002,
-                    "Unexpected error while creating user"
+                    "USER_CREATION_FAILED",
+                    3002,
+                    "User exists but reconciliation failed"
             );
         }
+    }
+
+
+    private void ensureGroups(User user, Set<Groups> requestedGroups) {
+
+        if (requestedGroups == null || requestedGroups.isEmpty()) return;
+
+        Set<String> existingIds = user.getMappedGroups()
+                .stream()
+                .map(Groups::getPkGroupId)
+                .collect(Collectors.toSet());
+
+        Set<Groups> groupsToAdd = requestedGroups.stream()
+                .filter(g -> !existingIds.contains(g.getPkGroupId()))
+                .map(g -> groupsRepository.findById(g.getPkGroupId())
+                        .orElseThrow(() -> new ResourceNotFoundException(
+                                "Group not found: " + g.getPkGroupId())))
+                .collect(Collectors.toSet());
+
+        if (!groupsToAdd.isEmpty()) {
+            user.getMappedGroups().addAll(groupsToAdd);
+            log.info("✔ Groups reconciled for userId={}. added={}",
+                    user.getPkUserId(), groupsToAdd.size());
+        }
+    }
+
+
+    private String ensureKeycloakUser(Tenant tenant, UsersDto dto, User user) {
+
+        // Already linked → trust DB
+        if (user.getKeycloakUserId() != null && !user.getKeycloakUserId().isBlank()) {
+            return user.getKeycloakUserId();
+        }
+
+        // Try find in KC by username/email
+        List<UserRepresentation> kcUsers =
+                kcUtil.findUsersByUsernameOrEmail(
+                        tenant.getRealmName(),
+                        dto.getEmail(),
+                        dto.getEmail()
+                );
+
+        if (!kcUsers.isEmpty()) {
+            log.info("ℹ️ Existing KC user reused. kcUserId={}", kcUsers.get(0).getId());
+            return kcUsers.get(0).getId();
+        }
+
+        // Create new KC user
+        String kcUserId = kcUtil.createUser(
+                tenant.getRealmName(),
+                dto.getEmail(),
+                dto.getEmail(),
+                dto.getFirstName(),
+                dto.getLastName(),
+                false
+        );
+
+        if (kcUserId == null) {
+            throw new KeycloakOperationException(
+                    "KC_USER_CREATION_FAILED",
+                    3001,
+                    "Unable to create or fetch Keycloak user"
+            );
+        }
+
+        return kcUserId;
     }
 
 
