@@ -55,28 +55,17 @@ steps:
       applicationName: ${{ parameters.applicationName }}
 
 # For release branches: append RC to version, keep artifactname empty
-<<<<<<< HEAD
+
 # - task: Bash@3
 #   condition: startsWith(variables['Build.SourceBranchName'], 'release-')
 #   inputs:
 #     targetType: 'inline'
 #     script: |
 #       ORIGINAL_VERSION="$(version)"
-#       NEW_VERSION="${ORIGINAL_VERSION}"
+#       NEW_VERSION="${ORIGINAL_VERSION}-rc-${{ parameters.rcNumber }}"
 #       echo "Original version: $ORIGINAL_VERSION"
 #       echo "New version with RC: $NEW_VERSION"
 #       echo "##vso[task.setvariable variable=version]$NEW_VERSION"
-=======
-- task: Bash@3
-  condition: startsWith(variables['Build.SourceBranchName'], 'release-')
-  inputs:
-    targetType: 'inline'
-    script: |
-      ORIGINAL_VERSION="$(version)"
-      NEW_VERSION="${ORIGINAL_VERSION}-rc-${{ parameters.rcNumber }}"
-      echo "Original version: $ORIGINAL_VERSION"
-      echo "New version with RC: $NEW_VERSION"
-      echo "##vso[task.setvariable variable=version]$NEW_VERSION"
 
 - task: Bash@3
   displayName: 'Copy SNAPSHOT jar to staging'
