@@ -74,7 +74,6 @@ steps:
     script: |
       mkdir -p $(Build.ArtifactStagingDirectory)/package
       cp ./target/*-SNAPSHOT.jar $(Build.ArtifactStagingDirectory)/package/
->>>>>>> develop
 
 - template: pushtoazurefeed.yml@azuretemplates
   parameters:
