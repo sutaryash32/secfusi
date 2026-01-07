@@ -55,16 +55,16 @@ steps:
       applicationName: ${{ parameters.applicationName }}
 
 # For release branches: append RC to version, keep artifactname empty
-- task: Bash@3
-  condition: startsWith(variables['Build.SourceBranchName'], 'release-')
-  inputs:
-    targetType: 'inline'
-    script: |
-      ORIGINAL_VERSION="$(version)"
-      NEW_VERSION="${ORIGINAL_VERSION}"
-      echo "Original version: $ORIGINAL_VERSION"
-      echo "New version with RC: $NEW_VERSION"
-      echo "##vso[task.setvariable variable=version]$NEW_VERSION"
+# - task: Bash@3
+#   condition: startsWith(variables['Build.SourceBranchName'], 'release-')
+#   inputs:
+#     targetType: 'inline'
+#     script: |
+#       ORIGINAL_VERSION="$(version)"
+#       NEW_VERSION="${ORIGINAL_VERSION}"
+#       echo "Original version: $ORIGINAL_VERSION"
+#       echo "New version with RC: $NEW_VERSION"
+#       echo "##vso[task.setvariable variable=version]$NEW_VERSION"
 
 - template: pushtoazurefeed.yml@azuretemplates
   parameters:
