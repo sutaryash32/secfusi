@@ -61,7 +61,7 @@ steps:
     targetType: 'inline'
     script: |
       ORIGINAL_VERSION="$(version)"
-      NEW_VERSION="${ORIGINAL_VERSION}-rc-${{ parameters.rcNumber }}"
+      NEW_VERSION="${ORIGINAL_VERSION}"
       echo "Original version: $ORIGINAL_VERSION"
       echo "New version with RC: $NEW_VERSION"
       echo "##vso[task.setvariable variable=version]$NEW_VERSION"
