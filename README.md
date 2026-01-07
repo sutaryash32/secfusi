@@ -140,4 +140,4 @@ Add or verify the following in `src/main/resources/application.properties`:
 
 Refer to project root for license. For Keycloak integration examples and Swagger setup consult:
 1. Keycloak docs: https://www.keycloak.org
-2. Springdoc OpenAPI / Swagger for Spring Boot.
+2. Springdoc OpenAPI / Swagger for Spring Boot..
