@@ -55,6 +55,7 @@ steps:
       applicationName: ${{ parameters.applicationName }}
 
 # For release branches: append RC to version, keep artifactname empty
+<<<<<<< HEAD
 # - task: Bash@3
 #   condition: startsWith(variables['Build.SourceBranchName'], 'release-')
 #   inputs:
@@ -65,14 +66,35 @@ steps:
 #       echo "Original version: $ORIGINAL_VERSION"
 #       echo "New version with RC: $NEW_VERSION"
 #       echo "##vso[task.setvariable variable=version]$NEW_VERSION"
+=======
+- task: Bash@3
+  condition: startsWith(variables['Build.SourceBranchName'], 'release-')
+  inputs:
+    targetType: 'inline'
+    script: |
+      ORIGINAL_VERSION="$(version)"
+      NEW_VERSION="${ORIGINAL_VERSION}-rc-${{ parameters.rcNumber }}"
+      echo "Original version: $ORIGINAL_VERSION"
+      echo "New version with RC: $NEW_VERSION"
+      echo "##vso[task.setvariable variable=version]$NEW_VERSION"
+
+- task: Bash@3
+  displayName: 'Copy SNAPSHOT jar to staging'
+  inputs:
+    targetType: 'inline'
+    script: |
+      mkdir -p $(Build.ArtifactStagingDirectory)/package
+      cp ./target/*-SNAPSHOT.jar $(Build.ArtifactStagingDirectory)/package/
+>>>>>>> develop
 
 - template: pushtoazurefeed.yml@azuretemplates
   parameters:
       artifactfeed: $(artifactfeed)
       applicationName: ${{ parameters.applicationName }}
-      buildfilespath: ./target
+      buildfilespath: $(Build.ArtifactStagingDirectory)/package
       buildnumber: $(version)
       artifactname: $(artifactname)
+
 
 - template: createazuregittag.yml@azuretemplates
   parameters:

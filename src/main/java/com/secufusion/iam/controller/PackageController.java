@@ -1,5 +1,6 @@
 package com.secufusion.iam.controller;
 
+import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.entity.Package;
 import com.secufusion.iam.service.PackageService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,35 +19,46 @@ public class PackageController {
 
 
     @PostMapping
-    public ResponseEntity<Package> createPackage(@RequestBody Package pkg) {
-        return ResponseEntity.ok(packageService.createPackage(pkg));
+    public ResponseEntity<ResponseDto<Package>> createPackage(@RequestBody Package pkg) {
+        return ResponseEntity.ok(new ResponseDto<>(
+                packageService.createPackage(pkg),
+                "200"
+        ));
     }
 
 
     @PutMapping("/{id}")
-    public ResponseEntity<Package> updatePackage(
+    public ResponseEntity<ResponseDto<Package>> updatePackage(
             @PathVariable Long id,
             @RequestBody Package pkg) {
-        return ResponseEntity.ok(packageService.updatePackage(id, pkg));
+        return ResponseEntity.ok(new ResponseDto<>(packageService.updatePackage(id, pkg),
+                "200"
+        ));
     }
 
 
     @GetMapping("/{id}")
-    public ResponseEntity<Package> getPackage(@PathVariable Long id) {
-        return ResponseEntity.ok(packageService.getPackage(id));
+    public ResponseEntity<ResponseDto<Package>> getPackage(@PathVariable Long id) {
+        return ResponseEntity.ok(new ResponseDto<>(packageService.getPackage(id),
+                "200"
+        ));
     }
 
 
     @GetMapping
-    public ResponseEntity<List<Package>> getAllPackages() {
-        return ResponseEntity.ok(packageService.getAllPackages());
+    public ResponseEntity<ResponseDto<List<Package>>> getAllPackages() {
+        return ResponseEntity.ok(new ResponseDto<>(packageService.getAllPackages(),
+                "200"));
     }
 
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<String> deletePackage(@PathVariable Long id) {
+    public ResponseEntity<ResponseDto<String>> deletePackage(@PathVariable Long id) {
         packageService.deletePackage(id);
-        return ResponseEntity.ok("Package deleted");
+        return ResponseEntity.ok(new ResponseDto<>(
+                "Package deleted successfully",
+                "200"
+        ));
     }
 }
 

@@ -5,3 +5,4 @@ public class MissingAuthorizationException extends RuntimeException {
     public MissingAuthorizationException(String message) { super(message); }
     public MissingAuthorizationException(String message, Throwable cause) { super(message, cause); }
 }
+

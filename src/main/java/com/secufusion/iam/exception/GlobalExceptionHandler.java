@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -45,6 +44,17 @@ public class GlobalExceptionHandler {
                 4040,
                 ex.getMessage(),
                 HttpStatus.NOT_FOUND
+        );
+    }
+
+    @ExceptionHandler(ResourceConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleResourceConflict(ResourceConflictException ex) {
+        log.warn("Resource conflict: {}", ex.getMessage());
+        return buildResponse(
+                "RESOURCE_CONFLICT",
+                4090,
+                ex.getMessage(),
+                HttpStatus.CONFLICT
         );
     }
 
@@ -98,6 +108,25 @@ public class GlobalExceptionHandler {
                 5000,
                 "An unexpected error occurred. Please try again later.",
                 HttpStatus.INTERNAL_SERVER_ERROR
+        );
+    }
+
+    @ExceptionHandler({
+            InvalidTokenException.class,
+            TokenExpiredException.class,
+            TokenMismatchException.class,
+            TokenValidationException.class,
+            MissingAuthorizationException.class
+    })
+    public ResponseEntity<Map<String, Object>> handleAuthExceptions(RuntimeException ex) {
+
+        log.warn("Authentication error: {}", ex.getMessage());
+
+        return buildResponse(
+                "AUTHENTICATION_FAILED",
+                4010,
+                ex.getMessage(),
+                HttpStatus.UNAUTHORIZED
         );
     }
 

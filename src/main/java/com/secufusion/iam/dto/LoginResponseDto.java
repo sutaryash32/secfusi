@@ -19,8 +19,7 @@ public class LoginResponseDto {
     private String userType;
     private String accessToken;
     private String tenantId;
-//    Set<String> mappedScopes;
-    private Map<String, Map<String, Set<String>>> permissionMatrix;
+    Map<String, Map<String, Set<String>>> permissionMatrix;
     Set<GroupsLean> mappedGroups;
     String fullName;
     String firstName;

@@ -2,6 +2,7 @@ package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.AuthDetailsDto;
 import com.secufusion.iam.dto.LoginResponseDto;
+import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.service.AuthConfigService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -41,7 +42,7 @@ public class AuthController {
     })
     @Parameter(name = "Referer", in = ParameterIn.HEADER, description = "Referer header containing origin URL", required = true)
     @GetMapping("/tenant-config/v1")
-    public ResponseEntity<AuthDetailsDto> getTenantConfig(
+    public ResponseEntity<ResponseDto<AuthDetailsDto>> getTenantConfig(
             HttpServletRequest request,
             @Parameter(description = "Expected host/domain for validation", required = true)
             @RequestParam String host
@@ -78,7 +79,12 @@ public class AuthController {
             }
 
             // Passed all checks → return config
-            return ResponseEntity.ok(authConfigService.getTenantConfig(host));
+            return ResponseEntity.ok(
+                    new ResponseDto<>(
+                            authConfigService.getTenantConfig(expectedDomain),
+                            String.valueOf(HttpStatus.OK)
+                    )
+            );
 
         } catch (Exception e) {
             log.error("Error validating referer", e);
@@ -94,16 +100,21 @@ public class AuthController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @GetMapping("/tenant-config")
-    public ResponseEntity<AuthDetailsDto> getTenantConfig(@Parameter(description = "Host/domain", required = true) @RequestParam String host) {
+    public ResponseEntity<ResponseDto<AuthDetailsDto>> getTenantConfig(@Parameter(description = "Host/domain", required = true) @RequestParam String host) {
 //        String flagKey = "api.users.get.enabled";
 //        if (!featureFlagService.isApiEnabled(flagKey)) {
 //            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
 //        }
-        return ResponseEntity.ok(authConfigService.getTenantConfig(host));
+        return ResponseEntity.ok(
+                new ResponseDto<>(
+                        authConfigService.getTenantConfig(host),
+                        String.valueOf(HttpStatus.OK)
+                )
+        );
     }
 
     @PostMapping("/login")
-    public ResponseEntity<LoginResponseDto> login(HttpServletRequest request, @RequestParam String token){
+    public ResponseEntity<ResponseDto<LoginResponseDto>> login(HttpServletRequest request, @RequestParam String token){
 
         // Mask token info: don't log the token itself, only its length and presence
         String remoteAddr = request.getRemoteAddr();
@@ -117,15 +128,12 @@ public class AuthController {
         log.debug("Login processed for remoteAddr={}, resultStatus={}",
                 remoteAddr, response != null ? "non-null" : "null");
 
-        return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/login/test-by-email")
-    public ResponseEntity<LoginResponseDto> loginByEmail(
-            @RequestParam String email) {
-
-        LoginResponseDto response = authConfigService.loginByEmail(email);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(
+                new ResponseDto<>(
+                        response,
+                        String.valueOf(HttpStatus.OK)
+                )
+        );
     }
 
 }

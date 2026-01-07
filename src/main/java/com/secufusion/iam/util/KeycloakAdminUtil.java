@@ -64,272 +64,6 @@ public class KeycloakAdminUtil {
         return new KeycloakOperationException(code, status, op + " failed: " + e.getMessage());
     }
 
-    // ============================================================
-    // REALM OPERATIONS
-    // ============================================================
-
-    /**
-     * Check whether a realm exists.
-     */
-    public boolean realmExists(String realm) {
-        try {
-            boolean exists = keycloak.realms().findAll().stream()
-                    .anyMatch(r -> r.getRealm().equalsIgnoreCase(realm));
-            log.debug("Realm exists check: realm={}, exists={}", realm, exists);
-            return exists;
-        } catch (Exception e) {
-            throw wrap("REALM_CHECK_FAILED", 500, "Error checking realm existence for " + realm, e);
-        }
-    }
-
-    /**
-     * Create a realm from representation.
-     */
-    public void createRealm(RealmRepresentation realmRepresentation) {
-        String realmName = realmRepresentation != null ? realmRepresentation.getRealm() : "unknown";
-        log.info("Creating realm '{}'", realmName);
-        try {
-            keycloak.realms().create(realmRepresentation);
-            log.info("Realm created: {}", realmName);
-        } catch (Exception e) {
-            throw wrap("REALM_CREATE_FAILED", 500, "Failed to create realm " + realmName, e);
-        }
-    }
-
-    public void updateRealmTokenSettings(
-            String realm,
-            Integer accessTokenLifespanSeconds,
-            Integer refreshTokenIdleSeconds,
-            Integer sessionMaxLifespanSeconds
-    ) {
-        RealmRepresentation original = null;
-
-        try {
-            // -------------------------------
-            // Validation
-            // -------------------------------
-            if (realm == null || realm.isBlank()) {
-                throw new KeycloakOperationException(
-                        "INVALID_INPUT", 400, "Realm name must not be null or empty");
-            }
-
-            if (accessTokenLifespanSeconds != null && accessTokenLifespanSeconds < 60) {
-                throw new KeycloakOperationException(
-                        "INVALID_INPUT", 400, "Access token lifespan must be >= 60 seconds");
-            }
-
-            if (refreshTokenIdleSeconds != null && refreshTokenIdleSeconds < 300) {
-                throw new KeycloakOperationException(
-                        "INVALID_INPUT", 400, "Refresh token idle timeout must be >= 300 seconds");
-            }
-
-            if (sessionMaxLifespanSeconds != null &&
-                    sessionMaxLifespanSeconds < accessTokenLifespanSeconds) {
-                throw new KeycloakOperationException(
-                        "INVALID_INPUT", 400,
-                        "Session max lifespan must be >= access token lifespan");
-            }
-
-            RealmResource rr = keycloak.realm(realm);
-
-            // -------------------------------
-            // Snapshot for rollback
-            // -------------------------------
-            original = rr.toRepresentation();
-            RealmRepresentation updated = rr.toRepresentation();
-
-            boolean changed = false;
-
-            // -------------------------------
-            // Apply changes
-            // -------------------------------
-            if (accessTokenLifespanSeconds != null &&
-                    !Objects.equals(updated.getAccessTokenLifespan(), accessTokenLifespanSeconds)) {
-                updated.setAccessTokenLifespan(accessTokenLifespanSeconds);
-                changed = true;
-            }
-
-            if (refreshTokenIdleSeconds != null &&
-                    !Objects.equals(updated.getSsoSessionIdleTimeout(), refreshTokenIdleSeconds)) {
-                updated.setSsoSessionIdleTimeout(refreshTokenIdleSeconds);
-                changed = true;
-            }
-
-            if (sessionMaxLifespanSeconds != null &&
-                    !Objects.equals(updated.getSsoSessionMaxLifespan(), sessionMaxLifespanSeconds)) {
-                updated.setSsoSessionMaxLifespan(sessionMaxLifespanSeconds);
-                changed = true;
-            }
-
-            if (!changed) {
-                log.info("No token settings changed for realm {}", realm);
-                return;
-            }
-
-            // -------------------------------
-            // Update realm
-            // -------------------------------
-            rr.update(updated);
-
-            // -------------------------------
-            // Audit success
-            // -------------------------------
-            auditTokenUpdate(
-                    realm,
-                    original,
-                    updated,
-                    "SUCCESS",
-                    null
-            );
-
-            log.info(
-                    "Updated token settings for realm {} | accessToken={} refreshIdle={} sessionMax={}",
-                    realm,
-                    accessTokenLifespanSeconds,
-                    refreshTokenIdleSeconds,
-                    sessionMaxLifespanSeconds
-            );
-
-        } catch (Exception e) {
-
-            // -------------------------------
-            // Rollback on failure
-            // -------------------------------
-            if (original != null) {
-                try {
-                    keycloak.realm(realm).update(original);
-                    log.warn("Rolled back token settings for realm {}", realm);
-                } catch (Exception rollbackEx) {
-                    log.error("Rollback failed for realm {}", realm, rollbackEx);
-                }
-            }
-
-            // -------------------------------
-            // Audit failure
-            // -------------------------------
-            auditTokenUpdate(
-                    realm,
-                    original,
-                    null,
-                    "FAILED",
-                    e.getMessage()
-            );
-
-            throw wrap(
-                    "REALM_UPDATE_TOKEN_SETTINGS_FAILED",
-                    500,
-                    "Failed updating token settings for realm " + realm,
-                    e
-            );
-        }
-    }
-
-    private void auditTokenUpdate(
-            String realm,
-            RealmRepresentation before,
-            RealmRepresentation after,
-            String status,
-            String errorMessage
-    ) {
-        log.info(
-                "AUDIT | realm={} | status={} | accessTokenBefore={} | accessTokenAfter={} | " +
-                        "refreshIdleBefore={} | refreshIdleAfter={} | sessionMaxBefore={} | sessionMaxAfter={} | error={}",
-                realm,
-                status,
-                before != null ? before.getAccessTokenLifespan() : null,
-                after != null ? after.getAccessTokenLifespan() : null,
-                before != null ? before.getSsoSessionIdleTimeout() : null,
-                after != null ? after.getSsoSessionIdleTimeout() : null,
-                before != null ? before.getSsoSessionMaxLifespan() : null,
-                after != null ? after.getSsoSessionMaxLifespan() : null,
-                errorMessage
-        );
-    }
-
-//    public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
-//        log.info("Adding identity provider '{}' to realm {}",
-//                dto != null ? dto.getAlias() : "null", realm);
-//
-//        Response resp = null;
-//
-//        try {
-//            if (dto == null) {
-//                throw new KeycloakOperationException("INVALID_INPUT", 400,
-//                        "CreateIdentityProviderRequest must not be null");
-//            }
-//
-//            // -------------------------------
-//            // 1️⃣ Build Keycloak IDP Representation
-//            // -------------------------------
-//            IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
-//            idpRep.setAlias(dto.getAlias());
-//            idpRep.setProviderId(dto.getProviderId());
-//            idpRep.setEnabled(dto.getEnabled());
-//            idpRep.setStoreToken(dto.getStoreToken());
-//            idpRep.setLinkOnly(dto.getLinkOnly());
-//            idpRep.setTrustEmail(dto.getTrustEmail());
-//            idpRep.setDisplayName(dto.getDisplayName());
-//
-//            // -------------------------------
-//            // 2️⃣ Convert DTO → Keycloak config map
-//            // -------------------------------
-//            Map<String, String> config = new HashMap<>();
-//            put(config, "clientId", dto.getClientId());
-//            put(config, "clientSecret", dto.getClientSecret());
-//            put(config, "authorizationUrl", dto.getAuthorizationUrl());
-//            put(config, "tokenUrl", dto.getTokenUrl());
-//            put(config, "userInfoUrl", dto.getUserInfoUrl());
-//            put(config, "issuer", dto.getIssuer());
-//            put(config, "redirectUri", dto.getRedirectUri());
-//            put(config,"tenantId",dto.getTenantId());
-//
-//            idpRep.setConfig(config);
-//
-//            // -------------------------------
-//            // 3️⃣ Create IDP in Keycloak
-//            // -------------------------------
-//            RealmResource rr = keycloak.realm(realm);
-//            resp = rr.identityProviders().create(idpRep);
-//
-//            int status = resp.getStatus();
-//            log.debug("Identity provider creation response status={}", status);
-//
-//            if (status != 201 && status != 409) {
-//                String body = resp.readEntity(String.class);
-//                throw new KeycloakOperationException("IDP_CREATE_FAILED",
-//                        500, "Identity provider creation failed: " + body);
-//            }
-//
-//            if (status == 409) {
-//                log.warn("Identity provider already exists: realm={}, alias={}", realm, dto.getAlias());
-//            } else {
-//                log.info("Identity provider created: realm={}, alias={}", realm, dto.getAlias());
-//            }
-//
-//            // -------------------------------
-//            // 4️⃣ Build and return Azure Redirect URL
-//            // -------------------------------
-//            String redirectUrl = buildAzureRedirectUrl(realm, dto.getAlias());
-//
-//            return redirectUrl;
-//
-//        } catch (KeycloakOperationException e) {
-//            throw e;
-//        } catch (Exception e) {
-//            throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
-//                    "Failed to create identity provider in realm " + realm, e);
-//        } finally {
-//            if (resp != null) {
-//                try {
-//                    resp.close();
-//                } catch (Exception e) {
-//                    log.warn("Failed to close response: {}", e.getMessage(), e);
-//                }
-//            }
-//        }
-//    }
-
-
     public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
         log.info("Adding identity provider '{}' to realm {}", dto.getAlias(), realm);
 
@@ -415,54 +149,6 @@ public class KeycloakAdminUtil {
         }
     }
 
-    public String updateIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
-        log.info("Updating identity provider '{}' in realm {}", dto != null ? dto.getAlias() : "null", realm);
-        try {
-            if (dto == null) {
-                throw new KeycloakOperationException("INVALID_INPUT", 400, "CreateIdentityProviderRequest must not be null");
-            }
-            RealmResource rr = keycloak.realm(realm);
-            IdentityProviderResource idpResource = rr.identityProviders().get(dto.getAlias());
-            IdentityProviderRepresentation existing;
-            try {
-                existing = idpResource.toRepresentation();
-                if (existing == null) {
-                    throw new KeycloakOperationException("IDP_NOT_FOUND", 404, "Identity provider not found: " + dto.getAlias());
-                }
-            } catch (Exception e) {
-                throw new KeycloakOperationException("IDP_LOOKUP_FAILED", 500, "Failed to lookup identity provider " + dto.getAlias(), e);
-            }
-            IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
-            idpRep.setAlias(dto.getAlias());
-            idpRep.setProviderId(dto.getProviderId());
-            idpRep.setEnabled(dto.getEnabled());
-            idpRep.setStoreToken(dto.getStoreToken());
-            idpRep.setLinkOnly(dto.getLinkOnly());
-            idpRep.setTrustEmail(dto.getTrustEmail());
-            idpRep.setDisplayName(dto.getDisplayName());
-            Map<String, String> config = new HashMap<>();
-            put(config, "clientId", dto.getClientId());
-            put(config, "clientSecret", dto.getClientSecret());
-            put(config, "authorizationUrl", dto.getAuthorizationUrl());
-            put(config, "tokenUrl", dto.getTokenUrl());
-            put(config, "userInfoUrl", dto.getUserInfoUrl());
-            put(config, "issuer", dto.getIssuer());
-            put(config, "redirectUri", dto.getRedirectUri());
-            idpRep.setConfig(config);
-            try {
-                idpResource.update(idpRep);
-                log.info("Identity provider updated: realm={}, alias={}", realm, dto.getAlias());
-                return buildAzureRedirectUrl(realm, dto.getAlias());
-            } catch (Exception e) {
-                throw new KeycloakOperationException("IDP_UPDATE_FAILED", 500, "Failed to update identity provider " + dto.getAlias() + " in realm " + realm, e);
-            }
-        } catch (KeycloakOperationException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new KeycloakOperationException("IDP_UPDATE_FAILED", 500, "Unexpected error updating identity provider in realm " + realm, e);
-        }
-    }
-
     private String buildAzureRedirectUrl(String realm, String alias) {
         String keycloakBaseUrl = keycloakServerUrl;
 
@@ -527,77 +213,6 @@ public class KeycloakAdminUtil {
 
         log.info("Default Identity Provider for realm={} set to {}", realm, alias);
     }
-
-    /**
-     * Delete a realm by name.
-     */
-    public void deleteRealm(String realmName) {
-        log.info("Deleting realm: {}", realmName);
-        try {
-            keycloak.realm(realmName).remove();
-            log.info("Realm deleted: {}", realmName);
-        } catch (Exception e) {
-            throw wrap("REALM_DELETE_FAILED", 500, "Failed to delete realm " + realmName, e);
-        }
-    }
-
-    // ============================================================
-    // CLIENT OPERATIONS
-    // ============================================================
-
-    /**
-     * Check if a client exists in a realm by clientId.
-     */
-    public boolean clientExists(String realm, String clientId) {
-        try {
-            boolean exists = keycloak.realm(realm).clients().findAll()
-                    .stream()
-                    .anyMatch(c -> c.getClientId().equalsIgnoreCase(clientId));
-            log.debug("Client exists check: realm={}, clientId={}, exists={}", realm, clientId, exists);
-            return exists;
-        } catch (Exception e) {
-            throw wrap("CLIENT_CHECK_FAILED", 500, "Error checking client existence for " + clientId + " in realm " + realm, e);
-        }
-    }
-
-    /**
-     * Create a client in a realm. Allows 201 (created) and 409 (conflict).
-     */
-    public void createClient(String realm, ClientRepresentation clientRep) {
-        log.info("Creating Keycloak client: realm={}, clientId={}", realm, clientRep != null ? clientRep.getClientId() : "null");
-        Response resp = null;
-        try {
-            resp = keycloak.realm(realm).clients().create(clientRep);
-            int status = resp.getStatus();
-            log.debug("Client creation response status={}", status);
-            if (status != 201 && status != 409) {
-                String body = resp.readEntity(String.class);
-                throw new KeycloakOperationException("CLIENT_CREATE_FAILED", 500, "Client creation failed: " + body);
-            }
-            if (status == 409) {
-                log.warn("Client already exists: realm={}, clientId={}", realm, clientRep.getClientId());
-            } else {
-                log.info("Client created in realm={} clientId={}", realm, clientRep.getClientId());
-            }
-        } catch (KeycloakOperationException e) {
-            // rethrow Keycloak-specific wrapper
-            throw e;
-        } catch (Exception e) {
-            throw wrap("CLIENT_CREATE_FAILED", 500, "Exception while creating client " + (clientRep != null ? clientRep.getClientId() : "null") + " in realm " + realm, e);
-        } finally {
-            if (resp != null) {
-                try {
-                    resp.close();
-                } catch (Exception e) {
-                    log.warn("Failed to close client creation response: {}", e.getMessage(), e);
-                }
-            }
-        }
-    }
-
-    // ============================================================
-    // USER OPERATIONS
-    // ============================================================
 
     /**
      * Create a user. Returns created Keycloak user id or null if already exists.
@@ -723,23 +338,6 @@ public class KeycloakAdminUtil {
     }
 
     /**
-     * Set or reset a user's password.
-     */
-    public void setPassword(String realm, String userId, String password, boolean temporary) {
-        log.info("Setting password for KC user '{}' in realm '{}'", userId, realm);
-        try {
-            CredentialRepresentation cred = new CredentialRepresentation();
-            cred.setType(CredentialRepresentation.PASSWORD);
-            cred.setValue(password);
-            cred.setTemporary(temporary);
-            keycloak.realm(realm).users().get(userId).resetPassword(cred);
-            log.debug("Password set for user {}", userId);
-        } catch (Exception e) {
-            throw wrap("PASSWORD_SET_FAILED", 500, "Failed to set password for KC user " + userId, e);
-        }
-    }
-
-    /**
      * Trigger Keycloak to send required action emails (e.g., verify email, update password).
      */
     public void sendRequiredActionEmail(String realm, String userId, List<String> actions) {
@@ -753,229 +351,138 @@ public class KeycloakAdminUtil {
     }
 
     /**
-     * Assign all client roles from every client to the given user.
+     * Search users by username or email and return deduped list (by id).
      */
-    public void assignAllClientRoles(String realm, String userId) {
-        log.info("Assigning all client roles to user {} in realm {}", userId, realm);
+    public List<UserRepresentation> findUsersByUsernameOrEmail(
+            String realm,
+            String username,
+            String email
+    ) {
+        UsersResource users = keycloak.realm(realm).users();
+        List<UserRepresentation> results = new ArrayList<>();
+
         try {
-            RealmResource rr = keycloak.realm(realm);
-            List<ClientRepresentation> clients = rr.clients().findAll();
-            for (ClientRepresentation client : clients) {
-                try {
-                    List<RoleRepresentation> roles = rr.clients().get(client.getId()).roles().list();
-                    if (!roles.isEmpty()) {
-                        rr.users().get(userId).roles().clientLevel(client.getId()).add(roles);
-                        log.debug("Assigned {} roles from client {} to user {}", roles.size(), client.getClientId(), userId);
-                    }
-                } catch (Exception e) {
-                    // Continue with other clients but log the failure for each client individually
-                    log.warn("Failed to assign roles from client {} to user {}: {}", client.getClientId(), userId, e.getMessage(), e);
-                }
+            if (username != null && !username.isBlank()) {
+                results.addAll(users.search(username, true));
             }
-            log.info("Assigned client roles to user {}", userId);
+            if (email != null && !email.isBlank()) {
+                results.addAll(users.search(email, true));
+            }
         } catch (Exception e) {
-            throw wrap("ASSIGN_CLIENT_ROLES_FAILED", 500, "Failed assigning client roles to KC user " + userId, e);
+            throw wrap(
+                    "USER_SEARCH_FAILED",
+                    500,
+                    "Error searching KC for realm=" + realm +
+                            " username=" + username +
+                            " email=" + email,
+                    e
+            );
+        }
+
+        // 🔐 Filter to exact matches only
+        return results.stream()
+                .filter(u ->
+                        (username != null && username.equalsIgnoreCase(u.getUsername())) ||
+                                (email != null && email.equalsIgnoreCase(u.getEmail()))
+                )
+                // 🔁 Deduplicate by Keycloak user ID
+                .collect(Collectors.toMap(
+                        UserRepresentation::getId,
+                        u -> u,
+                        (a, b) -> a
+                ))
+                .values()
+                .stream()
+                .toList();
+    }
+
+    public void deleteIdentityProvider(String realm, String alias) {
+        try {
+            keycloak.realm(realm)
+                    .identityProviders()
+                    .get(alias)
+                    .remove();
+
+            log.info("Deleted Identity Provider '{}' from realm '{}'", alias, realm);
+        } catch (Exception e) {
+            log.error("Failed to delete Identity Provider '{}' from realm '{}'",
+                    alias, realm, e);
+            throw e; // let service decide whether to continue
         }
     }
 
-    /**
-     * Assign realm-admin client role to the user.
-     */
-    public void assignRealmAdminRole(String realm, String userId) {
-        log.info("Assigning realm-admin role to user {} in realm {}", userId, realm);
+    public void assignRealmAdminRoleIfMissing(String realm, String userId) {
+
+        log.info("Ensuring realm-admin role for user {} in realm {}", userId, realm);
+
         try {
             RealmResource rr = keycloak.realm(realm);
-            List<ClientRepresentation> found = rr.clients().findByClientId("realm-management");
-            if (found == null || found.isEmpty()) {
-                throw new KeycloakOperationException("ROLE_LOOKUP_FAILED", 500, "realm-management client not found in realm " + realm);
+
+            // -------------------------------------------------
+            // 1️⃣ Find realm-management client
+            // -------------------------------------------------
+            ClientRepresentation realmMgmtClient = rr.clients()
+                    .findByClientId("realm-management")
+                    .stream()
+                    .findFirst()
+                    .orElseThrow(() ->
+                            new KeycloakOperationException(
+                                    "REALM_MGMT_CLIENT_NOT_FOUND",
+                                    500,
+                                    "realm-management client not found in realm " + realm
+                            )
+                    );
+
+            String clientId = realmMgmtClient.getId();
+
+            // -------------------------------------------------
+            // 2️⃣ Get realm-admin role representation
+            // -------------------------------------------------
+            RoleRepresentation realmAdminRole = rr.clients()
+                    .get(clientId)
+                    .roles()
+                    .get("realm-admin")
+                    .toRepresentation();
+
+            // -------------------------------------------------
+            // 3️⃣ Fetch already assigned client roles
+            // -------------------------------------------------
+            List<RoleRepresentation> assignedRoles =
+                    rr.users()
+                            .get(userId)
+                            .roles()
+                            .clientLevel(clientId)
+                            .listAll();
+
+            boolean alreadyAssigned = assignedRoles.stream()
+                    .anyMatch(r -> r.getName().equals("realm-admin"));
+
+            if (alreadyAssigned) {
+                log.debug("ℹ️ realm-admin role already assigned. userId={}", userId);
+                return;
             }
-            ClientRepresentation realmMgmt = found.get(0);
-            RoleRepresentation role = rr.clients().get(realmMgmt.getId()).roles().get("realm-admin").toRepresentation();
-            rr.users().get(userId).roles().clientLevel(realmMgmt.getId()).add(List.of(role));
-            log.info("Assigned realm-admin to user {}", userId);
+
+            // -------------------------------------------------
+            // 4️⃣ Assign role (ONLY IF MISSING)
+            // -------------------------------------------------
+            rr.users()
+                    .get(userId)
+                    .roles()
+                    .clientLevel(clientId)
+                    .add(List.of(realmAdminRole));
+
+            log.info("✔ realm-admin role assigned to user {}", userId);
+
         } catch (KeycloakOperationException e) {
             throw e;
         } catch (Exception e) {
-            throw wrap("ASSIGN_REALM_ADMIN_FAILED", 500, "Failed to assign realm-admin role to user " + userId, e);
-        }
-    }
-
-    // ============================================================
-    // FIND / SEARCH HELPERS
-    // ============================================================
-
-    /**
-     * Search users by username (case-insensitive).
-     */
-    public List<UserRepresentation> findUserByUsername(String realm, String username) {
-        try {
-            return keycloak.realm(realm).users().search(username, true);
-        } catch (Exception e) {
-            throw wrap("USER_SEARCH_FAILED", 500, "Failed searching user in KC realm=" + realm + " username=" + username, e);
-        }
-    }
-
-    /**
-     * Search users by username or email and return deduped list (by id).
-     */
-    public List<UserRepresentation> findUsersByUsernameOrEmail(String realm, String username, String email) {
-        UsersResource users = keycloak.realm(realm).users();
-        List<UserRepresentation> list = new ArrayList<>();
-        try {
-            if (username != null && !username.isBlank()) list.addAll(users.search(username, true));
-            if (email != null && !email.isBlank()) list.addAll(users.search(email, true));
-        } catch (Exception e) {
-            // Log and wrap - returning empty list may hide issues, so throw to surface the error
-            throw wrap("USER_SEARCH_FAILED", 500, "Error searching KC for username/email realm=" + realm + " username=" + username + " email=" + email, e);
-        }
-        // dedupe by id
-        return list.stream().collect(Collectors.toMap(UserRepresentation::getId, u -> u, (a, b) -> a)).values().stream().toList();
-    }
-
-    /**
-     * Compare DB user id with Keycloak user id.
-     */
-    public boolean isSameKeycloakUser(String realm, String dbUserId, String kcUserId) {
-        boolean same = kcUserId != null && dbUserId != null && kcUserId.equals(dbUserId);
-        log.debug("isSameKeycloakUser realm={}, dbUserId={}, kcUserId={}, same={}", realm, dbUserId, kcUserId, same);
-        return same;
-    }
-
-    // ============================================================
-    // EMAIL (moved here from TenantService)
-    // ============================================================
-
-    /**
-     * Send a simple welcome email. All exceptions are handled and wrapped.
-     */
-    public void sendWelcomeEmail(String to, String loginUrl, String username) {
-        log.info("Sending welcome email to {} with loginUrl={}", to, loginUrl);
-
-        Properties props = new Properties();
-        props.put("mail.smtp.host", smtpHost);
-        props.put("mail.smtp.port", smtpPort);
-        props.put("mail.smtp.auth", smtpAuth);
-        props.put("mail.smtp.starttls.enable", smtpStarttls);
-
-        Session session = Session.getInstance(
-                props,
-                new Authenticator() {
-                    protected PasswordAuthentication getPasswordAuthentication() {
-                        return new PasswordAuthentication(smtpUsername, smtpPassword);
-                    }
-                });
-
-        try {
-            Message msg = new MimeMessage(session);
-            msg.setFrom(new InternetAddress(smtpMail, false));
-            msg.setRecipients(Message.RecipientType.TO, InternetAddress.parse(to));
-            msg.setSubject("Welcome to Secufusion");
-            msg.setContent(
-                    "<h3>Welcome to Secufusion!</h3>" +
-                            "<p>Your admin account is ready.</p>" +
-                            "<p><b>Login:</b> <a href='" + loginUrl + "'>" + loginUrl + "</a></p>" +
-                            "<p><b>Username:</b> " + username + "</p><hr/>",
-                    "text/html"
+            throw wrap(
+                    "ASSIGN_REALM_ADMIN_FAILED",
+                    500,
+                    "Failed to ensure realm-admin role for user " + userId,
+                    e
             );
-
-            Transport.send(msg);
-            log.info("Welcome email sent to {}", to);
-        } catch (MessagingException e) {
-            throw wrap("EMAIL_SEND_FAILED", 500, "Failed to send welcome email to " + to, e);
-        } catch (Exception e) {
-            throw wrap("EMAIL_SEND_FAILED", 500, "Unexpected error while sending welcome email to " + to, e);
         }
-    }
-
-    public void createExtensionClient(String realm, String clientId, String redirectUri) {
-        log.info("Creating extension client '{}' in realm '{}'", clientId, realm);
-
-        RealmResource rr = keycloak.realm(realm);
-
-        // ------------------------
-        // 1️⃣ CREATE CLIENT
-        // ------------------------
-        ClientRepresentation client = new ClientRepresentation();
-        client.setClientId(clientId);
-        client.setEnabled(true);
-        client.setProtocol("openid-connect");
-        client.setRedirectUris(List.of(redirectUri));
-
-        client.setPublicClient(false);                 // for secure extensions
-        client.setServiceAccountsEnabled(true);         // enable machine-to-machine
-        client.setAuthorizationServicesEnabled(true);   // enable Keycloak authz
-
-        client.setDirectAccessGrantsEnabled(false);
-        client.setStandardFlowEnabled(false);
-        client.setBearerOnly(false);
-
-        Response resp = rr.clients().create(client);
-        if (resp.getStatus() != 201 && resp.getStatus() != 409) {
-            throw new KeycloakOperationException("CLIENT_CREATE_FAILED", resp.getStatus(),
-                    resp.readEntity(String.class));
-        }
-
-        if (resp.getStatus() == 409) {
-            log.warn("Extension client {} already exists in realm {}", clientId, realm);
-            return;
-        }
-
-        resp.close();
-
-        // Fetch newly created client
-        ClientRepresentation created = rr.clients()
-                .findByClientId(clientId).stream().findFirst()
-                .orElseThrow(() -> new RuntimeException("Client not found after creation"));
-
-        String clientUUID = created.getId();
-
-        // ------------------------
-        // 2️⃣ GET SERVICE ACCOUNT USER
-        // ------------------------
-        UserRepresentation serviceUser = rr.clients().get(clientUUID).getServiceAccountUser();
-        if (serviceUser == null) {
-            throw new RuntimeException("Service account user missing for client " + clientId);
-        }
-
-        String serviceUserId = serviceUser.getId();
-
-        // ------------------------
-        // 3️⃣ ASSIGN DEFAULT REALM ROLES
-        // ------------------------
-        String[] defaultRealmRoles = {
-                "view-users",
-                "query-users"
-        };
-
-        for (String roleName : defaultRealmRoles) {
-            RoleRepresentation role = rr.roles().get(roleName).toRepresentation();
-            rr.users().get(serviceUserId).roles().realmLevel().add(List.of(role));
-        }
-
-        log.info("Assigned default realm-management roles to client {}", clientId);
-
-        // ------------------------
-        // 4️⃣ OPTIONAL: ASSIGN CLIENT ROLES (realm-management)
-        // ------------------------
-        ClientRepresentation rmClient = rr.clients()
-                .findByClientId("realm-management").stream().findFirst().orElse(null);
-
-        if (rmClient != null) {
-            ClientResource rmResource = rr.clients().get(rmClient.getId());
-
-            String[] clientRoles = { "view-users", "query-users" };
-
-            for (String cr : clientRoles) {
-                RoleRepresentation r = rmResource.roles().get(cr).toRepresentation();
-                rr.users().get(serviceUserId)
-                        .roles()
-                        .clientLevel(rmClient.getId())
-                        .add(List.of(r));
-            }
-            log.info("Client roles assigned from realm-management for {}", clientId);
-        }
-
-        log.info("Extension client '{}' created successfully", clientId);
     }
 
 }

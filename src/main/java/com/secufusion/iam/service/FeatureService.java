@@ -5,6 +5,8 @@ import com.secufusion.iam.dto.FeatureResponse;
 import com.secufusion.iam.entity.Feature;
 import com.secufusion.iam.entity.FeatureType;
 import com.secufusion.iam.entity.TenantType;
+import com.secufusion.iam.exception.ResourceConflictException;
+import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.FeatureRepository;
 import com.secufusion.iam.repository.FeatureTypeRepository;
 import com.secufusion.iam.repository.TenantTypeRepository;
@@ -12,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.rmi.AlreadyBoundException;
 import java.util.List;
 
 @Service
@@ -34,16 +37,16 @@ public class FeatureService {
 
         // Unique Feature Name Check
         if (featureRepository.existsByFeatureNameIgnoreCase(request.getFeatureName())) {
-            throw new RuntimeException("Feature already exists: " + request.getFeatureName());
+            throw new ResourceNotFoundException("Feature already exists: " + request.getFeatureName());
         }
 
         // Validate Feature Scope
         TenantType scope = tenantTypeRepository.findById(request.getFeatureScopeId())
-                .orElseThrow(() -> new RuntimeException("Invalid featureScopeId: " + request.getFeatureScopeId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid featureScopeId: " + request.getFeatureScopeId()));
 
         // Validate Feature Type
         FeatureType type = featureTypeRepository.findById(request.getFeatureTypeId())
-                .orElseThrow(() -> new RuntimeException("Invalid featureTypeId: " + request.getFeatureTypeId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid featureTypeId: " + request.getFeatureTypeId()));
 
         Feature feature = new Feature();
         feature.setFeatureName(request.getFeatureName());
@@ -75,7 +78,7 @@ public class FeatureService {
         log.info("Fetching feature with ID: {}", id);
 
         Feature feature = featureRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Feature not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Feature not found"));
 
         return mapToResponse(feature);
     }
@@ -87,21 +90,21 @@ public class FeatureService {
         log.info("Updating feature with ID: {}", id);
 
         Feature existing = featureRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Feature not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Feature not found"));
 
         // Unique name check but allow same name
         if (!existing.getFeatureName().equalsIgnoreCase(request.getFeatureName()) &&
                 featureRepository.existsByFeatureNameIgnoreCase(request.getFeatureName())) {
-            throw new RuntimeException("Feature name already exists: " + request.getFeatureName());
+            throw new ResourceConflictException("Feature name already exists: " + request.getFeatureName());
         }
 
         // Validate Scope
         TenantType scope = tenantTypeRepository.findById(request.getFeatureScopeId())
-                .orElseThrow(() -> new RuntimeException("Invalid featureScopeId"));
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid featureScopeId"));
 
         // Validate Type
         FeatureType type = featureTypeRepository.findById(request.getFeatureTypeId())
-                .orElseThrow(() -> new RuntimeException("Invalid featureTypeId"));
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid featureTypeId"));
 
         existing.setFeatureName(request.getFeatureName());
         existing.setDescription(request.getDescription());
@@ -121,7 +124,7 @@ public class FeatureService {
         log.warn("Deleting feature with ID: {}", id);
 
         if (!featureRepository.existsById(id)) {
-            throw new RuntimeException("Feature not found");
+            throw new ResourceNotFoundException("Feature not found");
         }
 
         featureRepository.deleteById(id);

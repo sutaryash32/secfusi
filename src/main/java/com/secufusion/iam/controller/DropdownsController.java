@@ -2,12 +2,14 @@ package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.GroupsDropdown;
 import com.secufusion.iam.dto.IndustryDTO;
+import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.dto.RoleDropdownResponse;
 import com.secufusion.iam.entity.*;
 import com.secufusion.iam.service.DropdownService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -49,8 +51,8 @@ public class DropdownsController {
                 array = @ArraySchema(schema = @Schema(implementation = Region.class))))
     })
     @GetMapping("/regions")
-    public List<Region> getRegions() {
-        return dropdownService.getAllRegions();
+    public ResponseEntity<ResponseDto<List<Region>>> getRegions() {
+        return ResponseEntity.ok(new ResponseDto<>(dropdownService.getAllRegions(), String.valueOf(HttpStatus.OK.value())));
     }
 
     /**
@@ -67,9 +69,9 @@ public class DropdownsController {
         @ApiResponse(responseCode = "400", description = "Bad request")
     })
     @GetMapping("/countries")
-    public ResponseEntity<List<Country>> getCountriesByRegion(
+    public ResponseEntity<ResponseDto<List<Country>>> getCountriesByRegion(
             @Parameter(description = "Region id", required = true) @RequestParam Long regionId) {
-        return ResponseEntity.ok(dropdownService.getCountriesByRegion(regionId));
+        return ResponseEntity.ok(new ResponseDto<>(dropdownService.getCountriesByRegion(regionId), String.valueOf(HttpStatus.OK.value())));
     }
 
     /**
@@ -86,9 +88,9 @@ public class DropdownsController {
         @ApiResponse(responseCode = "400", description = "Bad request")
     })
     @GetMapping("/states")
-    public ResponseEntity<List<States>> getStatesByCountry(
+    public ResponseEntity<ResponseDto<List<States>>> getStatesByCountry(
             @Parameter(description = "Country id", required = true) @RequestParam Long countryId) {
-        return ResponseEntity.ok(dropdownService.getStatesByCountry(countryId));
+        return ResponseEntity.ok(new ResponseDto<>(dropdownService.getStatesByCountry(countryId), String.valueOf(HttpStatus.OK.value())));
     }
 
     /**
@@ -105,9 +107,9 @@ public class DropdownsController {
         @ApiResponse(responseCode = "400", description = "Bad request")
     })
     @GetMapping("/cities")
-    public ResponseEntity<List<Cities>> getCitiesByStateId(
+    public ResponseEntity<ResponseDto<List<Cities>>> getCitiesByStateId(
             @Parameter(description = "State id", required = true) @RequestParam Long stateId) {
-        return ResponseEntity.ok(dropdownService.getCitiesByState(stateId));
+        return ResponseEntity.ok(new ResponseDto<>(dropdownService.getCitiesByState(stateId), String.valueOf(HttpStatus.OK.value())));
     }
 
     @GetMapping("/industries")
@@ -117,8 +119,8 @@ public class DropdownsController {
             content = @Content(mediaType = "application/json",
                 array = @ArraySchema(schema = @Schema(implementation = IndustryDTO.class))))
     })
-    public List<IndustryDTO> getAllIndustries() {
-        return dropdownService.getAllIndustries();
+    public ResponseEntity<ResponseDto<List<IndustryDTO>>> getAllIndustries() {
+        return ResponseEntity.ok(new ResponseDto<>(dropdownService.getAllIndustries(), String.valueOf(HttpStatus.OK.value())));
     }
 
     /**
@@ -135,11 +137,11 @@ public class DropdownsController {
                             content = @Content(mediaType = "application/json"))
             }
     )
-    public ResponseEntity<List<Map<String, Object>>> getBillingTypes() {
+    public ResponseEntity<ResponseDto<List<Map<String, Object>>>> getBillingTypes() {
         log.debug("getBillingTypes - fetching billing types");
         List<Map<String, Object>> billing = dropdownService.getTenantBillingTypes();
         log.debug("getBillingTypes - completed: count={}", billing != null ? billing.size() : 0);
-        return ResponseEntity.ok(billing);
+        return ResponseEntity.ok(new ResponseDto<>(billing, String.valueOf(HttpStatus.OK.value())));
     }
 
     /**
@@ -158,11 +160,11 @@ public class DropdownsController {
                                     array = @ArraySchema(schema = @Schema(implementation = TenantType.class))))
             }
     )
-    public ResponseEntity<List<TenantType>> getAllTenantTypes(@Parameter(hidden = true) HttpServletRequest request) {
+    public ResponseEntity<ResponseDto<List<TenantType>>> getAllTenantTypes(@Parameter(hidden = true) HttpServletRequest request) {
         log.debug("getAllTenantTypes - start");
         List<TenantType> types = dropdownService.getTenantTypesByTenantType(request);
         log.debug("getAllTenantTypes - completed: count={}", types != null ? types.size() : 0);
-        return ResponseEntity.ok(types);
+        return ResponseEntity.ok(new ResponseDto<>(types, String.valueOf(HttpStatus.OK.value())));
     }
 
     /**
@@ -176,11 +178,11 @@ public class DropdownsController {
             @ApiResponse(responseCode = "200", description = "Dropdown list returned")
     })
     @GetMapping("/groups/dropdown")
-    public ResponseEntity<List<GroupsDropdown>> getGroupsForDropdown(HttpServletRequest request) {
+    public ResponseEntity<ResponseDto<List<GroupsDropdown>>> getGroupsForDropdown(HttpServletRequest request) {
         log.debug("Fetching groups for dropdown");
         List<GroupsDropdown> dropdownList = dropdownService.getGroupsForDropdown(request);
         log.debug("Dropdown items returned={}", dropdownList != null ? dropdownList.size() : 0);
-        return ResponseEntity.ok(dropdownList);
+        return ResponseEntity.ok(new ResponseDto<>(dropdownList, String.valueOf(HttpStatus.OK.value())));
     }
 
     /**
@@ -196,10 +198,10 @@ public class DropdownsController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @GetMapping("/roles/dropdown")
-    public ResponseEntity<List<RoleDropdownResponse>> getRolesForDropdown(@RequestParam(required = false) String action) {
+    public ResponseEntity<ResponseDto<List<RoleDropdownResponse>>> getRolesForDropdown(@RequestParam(required = false) String action) {
         log.info("GET /roles/dropdown - getRolesForDropdown called");
         List<RoleDropdownResponse> dropdownList = dropdownService.getRolesForDropdown(action);
         log.info("GET /roles/dropdown - returning {} items", dropdownList != null ? dropdownList.size() : 0);
-        return ResponseEntity.ok(dropdownList);
+        return ResponseEntity.ok(new ResponseDto<>(dropdownList, String.valueOf(HttpStatus.OK.value())));
     }
 }

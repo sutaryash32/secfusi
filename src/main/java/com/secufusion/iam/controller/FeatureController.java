@@ -2,6 +2,7 @@ package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.CreateFeatureRequest;
 import com.secufusion.iam.dto.FeatureResponse;
+import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.service.FeatureService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -32,11 +33,14 @@ public class FeatureController {
                     content = @Content(schema = @Schema(implementation = FeatureResponse.class))),
             @ApiResponse(responseCode = "400", description = "Invalid request")
     })
-    public ResponseEntity<FeatureResponse> createFeature(
+    public ResponseEntity<ResponseDto<FeatureResponse>> createFeature(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "Feature to create", required = true,
                     content = @Content(schema = @Schema(implementation = CreateFeatureRequest.class)))
             @RequestBody CreateFeatureRequest request) {
-        return ResponseEntity.ok(featureService.createFeature(request));
+        return ResponseEntity.ok(new ResponseDto<>(
+                featureService.createFeature(request),
+                "200"
+        ));
     }
 
     @GetMapping
@@ -45,8 +49,11 @@ public class FeatureController {
             @ApiResponse(responseCode = "200", description = "List of features",
                     content = @Content(schema = @Schema(implementation = FeatureResponse.class)))
     })
-    public ResponseEntity<List<FeatureResponse>> getAllFeatures() {
-        return ResponseEntity.ok(featureService.getAllFeatures());
+    public ResponseEntity<ResponseDto<List<FeatureResponse>>> getAllFeatures() {
+        return ResponseEntity.ok(new ResponseDto<>(
+                featureService.getAllFeatures(),
+                "200"
+        ));
     }
 
     @GetMapping("/{id}")
@@ -56,9 +63,12 @@ public class FeatureController {
                     content = @Content(schema = @Schema(implementation = FeatureResponse.class))),
             @ApiResponse(responseCode = "404", description = "Feature not found")
     })
-    public ResponseEntity<FeatureResponse> getFeature(
+    public ResponseEntity<ResponseDto<FeatureResponse>> getFeature(
             @Parameter(description = "ID of the feature", required = true) @PathVariable Long id) {
-        return ResponseEntity.ok(featureService.getFeature(id));
+        return ResponseEntity.ok(new ResponseDto<>(
+                featureService.getFeature(id),
+                "200"
+        ));
     }
 
     @PutMapping("/{id}")
@@ -69,12 +79,15 @@ public class FeatureController {
             @ApiResponse(responseCode = "400", description = "Invalid request"),
             @ApiResponse(responseCode = "404", description = "Feature not found")
     })
-    public ResponseEntity<FeatureResponse> updateFeature(
+    public ResponseEntity<ResponseDto<FeatureResponse>> updateFeature(
             @Parameter(description = "ID of the feature", required = true) @PathVariable Long id,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "Updated feature data", required = true,
                     content = @Content(schema = @Schema(implementation = CreateFeatureRequest.class)))
             @RequestBody CreateFeatureRequest request) {
-        return ResponseEntity.ok(featureService.updateFeature(id, request));
+        return ResponseEntity.ok(new ResponseDto<>(
+                featureService.updateFeature(id, request),
+                "200"
+        ));
     }
 
     @DeleteMapping("/{id}")
@@ -83,9 +96,12 @@ public class FeatureController {
             @ApiResponse(responseCode = "200", description = "Feature deleted"),
             @ApiResponse(responseCode = "404", description = "Feature not found")
     })
-    public ResponseEntity<String> deleteFeature(
+    public ResponseEntity<ResponseDto<String>> deleteFeature(
             @Parameter(description = "ID of the feature", required = true) @PathVariable Long id) {
         featureService.deleteFeature(id);
-        return ResponseEntity.ok("Feature deleted successfully.");
+        return ResponseEntity.ok(new ResponseDto<>(
+                "Feature deleted successfully",
+                "200"
+        ));
     }
 }

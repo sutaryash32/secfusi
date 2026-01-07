@@ -211,7 +211,14 @@ public class AuthConfigService {
             response.setFirstName(userFromRequest.getFirstName());
             response.setLastName(userFromRequest.getLastName());
             response.setAccessToken(token); // Do not log token content
-            response.setUserType(userFromRequest.getTenant().getTenantType());
+            String userTenantType =
+                    Optional.ofNullable(userFromRequest.getTenant().getTenantType())
+                            .map(String::trim)
+                            .map(String::toUpperCase)
+                            .orElseThrow(() ->
+                                    new ResourceNotFoundException("User tenant type is missing"));
+
+            response.setUserType(userTenantType);
 
             // Convert mapped groups → Set<GroupsLean>
             log.debug("Mapping user groups and roles");
@@ -252,8 +259,15 @@ public class AuthConfigService {
             Map<String, Map<String, Set<String>>> permissionMatrix =
                     userFromRequest.getMappedGroups()
                             .stream()
-                            .flatMap(g -> g.getMappedRoles().stream())
-                            .flatMap(r -> r.getScopes().stream())
+                            .flatMap(group -> group.getMappedRoles().stream())
+                            .flatMap(role -> role.getScopes().stream())
+                            .filter(scope ->
+                                    scope.getTenantTypes() != null &&
+                                            scope.getTenantTypes().stream().anyMatch(tt ->
+                                                    tt.getTenantTypeName() != null &&
+                                                            tt.getTenantTypeName().trim().equalsIgnoreCase(userTenantType)
+                                            )
+                            )
                             .collect(Collectors.groupingBy(
                                     Scopes::getMenuName,
                                     Collectors.groupingBy(
@@ -315,7 +329,7 @@ public class AuthConfigService {
             response.setFirstName(user.getFirstName());
             response.setLastName(user.getLastName());
             response.setFullName(user.getFirstName() + " " + user.getLastName());
-            response.setUserType(tenant.getTenantType());
+            response.setUserType(tenantType);
             response.setTenantId(tenant.getTenantID());
             response.setMappedTenant(new TenantLean(
                     tenant.getTenantID(),
@@ -357,19 +371,15 @@ public class AuthConfigService {
 // 🔥 Permission Matrix (Tenant-Type Filtered)
 // -------------------------------
             Map<String, Map<String, Set<String>>> permissionMatrix =
-                    Optional.ofNullable(user.getMappedGroups())
-                            .orElse(Collections.emptySet())
+                    user.getMappedGroups()
                             .stream()
                             .flatMap(group -> group.getMappedRoles().stream())
                             .flatMap(role -> role.getScopes().stream())
-                            // 🔥 FILTER BY TENANT TYPE
                             .filter(scope ->
-                                    Optional.ofNullable(scope.getTenantTypes())
-                                            .orElse(Collections.emptySet())
-                                            .stream()
-                                            .anyMatch(tt ->
+                                    scope.getTenantTypes() != null &&
+                                            scope.getTenantTypes().stream().anyMatch(tt ->
                                                     tt.getTenantTypeName() != null &&
-                                                            tt.getTenantTypeName().equalsIgnoreCase(tenantType)
+                                                            tt.getTenantTypeName().trim().equalsIgnoreCase(tenantType)
                                             )
                             )
                             .collect(Collectors.groupingBy(
