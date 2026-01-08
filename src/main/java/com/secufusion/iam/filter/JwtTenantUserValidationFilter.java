@@ -209,7 +209,7 @@ public class JwtTenantUserValidationFilter extends OncePerRequestFilter {
             throw ex;
         }
         catch (Exception ex) {
-            throw new TokenValidationException(ex.getMessage(), ex);
+            throw new TokenValidationException(ex.getMessage());
         }
     }
 

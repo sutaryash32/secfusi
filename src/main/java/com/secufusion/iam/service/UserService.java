@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.security.access.AccessDeniedException;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -244,7 +245,7 @@ public class UserService {
             user.setStatus("CREATING");
             user.setCreatedAt(LocalDateTime.now());
             user.setCreatedBy(dto.getCreatedBy());
-
+            ensureGroups(user, dto.getGroups());
             user = userRepository.save(user);
 
             log.info("✔ DB user created. userId={}", user.getPkUserId());
@@ -263,9 +264,9 @@ public class UserService {
             // -------------------------------------------------
             // 5️⃣ ENSURE REALM ROLES (IDEMPOTENT)
             // -------------------------------------------------
-            kcUtil.assignRealmAdminRoleIfMissing(
-                    tenant.getRealmName(), kcUserId
-            );
+//            kcUtil.assignRealmAdminRoleIfMissing(
+//                    tenant.getRealmName(), kcUserId
+//            );
 
             // -------------------------------------------------
             // 6️⃣ ENSURE GROUPS (ADD ONLY MISSING)
@@ -423,6 +424,7 @@ public class UserService {
             if (status != null && !status.trim().isEmpty()) {
                 user.setStatus(status.trim().toUpperCase());
             }
+            ensureGroups(user, dto.getGroups());
             userRepository.save(user);
 
             log.info("✔ Local DB user updated. userId={} username={}", userId, dto.getEmail());

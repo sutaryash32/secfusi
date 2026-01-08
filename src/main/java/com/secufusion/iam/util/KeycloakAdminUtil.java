@@ -143,7 +143,7 @@ public class KeycloakAdminUtil {
 
         } catch (Exception e) {
             throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
-                    "Failed to create identity provider in realm " + realm, e);
+                    "Failed to create identity provider in realm " + realm);
         } finally {
             if (resp != null) resp.close();
         }

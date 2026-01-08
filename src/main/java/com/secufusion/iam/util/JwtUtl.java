@@ -338,7 +338,7 @@ public class JwtUtl {
             throw e;
         } catch (Exception e) {
             log.error("validateRequestToken: token validation failed: {}", e.getMessage(), e);
-            throw new TokenValidationException("Unexpected error during token validation", e);
+            throw new TokenValidationException("Unexpected error during token validation");
         }
     }
 

@@ -1,7 +1,14 @@
 package com.secufusion.iam.exception;
 
-public class InvalidTokenException extends RuntimeException {
-    private static final long serialVersionUID = 1L;
-    public InvalidTokenException(String message) { super(message); }
-    public InvalidTokenException(String message, Throwable cause) { super(message, cause); }
+import com.secufusion.iam.util.ResponseCodes;
+
+public class InvalidTokenException extends GlobalException {
+
+    public InvalidTokenException(String message) {
+        super(message, ResponseCodes.INVALID_TOKEN);
+    }
+
+    public InvalidTokenException(String message, String errorCode) {
+        super(message, errorCode);
+    }
 }
