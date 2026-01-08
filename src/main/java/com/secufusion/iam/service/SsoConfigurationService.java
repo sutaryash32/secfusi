@@ -61,6 +61,26 @@ public class SsoConfigurationService {
 
         log.info("Creating IdP for tenant={} alias={} providerId={}", tenantId, providerRequest.getAlias(), providerRequest.getProviderId());
 
+        // If there are existing ACTIVE configs, mark them INACTIVE in DB and attempt to disable them in Keycloak
+        List<SsoConfiguration> activeConfigs = repository.findByTenantId(tenantId)
+                .stream()
+                .filter(c -> "ACTIVE".equalsIgnoreCase(c.getActive()))
+                .toList();
+
+        if (!activeConfigs.isEmpty()) {
+            activeConfigs.forEach(c -> c.setActive("INACTIVE"));
+            for (SsoConfiguration c : activeConfigs) {
+                try {
+                    kcUtil.disableIdentityProvider(realm, c.getAlias());
+                    log.info("Disabled IdP in Keycloak for realm={} alias={}", realm, c.getAlias());
+                } catch (Exception e) {
+                    log.warn("Failed to disable IdP in Keycloak for realm={} alias={}, continuing", realm, c.getAlias(), e);
+                }
+            }
+            repository.saveAll(activeConfigs);
+            log.info("Deactivated {} existing SSO configurations for tenant={}", activeConfigs.size(), tenantId);
+        }
+
         boolean kcSuccess = false;
         String redirectUrl = null;
 
@@ -77,11 +97,6 @@ public class SsoConfigurationService {
                 redirectUrl != null ? redirectUrl : providerRequest.getRedirectUri()
         );
         cfg.setActive(kcSuccess ? "ACTIVE" : "INACTIVE");
-
-        // Ensure only one ACTIVE provider per tenant
-        if ("ACTIVE".equalsIgnoreCase(cfg.getActive())) {
-            deactivateOthers(tenantId);
-        }
 
         // Save DB record
         SsoConfiguration saved = repository.save(cfg);
@@ -133,7 +148,7 @@ public class SsoConfigurationService {
      * @throws ResourceNotFoundException when not found
      */
     @Transactional(readOnly = true)
-    public SsoConfigurationResponse getById(HttpServletRequest request, String id) {
+    public SsoConfiguration getById(HttpServletRequest request, String id) {
         Tenant tenant = jwtUtl.getTenantFromRequest(request);
         String tenantId = tenant.getTenantID();
         log.debug("Fetching SSO configuration id={} for tenant={}", id, tenantId);
@@ -146,7 +161,7 @@ public class SsoConfigurationService {
                 });
 
         log.debug("Returning SSO configuration id={} for tenant={}", id, tenantId);
-        return SsoConfigurationResponse.from(cfg);
+        return cfg;
     }
 
     /* ---------------- UPDATE ---------------- */
@@ -165,6 +180,7 @@ public class SsoConfigurationService {
 
         Tenant tenant = jwtUtl.getTenantFromRequest(request);
         String tenantId = tenant.getTenantID();
+        String realm = tenant.getRealmName();
         log.info("Updating SSO configuration id={} for tenant={}", id, tenantId);
 
         SsoConfiguration cfg = repository
@@ -174,6 +190,11 @@ public class SsoConfigurationService {
                     return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
                 });
 
+        String oldAlias = cfg.getAlias();
+        boolean aliasChanged = oldAlias == null ? dto.getAlias() != null : !oldAlias.equals(dto.getAlias());
+
+        cfg.setAlias(dto.getAlias());
+        cfg.setProviderId(dto.getProviderId());
         cfg.setClientId(dto.getClientId());
         cfg.setClientSecret(dto.getClientSecret());
         cfg.setAuthorizationUrl(dto.getAuthorizationUrl());
@@ -182,7 +203,42 @@ public class SsoConfigurationService {
         cfg.setIssuer(dto.getIssuer());
         cfg.setSetAsDefaultLogin(Boolean.TRUE.equals(dto.getSetAsDefaultLogin()));
 
+        // Persist DB changes first
         repository.save(cfg);
+
+        // If this provider is active, attempt to update Keycloak by deleting old and re-adding
+        if ("ACTIVE".equalsIgnoreCase(cfg.getActive())) {
+            try {
+                if (aliasChanged && oldAlias != null) {
+                    try {
+                        kcUtil.deleteIdentityProvider(realm, oldAlias);
+                        log.info("Removed old IdP from Keycloak realm={} alias={}", realm, oldAlias);
+                    } catch (Exception e) {
+                        log.warn("Failed to remove old IdP in Keycloak realm={} alias={}, continuing", realm, oldAlias, e);
+                    }
+                }
+
+                String redirectUrl = kcUtil.addIdentityProvider(realm, dto);
+                if (redirectUrl != null) {
+                    cfg.setRedirectUri(redirectUrl);
+                    repository.save(cfg);
+                }
+
+                if (Boolean.TRUE.equals(dto.getSetAsDefaultLogin())) {
+                    try {
+                        kcUtil.setAsDefaultIdentityProvider(realm, dto.getAlias());
+                        log.info("Set IdP as default login in Keycloak for realm={} alias={}", realm, dto.getAlias());
+                    } catch (Exception e) {
+                        log.warn("Failed to set default IdP in Keycloak realm={} alias={}", realm, dto.getAlias(), e);
+                    }
+                }
+
+                log.info("Updated IdP in Keycloak for realm={} alias={}", realm, dto.getAlias());
+            } catch (Exception e) {
+                log.warn("Failed to update IdP in Keycloak for realm={} alias={}, continuing", realm, dto.getAlias(), e);
+            }
+        }
+
         log.info("Updated SSO configuration id={} for tenant={}", id, tenantId);
     }
 

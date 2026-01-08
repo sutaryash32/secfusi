@@ -214,6 +214,26 @@ public class KeycloakAdminUtil {
         log.info("Default Identity Provider for realm={} set to {}", realm, alias);
     }
 
+    public void disableIdentityProvider(String realm, String alias) {
+            log.info("Disabling Identity Provider '{}' in realm '{}'", alias, realm);
+            try {
+                RealmResource rr = keycloak.realm(realm);
+                IdentityProviderResource idpRes = rr.identityProviders().get(alias);
+                IdentityProviderRepresentation rep = idpRes.toRepresentation();
+                if (rep == null) {
+                    throw new KeycloakOperationException("IDP_NOT_FOUND", 404,
+                            "Identity provider not found: " + alias);
+                }
+                rep.setEnabled(false);
+                idpRes.update(rep);
+                log.info("Disabled Identity Provider '{}' in realm '{}'", alias, realm);
+            } catch (KeycloakOperationException e) {
+                throw e;
+            } catch (Exception e) {
+                throw wrap("IDP_DISABLE_FAILED", 500,
+                        "Failed to disable identity provider " + alias + " in realm " + realm, e);
+            }
+        }
     /**
      * Create a user. Returns created Keycloak user id or null if already exists.
      */
@@ -408,80 +428,6 @@ public class KeycloakAdminUtil {
             log.error("Failed to delete Identity Provider '{}' from realm '{}'",
                     alias, realm, e);
             throw e; // let service decide whether to continue
-        }
-    }
-
-    public void assignRealmAdminRoleIfMissing(String realm, String userId) {
-
-        log.info("Ensuring realm-admin role for user {} in realm {}", userId, realm);
-
-        try {
-            RealmResource rr = keycloak.realm(realm);
-
-            // -------------------------------------------------
-            // 1️⃣ Find realm-management client
-            // -------------------------------------------------
-            ClientRepresentation realmMgmtClient = rr.clients()
-                    .findByClientId("realm-management")
-                    .stream()
-                    .findFirst()
-                    .orElseThrow(() ->
-                            new KeycloakOperationException(
-                                    "REALM_MGMT_CLIENT_NOT_FOUND",
-                                    500,
-                                    "realm-management client not found in realm " + realm
-                            )
-                    );
-
-            String clientId = realmMgmtClient.getId();
-
-            // -------------------------------------------------
-            // 2️⃣ Get realm-admin role representation
-            // -------------------------------------------------
-            RoleRepresentation realmAdminRole = rr.clients()
-                    .get(clientId)
-                    .roles()
-                    .get("realm-admin")
-                    .toRepresentation();
-
-            // -------------------------------------------------
-            // 3️⃣ Fetch already assigned client roles
-            // -------------------------------------------------
-            List<RoleRepresentation> assignedRoles =
-                    rr.users()
-                            .get(userId)
-                            .roles()
-                            .clientLevel(clientId)
-                            .listAll();
-
-            boolean alreadyAssigned = assignedRoles.stream()
-                    .anyMatch(r -> r.getName().equals("realm-admin"));
-
-            if (alreadyAssigned) {
-                log.debug("ℹ️ realm-admin role already assigned. userId={}", userId);
-                return;
-            }
-
-            // -------------------------------------------------
-            // 4️⃣ Assign role (ONLY IF MISSING)
-            // -------------------------------------------------
-            rr.users()
-                    .get(userId)
-                    .roles()
-                    .clientLevel(clientId)
-                    .add(List.of(realmAdminRole));
-
-            log.info("✔ realm-admin role assigned to user {}", userId);
-
-        } catch (KeycloakOperationException e) {
-            throw e;
-        } catch (Exception e) {
-            throw wrap(
-                    "ASSIGN_REALM_ADMIN_FAILED",
-                    500,
-                    "Failed to ensure realm-admin role for user " + userId,
-                    e
-            );
         }
     }
 

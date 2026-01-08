@@ -245,7 +245,6 @@ public class UserService {
             user.setStatus("CREATING");
             user.setCreatedAt(LocalDateTime.now());
             user.setCreatedBy(dto.getCreatedBy());
-            ensureGroups(user, dto.getGroups());
             user = userRepository.save(user);
 
             log.info("✔ DB user created. userId={}", user.getPkUserId());
@@ -305,17 +304,24 @@ public class UserService {
         } catch (Exception e) {
             log.error("❌ Unexpected failure during create user. email={}",
                     dto.getEmail(), e);
+            kcUtil.removeUser(tenant.getRealmName(), user.getKeycloakUserId());
+            userRepository.delete(user);
 
             throw new KeycloakOperationException(
                     "USER_CREATION_FAILED",
                     3002,
-                    "User exists but reconciliation failed"
+                    e.getMessage()
             );
         }
     }
 
 
     private void ensureGroups(User user, Set<Groups> requestedGroups) {
+
+        // Ensure user's mappedGroups is initialized for new users
+        if (user.getMappedGroups() == null) {
+            user.setMappedGroups(new HashSet<>());
+        }
 
         if (requestedGroups == null || requestedGroups.isEmpty()) return;
 
@@ -325,10 +331,15 @@ public class UserService {
                 .collect(Collectors.toSet());
 
         Set<Groups> groupsToAdd = requestedGroups.stream()
-                .filter(g -> !existingIds.contains(g.getPkGroupId()))
-                .map(g -> groupsRepository.findById(g.getPkGroupId())
+                .filter(gReq -> gReq != null && gReq.getPkGroupId() != null && !existingIds.contains(gReq.getPkGroupId()))
+                .map(gReq -> groupsRepository.findById(gReq.getPkGroupId())
                         .orElseThrow(() -> new ResourceNotFoundException(
-                                "Group not found: " + g.getPkGroupId())))
+                                "Group not found: " + gReq.getPkGroupId())))
+                .peek(g -> {
+                    if (g.getTenantId() == null || user.getTenant().getTenantID() == null || !user.getTenant().getTenantID().equals(g.getTenantId())) {
+                        throw new ResourceNotFoundException("Group does not belong to tenant: " + g.getPkGroupId());
+                    }
+                })
                 .collect(Collectors.toSet());
 
         if (!groupsToAdd.isEmpty()) {
@@ -777,49 +788,48 @@ public class UserService {
      */
     private void validateUserFields(Tenant tenant, UsersDto dto, String excludeUserId) {
 
-        String tenantId = tenant.getTenantID();
         String realm = tenant.getRealmName();
 
-        log.info("➡️ [VALIDATE USER] Start. tenantId={} realm={} excludeUserId={}", tenantId, realm, excludeUserId);
+        log.info("➡️ [VALIDATE USER] Start. realm={} excludeUserId={}", realm, excludeUserId);
         log.debug("validateUserFields() parameters: username={} email={} phone={}", dto.getEmail(), dto.getEmail(), dto.getPhoneNumber());
 
         // ----- DB UNIQUE CHECKS -----
         log.debug("Checking DB uniqueness for EMAIL, USERNAME, PHONE");
 
         // EMAIL
-        userRepository.findByEmailAndTenant_TenantID(dto.getEmail(), tenantId)
+        userRepository.findByEmail(dto.getEmail())
                 .ifPresent(existing -> {
                     log.debug("DB email search found existing user: existingId={} existingEmail={}", existing.getPkUserId(), existing.getEmail());
                     if (!existing.getPkUserId().equals(excludeUserId)) {
-                        log.error("❌ Email already exists in tenant. tenantId={} email={}", tenantId, dto.getEmail());
+                        log.error("❌ Email already exists. email={}", dto.getEmail());
                         throw new KeycloakOperationException(
-                                "EMAIL_EXISTS", 3101, "Email already exists in this tenant");
+                                "EMAIL_EXISTS", 3101, "Email already exists");
                     } else {
                         log.debug("Email match is the same user being updated (excluded). existingId={}", existing.getPkUserId());
                     }
                 });
 
         // USERNAME
-        userRepository.findByUserNameAndTenant_TenantID(dto.getEmail(), tenantId)
+        userRepository.findByUserName(dto.getEmail())
                 .ifPresent(existing -> {
                     log.debug("DB username search found existing user: existingId={} existingUsername={}", existing.getPkUserId(), existing.getUserName());
                     if (!existing.getPkUserId().equals(excludeUserId)) {
-                        log.error("❌ Username already exists in tenant. tenantId={} username={}", tenantId, dto.getEmail());
+                        log.error("❌ Username already exists. username={}", dto.getEmail());
                         throw new KeycloakOperationException(
-                                "USERNAME_EXISTS", 3102, "Username already exists in this tenant");
+                                "USERNAME_EXISTS", 3102, "Username already exists");
                     } else {
                         log.debug("Username match is the same user being updated (excluded). existingId={}", existing.getPkUserId());
                     }
                 });
 
         // PHONE
-        userRepository.findByPhoneNoAndTenant_TenantID(dto.getPhoneNumber(), tenantId)
+        userRepository.findByPhoneNo(dto.getPhoneNumber())
                 .ifPresent(existing -> {
                     log.debug("DB phone search found existing user: existingId={} existingPhone={}", existing.getPkUserId(), existing.getPhoneNo());
                     if (!existing.getPkUserId().equals(excludeUserId)) {
-                        log.error("❌ Phone already exists in tenant. tenantId={} phone={}", tenantId, dto.getPhoneNumber());
+                        log.error("❌ Phone already exists. phone={}", dto.getPhoneNumber());
                         throw new KeycloakOperationException(
-                                "PHONE_EXISTS", 3103, "Phone number already exists in this tenant");
+                                "PHONE_EXISTS", 3103, "Phone number already exists");
                     } else {
                         log.debug("Phone match is the same user being updated (excluded). existingId={}", existing.getPkUserId());
                     }
