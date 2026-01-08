@@ -1,7 +1,14 @@
 package com.secufusion.iam.exception;
 
-public class TokenMismatchException extends RuntimeException {
-    private static final long serialVersionUID = 1L;
-    public TokenMismatchException(String message) { super(message); }
-    public TokenMismatchException(String message, Throwable cause) { super(message, cause); }
+import com.secufusion.iam.util.ResponseCodes;
+
+public class TokenMismatchException extends GlobalException {
+
+    public TokenMismatchException(String message) {
+        super(message, ResponseCodes.TOKEN_MISMATCH);
+    }
+
+    public TokenMismatchException(String message, String errorCode) {
+        super(message, errorCode);
+    }
 }

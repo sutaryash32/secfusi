@@ -1,8 +1,14 @@
 package com.secufusion.iam.exception;
 
-public class MissingAuthorizationException extends RuntimeException {
-    private static final long serialVersionUID = 1L;
-    public MissingAuthorizationException(String message) { super(message); }
-    public MissingAuthorizationException(String message, Throwable cause) { super(message, cause); }
-}
+import com.secufusion.iam.util.ResponseCodes;
 
+public class MissingAuthorizationException extends GlobalException {
+
+    public MissingAuthorizationException(String message) {
+        super(message, ResponseCodes.MISSING_AUTHORIZATION);
+    }
+
+    public MissingAuthorizationException(String message, String errorCode) {
+        super(message, errorCode);
+    }
+}

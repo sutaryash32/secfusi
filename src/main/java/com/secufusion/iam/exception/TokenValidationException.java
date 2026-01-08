@@ -1,7 +1,14 @@
 package com.secufusion.iam.exception;
 
-public class TokenValidationException extends RuntimeException {
-    private static final long serialVersionUID = 1L;
-    public TokenValidationException(String message) { super(message); }
-    public TokenValidationException(String message, Throwable cause) { super(message, cause); }
+import com.secufusion.iam.util.ResponseCodes;
+
+public class TokenValidationException extends GlobalException {
+
+    public TokenValidationException(String message) {
+        super(message, ResponseCodes.TOKEN_VALIDATION_FAILED);
+    }
+
+    public TokenValidationException(String message, String errorCode) {
+        super(message, errorCode);
+    }
 }
