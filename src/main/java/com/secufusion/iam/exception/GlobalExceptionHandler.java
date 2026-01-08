@@ -1,151 +1,73 @@
 package com.secufusion.iam.exception;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.secufusion.iam.util.ResponseCodes;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
-@ControllerAdvice
+@RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    @ExceptionHandler(GlobalException.class)
+    public ResponseEntity<Map<String, Object>> handleGlobal(GlobalException ex) {
 
-    // ===============================
-    // Handle KeycloakOperationException
-    // ===============================
-    @ExceptionHandler(KeycloakOperationException.class)
-    public ResponseEntity<Map<String, Object>> handleKeycloakException(KeycloakOperationException ex) {
-        log.error("[{} - {}]: {}", ex.getErrorCode(), ex.getErrorNumber(), ex.getMessage());
+        String errorCode = (ex.getErrorCode() != null && !ex.getErrorCode().isBlank())
+                ? ex.getErrorCode()
+                : defaultCode(ex);
 
-        return buildResponse(
-                ex.getErrorCode(),
-                ex.getErrorNumber(),
-                ex.getMessage(),
-                HttpStatus.BAD_REQUEST
-        );
+        HttpStatus status = mapStatus(errorCode);
+
+        return build(errorCode, ex.getMessage(), status);
     }
 
-    // ===============================
-    // Handle Resource Not Found
-    // ===============================
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<Map<String, Object>> handleNotFound(ResourceNotFoundException ex) {
-        log.warn("Resource missing: {}", ex.getMessage());
-
-        return buildResponse(
-                "RESOURCE_NOT_FOUND",
-                4040,
-                ex.getMessage(),
-                HttpStatus.NOT_FOUND
-        );
-    }
-
-    @ExceptionHandler(ResourceConflictException.class)
-    public ResponseEntity<Map<String, Object>> handleResourceConflict(ResourceConflictException ex) {
-        log.warn("Resource conflict: {}", ex.getMessage());
-        return buildResponse(
-                "RESOURCE_CONFLICT",
-                4090,
-                ex.getMessage(),
-                HttpStatus.CONFLICT
-        );
-    }
-
-    // ===============================
-    // Handle Access Denied
-    // (Used when parent tenant tries access)
-    // ===============================
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<Map<String, Object>> handleAccessDenied(AccessDeniedException ex) {
-        log.warn("Access denied: {}", ex.getMessage());
-
-        return buildResponse(
-                "ACCESS_DENIED",
-                4030,
-                ex.getMessage(),
-                HttpStatus.FORBIDDEN
-        );
-    }
-
-    // ===============================
-    // Handle Validation Failures
-    // (invalid payload, missing fields)
-    // ===============================
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> handleValidationErrors(MethodArgumentNotValidException ex) {
-
-        String errorMessage = ex.getBindingResult().getFieldErrors().stream()
-                .map(err -> err.getField() + ": " + err.getDefaultMessage())
-                .findFirst()
-                .orElse("Invalid request");
-
-        log.warn("Validation error: {}", errorMessage);
-
-        return buildResponse(
-                "VALIDATION_ERROR",
-                4001,
-                errorMessage,
-                HttpStatus.BAD_REQUEST
-        );
-    }
-
-    // ===============================
-    // Handle ALL Remaining Unexpected Errors
-    // ===============================
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
-        log.error("Unexpected internal error: {}", ex.getMessage(), ex);
+    public ResponseEntity<Map<String, Object>> handleUnknown(Exception ex) {
 
-        return buildResponse(
-                "INTERNAL_SERVER_ERROR",
-                5000,
-                "An unexpected error occurred. Please try again later.",
+        return build(
+                ResponseCodes.INTERNAL_SERVER_ERROR,
+                "Unexpected error occurred",
                 HttpStatus.INTERNAL_SERVER_ERROR
         );
     }
 
-    @ExceptionHandler({
-            InvalidTokenException.class,
-            TokenExpiredException.class,
-            TokenMismatchException.class,
-            TokenValidationException.class,
-            MissingAuthorizationException.class
-    })
-    public ResponseEntity<Map<String, Object>> handleAuthExceptions(RuntimeException ex) {
-
-        log.warn("Authentication error: {}", ex.getMessage());
-
-        return buildResponse(
-                "AUTHENTICATION_FAILED",
-                4010,
-                ex.getMessage(),
-                HttpStatus.UNAUTHORIZED
-        );
+    // ---------------------------
+    private String defaultCode(GlobalException ex) {
+        if (ex instanceof ResourceNotFoundException) {
+            return ResponseCodes.RESOURCE_NOT_FOUND;
+        }
+        return ResponseCodes.BAD_REQUEST;
     }
 
-    // ===============================
-    // Helper to Build Standard Response Format
-    // ===============================
-    private ResponseEntity<Map<String, Object>> buildResponse(
+    private HttpStatus mapStatus(String code) {
+        return switch (code) {
+            case ResponseCodes.RESOURCE_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case ResponseCodes.RESOURCE_CONFLICT -> HttpStatus.CONFLICT;
+            case ResponseCodes.ACCESS_DENIED -> HttpStatus.FORBIDDEN;
+            case ResponseCodes.INVALID_TOKEN,
+                 ResponseCodes.TOKEN_EXPIRED,
+                 ResponseCodes.TOKEN_MISMATCH,
+                 ResponseCodes.TOKEN_VALIDATION_FAILED,
+                 ResponseCodes.MISSING_AUTHORIZATION,
+                 ResponseCodes.AUTHENTICATION_FAILED -> HttpStatus.UNAUTHORIZED;
+            default -> HttpStatus.BAD_REQUEST;
+        };
+    }
+
+    private ResponseEntity<Map<String, Object>> build(
             String errorCode,
-            int errorNumber,
             String message,
             HttpStatus status
     ) {
         Map<String, Object> body = new HashMap<>();
         body.put("success", false);
         body.put("errorCode", errorCode);
-        body.put("errorNumber", errorNumber);
         body.put("message", message);
         body.put("timestamp", Instant.now().toString());
-
         return new ResponseEntity<>(body, status);
     }
 }
