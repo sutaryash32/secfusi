@@ -430,7 +430,6 @@ public class UserService {
             user.setEmail(dto.getEmail());
             user.setUserName(dto.getEmail());
             user.setPhoneNo(dto.getPhoneNumber());
-            user.setMappedGroups(dto.getGroups());
             String status = dto.getStatus();
             if (status != null && !status.trim().isEmpty()) {
                 user.setStatus(status.trim().toUpperCase());
