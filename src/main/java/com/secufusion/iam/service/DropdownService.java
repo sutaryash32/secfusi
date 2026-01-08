@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Service that provides dropdown data for regions, countries, states and cities.
@@ -142,9 +143,15 @@ public class DropdownService {
 
     @Transactional
     public List<TenantType> getTenantTypesByTenantType(HttpServletRequest request) {
+
         Tenant tenantFromEmail = jwtUtl.getTenantFromRequest(request);
-        log.info("Fetching tenant types for tenantId={}, tenantType={}",
-                tenantFromEmail.getTenantID(), tenantFromEmail.getTenantType());
+
+        log.info(
+                "Fetching tenant types for tenantId={}, tenantType={}, parentTenantId={}",
+                tenantFromEmail.getTenantID(),
+                tenantFromEmail.getTenantType(),
+                tenantFromEmail.getParentTenantId()
+        );
 
         List<TenantType> types = tenantTypeRepository.findAll();
         log.debug("Fetched {} tenant types from DB.", types.size());
@@ -154,26 +161,42 @@ public class DropdownService {
             return Collections.emptyList();
         }
 
+        boolean isRootMasterMssp =
+                tenantFromEmail.getParentTenantId() == null;
+
         switch (tenantType.trim().toLowerCase(Locale.ROOT)) {
+
             case "master mssp":
             case "master_mssp":
             case "mastermssp":
-                // show remaining 2 (exclude master)
+
+                if (isRootMasterMssp) {
+                    // Root Master MSSP → can see all tenant types
+                    return types;
+                }
+
+                // Child Master MSSP → exclude master
                 return types.stream()
-                        .filter(t -> ! "master mssp".equalsIgnoreCase(t.getTenantTypeName()))
-                        .collect(java.util.stream.Collectors.toList());
+                        .filter(t ->
+                                !"master mssp".equalsIgnoreCase(t.getTenantTypeName()))
+                        .collect(Collectors.toList());
+
             case "mssp":
-                // show enterprise only
+                // MSSP → enterprise only
                 return types.stream()
-                        .filter(t -> "enterprise".equalsIgnoreCase(t.getTenantTypeName()))
-                        .collect(java.util.stream.Collectors.toList());
+                        .filter(t ->
+                                "enterprise".equalsIgnoreCase(t.getTenantTypeName()))
+                        .collect(Collectors.toList());
+
             case "enterprise":
-                // enterprise -> none
+                // Enterprise → none
                 return Collections.emptyList();
+
             default:
                 return types;
         }
     }
+
 
     /**
      * Get groups formatted for dropdown (includes mapped roles).
