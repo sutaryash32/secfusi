@@ -2,6 +2,7 @@ package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.CreateIdentityProviderRequest;
 import com.secufusion.iam.dto.SsoConfigurationResponse;
+import com.secufusion.iam.entity.SsoConfiguration;
 import com.secufusion.iam.service.SsoConfigurationService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -87,12 +88,12 @@ public class SsoConfigurationController {
      */
     @GetMapping("/{id}")
     @Operation(summary = "Get SSO configuration by id", description = "Returns the identity provider configuration for the given id")
-    public ResponseEntity<SsoConfigurationResponse> getById(
+    public ResponseEntity<SsoConfiguration> getById(
             HttpServletRequest request,
             @Parameter(description = "SSO configuration id") @PathVariable String id) {
 
         log.info("Fetching SSO configuration id={} for tenant ip={}", id, request.getRemoteAddr());
-        SsoConfigurationResponse response = ssoConfigurationService.getById(request, id);
+        SsoConfiguration response = ssoConfigurationService.getById(request, id);
         log.debug("Fetched SSO configuration id={} -> {}", id, response);
         return ResponseEntity.ok(response);
     }

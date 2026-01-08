@@ -44,105 +44,6 @@ public class GroupService {
     private JwtUtl jwtUtl;
 
     /**
-     * Create or get a default group for a tenant.
-     *
-     * @param tenantId    tenant identifier
-     * @param groupName   name of the default group
-     * @param isAdmin     whether this default group is admin
-     * @param defaultUser user creating the group (used for audit)
-     * @return existing or newly created Groups entity
-     */
-    @Transactional
-    public Groups createOrGetDefaultGroup(String tenantId, String groupName, boolean isAdmin, String defaultUser) {
-        log.info("createOrGetDefaultGroup: start - tenantId={}, groupName={}, isAdmin={}, defaultUser={}",
-                tenantId, groupName, isAdmin, defaultUser);
-
-        Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> {
-                    log.error("createOrGetDefaultGroup: tenant not found tenantId={}", tenantId);
-                    return new ResourceNotFoundException("Tenant not found");
-                });
-
-        // Try to find existing group for tenant
-        Groups result = groupsRepository.findByNameAndTenantId(groupName, tenantId)
-                .orElseGet(() -> {
-                    log.info("createOrGetDefaultGroup: Group '{}' not found for tenantId={}. Creating new default group.",
-                            groupName, tenantId);
-
-                    Groups group = new Groups();
-                    group.setIsAdmin(isAdmin ? 'Y' : 'N');
-                    group.setIsDefault('Y');
-                    group.setDescription(groupName + " default group");
-                    group.setName(groupName);
-                    group.setTenantId(tenantId);
-                    group.setCreatedBy(defaultUser);
-                    group.setCreatedTime(LocalDateTime.now());
-                    group.setActive(true);
-                    // Initialize collections
-                    group.setMappedRoles(new HashSet<>());
-
-                    Groups saved = groupsRepository.save(group);
-                    log.debug("createOrGetDefaultGroup: created group id={} name={} tenantId={}",
-                            saved.getPkGroupId(), saved.getName(), tenantId);
-                    return saved;
-                });
-
-        log.info("createOrGetDefaultGroup: end - returning group id={} name={}", result.getPkGroupId(), result.getName());
-        return result;
-    }
-
-    /**
-     * Assign role to group IF NOT ALREADY MAPPED
-     */
-    @Transactional
-    public void assignRoleToGroup(Groups group, Roles role) {
-        if (group == null || role == null) {
-            log.warn("assignRoleToGroup: received null group or role. group={}, role={}", group, role);
-            return;
-        }
-
-        log.debug("assignRoleToGroup: start - groupId={} roleId={} roleName={}",
-                group.getPkGroupId(), role.getPkRoleId(), role.getName());
-
-        if (group.getMappedRoles() == null)
-            group.setMappedRoles(new HashSet<>());
-
-        boolean exists = group.getMappedRoles().stream()
-                .anyMatch(r -> r.getPkRoleId().equals(role.getPkRoleId()));
-
-        if (exists) {
-            log.info("assignRoleToGroup: Role '{}' already mapped to group '{}'", role.getName(), group.getName());
-            return;
-        }
-
-        group.getMappedRoles().add(role);
-        groupsRepository.save(group);
-
-        log.info("assignRoleToGroup: Assigned role '{}' (id={}) to group '{}' (id={})",
-                role.getName(), role.getPkRoleId(), group.getName(), group.getPkGroupId());
-    }
-
-    /**
-     * Assign user to group IF NOT ALREADY MAPPED
-     */
-    @Transactional
-    public void assignUserToGroup(Groups group, User user) {
-        if (group == null || user == null) {
-            log.warn("assignUserToGroup: received null group or user. group={}, user={}", group, user);
-            return;
-        }
-
-        log.debug("assignUserToGroup: start - groupId={} userId={} userName={}",
-                group.getPkGroupId(), user.getPkUserId(), user.getUserName());
-
-        Groups save = groupsRepository.save(group);
-        User save1 = userRepository.save(user);
-
-        log.info("assignUserToGroup: Assigned user '{}' (id={}) to group '{}' (id={})",
-                user.getUserName(), user.getPkUserId(), group.getName(), group.getPkGroupId());
-    }
-
-    /**
      * Create a custom group for the tenant identified in the request.
      */
     public Groups createGroup(HttpServletRequest request, Groups groups) {
@@ -166,9 +67,34 @@ public class GroupService {
         groups.setIsDefault('N');
 
         // ---------------------------
-        // MAP ROLES
+        // MAP ROLES - ensure roles belong to same tenant (if role.tenantId == null then allow)
         // ---------------------------
-        if (groups.getMappedRoles() == null) groups.setMappedRoles(new HashSet<>());
+       if (groups.getMappedRoles() == null) {
+           groups.setMappedRoles(new HashSet<>());
+       } else {
+           String groupTenantId = groups.getTenantId();
+           Set<Roles> filtered = new HashSet<>();
+           for (Roles r : groups.getMappedRoles()) {
+               if (r == null) continue;
+               try {
+                   Tenant roleTenant = r.getTenant();
+                   if (roleTenant == null || roleTenant.getTenantID() == null) {
+                       filtered.add(r);
+                       continue;
+                   }
+                   String roleTenantId = roleTenant.getTenantID();
+                   if (!roleTenantId.equals(groupTenantId)) {
+                       log.error("createGroup: mapped role belongs to different tenant {} (expected {})", roleTenantId, groupTenantId);
+                       throw new ResourceNotFoundException("Mapped role belongs to a different tenant");
+                   }
+                   filtered.add(r);
+               } catch (Exception ex) {
+                   log.warn("createGroup: unable to verify role tenant, keeping role - reason={}", ex.getMessage());
+                   filtered.add(r);
+               }
+           }
+           groups.setMappedRoles(filtered);
+       }
 
         return groupsRepository.save(groups);
     }
@@ -238,7 +164,7 @@ public class GroupService {
             throw new AccessDeniedException("Group not accessible");
         }
 
-        if(existing.getIsAdmin() != null && existing.getIsAdmin() == 'Y'
+        if (existing.getIsAdmin() != null && existing.getIsAdmin() == 'Y'
                 && existing.getIsDefault() != null && existing.getIsDefault() == 'Y') {
             throw new AccessDeniedException("Admin group cannot be modified");
         }
@@ -260,11 +186,31 @@ public class GroupService {
         if (incoming.getIsAdmin() != null) existing.setIsAdmin(incoming.getIsAdmin());
         if (incoming.getActive() != null) existing.setActive(incoming.getActive());
 
-        // ---------------------------
-        // UPDATE MAPPED ROLES
-        // ---------------------------
-        if (incoming.getMappedRoles() != null) {
-            existing.setMappedRoles(incoming.getMappedRoles());
+        if (incoming.getMappedRoles() == null) {
+            existing.setMappedRoles(new HashSet<>());
+        } else {
+            String groupTenantId = existing.getTenantId();
+            Set<Roles> filtered = new HashSet<>();
+            for (Roles r : incoming.getMappedRoles()) {
+                if (r == null) continue;
+                try {
+                    Tenant roleTenant = r.getTenant();
+                    if (roleTenant == null || roleTenant.getTenantID() == null) {
+                        filtered.add(r);
+                        continue;
+                    }
+                    String roleTenantId = roleTenant.getTenantID();
+                    if (!roleTenantId.equals(groupTenantId)) {
+                        log.error("updateGroup: mapped role belongs to different tenant {} (expected {})", roleTenantId, groupTenantId);
+                        throw new ResourceNotFoundException("Mapped role belongs to a different tenant");
+                    }
+                    filtered.add(r);
+                } catch (Exception ex) {
+                    log.warn("updateGroup: unable to verify role tenant, keeping role - reason={}", ex.getMessage());
+                    filtered.add(r);
+                }
+            }
+            existing.setMappedRoles(filtered);
         }
 
         existing.setUpdatedBy(updater.getUserName());
