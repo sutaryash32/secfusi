@@ -12,10 +12,13 @@ import java.util.Optional;
 public interface SsoConfigurationRepository extends JpaRepository<SsoConfiguration, Serializable> {
     List<SsoConfiguration> findByTenantId(String tenantID);
 
-    Optional<SsoConfiguration> findByTenantIdAndAlias(String tenantId, String alias);
+    Optional<SsoConfiguration> findByFkTenantIdAndAlias(String tenantId, String alias);
 
-    Optional<SsoConfiguration> findByTenantIdAndActive(String tenantId, String active);
+    Optional<SsoConfiguration> findByFkTenantIdAndActive(String tenantId, String active);
 
-    Optional<SsoConfiguration> findByIdAndTenantId(
+    Optional<SsoConfiguration> findByIdAndFkTenantId(
             String id, String tenantId);
+
+    Optional<SsoConfiguration> findByFkTenantId(
+            String fkTenantId);
 }
