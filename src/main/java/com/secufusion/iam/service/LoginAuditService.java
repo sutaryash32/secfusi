@@ -67,6 +67,100 @@ public class LoginAuditService {
         return loginAuditRepository.save(event);
     }
 
+    // ==================== Authentication Events ====================
+
+    /**
+     * Log successful login event.
+     */
+    public void logLoginSuccess(String tenantId, String realmName, String userId, String username,
+                                 String email, String ipAddress, String userAgent, String sessionId,
+                                 String clientId, String authMethod) {
+        LoginAuditEvent event = LoginAuditEvent.builder()
+                .tenantId(tenantId)
+                .realmName(realmName)
+                .userId(userId)
+                .username(username)
+                .email(email)
+                .eventType(LoginEventType.LOGIN_SUCCESS)
+                .sourceService(DEFAULT_SOURCE)
+                .eventTimestamp(LocalDateTime.now())
+                .ipAddress(ipAddress)
+                .userAgent(userAgent)
+                .sessionId(sessionId)
+                .clientId(clientId)
+                .authMethod(authMethod)
+                .success(true)
+                .build();
+
+        logEventAsync(event);
+    }
+
+    /**
+     * Log failed login event.
+     */
+    public void logLoginFailure(String tenantId, String realmName, String username, String email,
+                                 String ipAddress, String userAgent, String errorMessage, String errorCode) {
+        LoginAuditEvent event = LoginAuditEvent.builder()
+                .tenantId(tenantId)
+                .realmName(realmName)
+                .username(username)
+                .email(email)
+                .eventType(LoginEventType.LOGIN_FAILURE)
+                .sourceService(DEFAULT_SOURCE)
+                .eventTimestamp(LocalDateTime.now())
+                .ipAddress(ipAddress)
+                .userAgent(userAgent)
+                .success(false)
+                .errorMessage(errorMessage)
+                .errorCode(errorCode)
+                .build();
+
+        logEventAsync(event);
+    }
+
+    /**
+     * Log logout event.
+     */
+    public void logLogout(String tenantId, String realmName, String userId, String username,
+                           String ipAddress, String sessionId) {
+        LoginAuditEvent event = LoginAuditEvent.builder()
+                .tenantId(tenantId)
+                .realmName(realmName)
+                .userId(userId)
+                .username(username)
+                .eventType(LoginEventType.LOGOUT)
+                .sourceService(DEFAULT_SOURCE)
+                .eventTimestamp(LocalDateTime.now())
+                .ipAddress(ipAddress)
+                .sessionId(sessionId)
+                .success(true)
+                .build();
+
+        logEventAsync(event);
+    }
+
+    /**
+     * Log token refresh event.
+     */
+    public void logTokenRefresh(String tenantId, String realmName, String userId, String username,
+                                 String ipAddress, String sessionId, boolean success, String errorMessage) {
+        LoginAuditEvent event = LoginAuditEvent.builder()
+                .tenantId(tenantId)
+                .realmName(realmName)
+                .userId(userId)
+                .username(username)
+                .eventType(success ? LoginEventType.TOKEN_REFRESH : LoginEventType.TOKEN_REFRESH_FAILURE)
+                .sourceService(DEFAULT_SOURCE)
+                .eventTimestamp(LocalDateTime.now())
+                .ipAddress(ipAddress)
+                .sessionId(sessionId)
+                .success(success)
+                .errorMessage(errorMessage)
+                .build();
+
+        logEventAsync(event);
+    }
+
     // ==================== IAM User Management Events ====================
 
     /**
