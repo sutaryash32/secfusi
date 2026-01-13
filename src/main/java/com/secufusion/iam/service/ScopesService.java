@@ -1,10 +1,12 @@
 package com.secufusion.iam.service;
 
 import com.secufusion.iam.dto.LoggedInUserDetailsBean;
+import com.secufusion.iam.entity.Roles;
 import com.secufusion.iam.entity.Scopes;
 import com.secufusion.iam.entity.Tenant;
 import com.secufusion.iam.entity.TenantType;
 import com.secufusion.iam.exception.ResourceNotFoundException;
+import com.secufusion.iam.repository.RolesRepository;
 import com.secufusion.iam.repository.ScopesRepository;
 import com.secufusion.iam.repository.TenantTypeRepository;
 import com.secufusion.iam.util.JwtUtl;
@@ -16,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 @Slf4j
@@ -30,6 +33,9 @@ public class ScopesService {
 
     @Autowired
     private TenantTypeRepository tenantTypeRepository;
+
+    @Autowired
+    private RolesRepository rolesRepository;
 
     /**
      * Retrieve the list of scopes applicable for the tenant extracted from the provided HTTP request.
@@ -153,6 +159,144 @@ public class ScopesService {
                 .findByMenuNameIgnoreCaseAndSubMenuIgnoreCase(
                         menuName, subMenu
                 );
+    }
+
+    // ---------------------------------------------------
+    // CREATE SCOPE
+    // ---------------------------------------------------
+    @Transactional
+    public Scopes createScope(
+            String scopeName,
+            String displayName,
+            String description,
+            String userType,
+            String menuName,
+            String action,
+            String subMenu,
+            Set<String> tenantTypes
+    ) {
+        Scopes scope = new Scopes();
+        scope.setScopeName(scopeName);
+        scope.setDisplayName(displayName);
+        scope.setDescription(description);
+        scope.setUserType(userType);
+        scope.setMenuName(menuName);
+        scope.setAction(action);
+        scope.setSubMenu(subMenu);
+
+        if (tenantTypes != null && !tenantTypes.isEmpty()) {
+            List<TenantType> resolvedTenantTypes =
+                    tenantTypeRepository.findByTenantTypeNameIgnoreCaseIn(
+                            tenantTypes.stream()
+                                    .map(String::trim)
+                                    .toList()
+                    );
+
+            if (!resolvedTenantTypes.isEmpty()) {
+                scope.setTenantTypes(new HashSet<>(resolvedTenantTypes));
+            }
+        }
+
+        Scopes saved = scopesRepository.save(scope);
+        log.info("Created new scope: scopeName={}, displayName={}", scopeName, displayName);
+
+        // Auto-assign scope to default admin role based on userType
+        try {
+            assignScopeToDefaultAdminRole(saved);
+        } catch (Exception e) {
+            log.error("Failed to auto-assign scope {} to default admin role: {}",
+                    saved.getScopeName(), e.getMessage(), e);
+            // Don't rethrow - scope creation should succeed even if auto-assignment fails
+        }
+
+        return saved;
+    }
+
+    /**
+     * Determines the default admin role name based on the scope's userType.
+     *
+     * @param userType the userType of the scope (e.g., "MASTER MSSP", "MSSP", "ENTERPRISE")
+     * @return the corresponding default admin role name, or null if no mapping exists
+     */
+    private String determineDefaultAdminRoleName(String userType) {
+        if (userType == null || userType.trim().isEmpty()) {
+            return null;
+        }
+
+        return switch (userType.trim().toUpperCase()) {
+            case "MASTER MSSP" -> "MASTER MSSP ADMIN";
+            case "MSSP" -> "MSSP ADMIN";
+            case "ENTERPRISE" -> "ENTERPRISE ADMIN";
+            default -> null;
+        };
+    }
+
+    /**
+     * Automatically assigns a scope to the appropriate default admin role based on its tenant types.
+     * Uses direct mapping: MASTER MSSP → MASTER MSSP ADMIN, MSSP → MSSP ADMIN, ENTERPRISE → ENTERPRISE ADMIN.
+     *
+     * @param scope the scope to assign to a default admin role
+     */
+    private void assignScopeToDefaultAdminRole(Scopes scope) {
+        Set<TenantType> tenantTypes = scope.getTenantTypes();
+
+        // Skip if no tenant types specified
+        if (tenantTypes == null || tenantTypes.isEmpty()) {
+            log.debug("Scope {} has no tenant types, skipping auto-assignment", scope.getScopeName());
+            return;
+        }
+
+        // Process each tenant type and assign to corresponding admin role
+        for (TenantType tenantType : tenantTypes) {
+            String tenantTypeName = tenantType.getTenantTypeName();
+
+            // Determine role name from tenant type
+            String roleName = determineDefaultAdminRoleName(tenantTypeName);
+            if (roleName == null) {
+                log.debug("No default admin role mapping for tenantType={}, skipping auto-assignment", tenantTypeName);
+                continue;
+            }
+
+            // Find the default admin role
+            Optional<Roles> roleOptional = rolesRepository.findByNameAndIsDefaultAndIsSuperRole(roleName, 'Y', 'Y');
+
+            if (roleOptional.isEmpty()) {
+                log.warn("Default admin role not found: roleName={}, tenantType={}. Scope will not be auto-assigned.",
+                        roleName, tenantTypeName);
+                continue;
+            }
+
+            // Add scope to role and save
+            Roles role = roleOptional.get();
+            role.getScopes().add(scope);
+            rolesRepository.save(role);
+
+            log.info("Auto-assigned scope {} to default admin role {} for tenant type {}",
+                    scope.getScopeName(), roleName, tenantTypeName);
+        }
+    }
+
+    // ---------------------------------------------------
+    // DELETE SCOPE
+    // ---------------------------------------------------
+    /**
+     * Delete a scope by its ID.
+     * Note: The scope will be automatically removed from all roles due to the ManyToMany relationship.
+     *
+     * @param scopeId the ID of the scope to delete
+     * @throws ResourceNotFoundException if the scope is not found
+     */
+    @Transactional
+    public void deleteScope(String scopeId) {
+        log.warn("Deleting scope with ID: {}", scopeId);
+
+        // Verify scope exists before attempting deletion
+        Scopes scope = scopesRepository.findByPkScopeId(scopeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Scope not found: " + scopeId));
+
+        scopesRepository.delete(scope);
+
+        log.info("Deleted scope: scopeId={}, scopeName={}", scopeId, scope.getScopeName());
     }
 
 }
