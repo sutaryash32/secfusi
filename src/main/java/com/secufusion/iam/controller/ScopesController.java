@@ -1,11 +1,13 @@
 package com.secufusion.iam.controller;
 
+import com.secufusion.iam.dto.CreateScopeRequest;
 import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.dto.UpdateScopeTenantTypesRequest;
 import com.secufusion.iam.entity.Scopes;
 import com.secufusion.iam.service.ScopesService;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -139,4 +141,63 @@ public class ScopesController {
                 )
         );
     }
+
+    // ---------------------------------------------------
+    // CREATE SCOPE
+    // ---------------------------------------------------
+    @Operation(summary = "Create a new scope", description = "Creates a new scope with the provided details.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Scope created successfully",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = Scopes.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @PostMapping
+    public ResponseEntity<ResponseDto<Scopes>> createScope(
+            @RequestBody CreateScopeRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        logger.info("Request received: POST /scopes from remoteAddr={}", httpRequest.getRemoteAddr());
+        Scopes createdScope = scopesService.createScope(
+                request.getScopeName(),
+                request.getDisplayName(),
+                request.getDescription(),
+                request.getUserType(),
+                request.getMenuName(),
+                request.getAction(),
+                request.getSubMenu(),
+                request.getTenantTypes()
+        );
+        logger.debug("Scope created: scopeId={}", createdScope.getPkScopeId());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(new ResponseDto<>(createdScope, String.valueOf(HttpStatus.CREATED.value())));
+    }
+
+    // ---------------------------------------------------
+    // DELETE SCOPE
+    // ---------------------------------------------------
+    @Operation(summary = "Delete a scope", description = "Deletes a scope by its ID. The scope will be automatically removed from all associated roles.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Scope deleted successfully"),
+            @ApiResponse(responseCode = "404", description = "Scope not found"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @DeleteMapping("/{scopeId}")
+    public ResponseEntity<ResponseDto<String>> deleteScope(
+            @Parameter(description = "ID of the scope to delete", required = true)
+            @PathVariable String scopeId,
+            HttpServletRequest httpRequest
+    ) {
+        logger.info("Request received: DELETE /scopes/{} from remoteAddr={}", scopeId, httpRequest.getRemoteAddr());
+        scopesService.deleteScope(scopeId);
+        logger.info("Scope deleted: scopeId={}", scopeId);
+        return ResponseEntity.ok(
+                new ResponseDto<>(
+                        "Scope deleted successfully",
+                        String.valueOf(HttpStatus.OK.value())
+                )
+        );
+    }
+
+
 }

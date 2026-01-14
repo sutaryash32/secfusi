@@ -1,9 +1,13 @@
 package com.secufusion.iam.controller;
 
+import com.secufusion.iam.dto.AzureResourceDto;
 import com.secufusion.iam.dto.CreateIdentityProviderRequest;
 import com.secufusion.iam.dto.SsoConfigurationResponse;
 import com.secufusion.iam.entity.SsoConfiguration;
+import com.secufusion.iam.entity.Tenant;
+import com.secufusion.iam.service.AzureGraphService;
 import com.secufusion.iam.service.SsoConfigurationService;
+import com.secufusion.iam.util.JwtUtl;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +37,8 @@ public class SsoConfigurationController {
 
     // Use constructor injection through Lombok's @RequiredArgsConstructor
     private final SsoConfigurationService ssoConfigurationService;
+    private final AzureGraphService azureGraphService;
+    private final JwtUtl jwtUtl;
 
     // CREATE
     /**
@@ -158,5 +164,45 @@ public class SsoConfigurationController {
         ssoConfigurationService.activate(request, id);
         log.info("Activated SSO configuration id={}", id);
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Endpoint to fetch "App Roles" (e.g., Manager, Admin) from Azure.
+     * Use this if you want to map permissions based on assigned roles.
+     * * URL: GET /api/v1/sso/azure/roles
+     */
+    @GetMapping("/roles")
+    public ResponseEntity<List<AzureResourceDto>> getAvailableAppRoles(HttpServletRequest request) {
+        // 1. Identify the Tenant from the JWT token
+        Tenant tenant = jwtUtl.getTenantFromRequest(request);
+
+        log.info("Request to fetch Azure App Roles for Tenant ID: {}", tenant.getTenantID());
+
+        // 2. Call the service to get roles for this tenant's configured Azure App
+        List<AzureResourceDto> roles = azureGraphService.getApplicationRoles(tenant);
+
+        return ResponseEntity.ok(roles);
+    }
+
+    /**
+     * Endpoint to search "Security Groups" in the Azure Tenant.
+     * Use this if you want to map permissions based on Group IDs.
+     * * URL: GET /api/v1/sso/azure/groups?search=HR
+     */
+    @GetMapping("/groups")
+    public ResponseEntity<List<AzureResourceDto>> searchGroups(
+            HttpServletRequest request,
+            @RequestParam(required = false) String search) {
+
+        // 1. Identify the Tenant from the JWT token
+        Tenant tenant = jwtUtl.getTenantFromRequest(request);
+
+        log.info("Request to search Azure Groups for Tenant ID: {} with term: '{}'",
+                tenant.getTenantID(), search);
+
+        // 2. Call the service to search groups in this tenant's Azure AD
+        List<AzureResourceDto> groups = azureGraphService.searchTenantGroups(tenant, search);
+
+        return ResponseEntity.ok(groups);
     }
 }

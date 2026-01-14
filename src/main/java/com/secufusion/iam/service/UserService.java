@@ -22,6 +22,7 @@ import org.springframework.security.access.AccessDeniedException;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -407,66 +408,64 @@ public class UserService {
      */
     @Transactional
     public UsersDto updateUser(String userId, UsersDto dto) {
-
-        log.info("➡️ [UPDATE USER] Start. userId={} dtoSummary={}", userId, summarizeDto(dto));
-        log.debug("updateUser() incoming DTO details: username={}, email={}, phone={}", dto.getEmail(), dto.getEmail(), dto.getPhoneNumber());
+        log.info("➡️ [UPDATE USER] Start. userId={}", userId);
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> {
-                    log.error("❌ Cannot update user. User not found: {}", userId);
-                    return new ResourceNotFoundException("User not found: " + userId);
-                });
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
 
         Tenant tenant = user.getTenant();
-        log.debug("User resolved for update. userId={} tenantId={} realm={}", userId, tenant.getTenantID(), tenant.getRealmName());
-
-        // Validate uniqueness, exclude this user id when checking
         validateUserFields(tenant, dto, userId);
 
-        try {
-            log.debug("Updating local DB user fields (firstName,lastName,email,username,phone,groups) for userId={}", userId);
-            user.setFirstName(dto.getFirstName());
-            user.setLastName(dto.getLastName());
-            user.setEmail(dto.getEmail());
-            user.setUserName(dto.getEmail());
-            user.setPhoneNo(dto.getPhoneNumber());
-            String status = dto.getStatus();
-            if (status != null && !status.trim().isEmpty()) {
-                user.setStatus(status.trim().toUpperCase());
-            }
-            ensureGroups(user, dto.getGroups());
-            userRepository.save(user);
+        // --- STEP 1: DETECT CHANGES ---
+        // We check if Keycloak-related fields are changing BEFORE we overwrite the local entity
+        boolean emailChanged = !Objects.equals(user.getEmail(), dto.getEmail());
+        boolean firstChanged = !Objects.equals(user.getFirstName(), dto.getFirstName());
+        boolean lastChanged  = !Objects.equals(user.getLastName(), dto.getLastName());
 
-            log.info("✔ Local DB user updated. userId={} username={}", userId, dto.getEmail());
+        // Note: If you use Email as Username, the username change is tied to the email change.
+        boolean updateKcNeeded = emailChanged || firstChanged || lastChanged;
 
-            // Update Keycloak
-            log.debug("Invoking Keycloak updateUser. realm={} kcUserId={} newUsername={} newEmail={}",
-                    tenant.getRealmName(), user.getKeycloakUserId(), dto.getEmail(), dto.getEmail());
-
-            kcUtil.updateUser(
-                    tenant.getRealmName(),
-                    user.getKeycloakUserId(),
-                    dto.getEmail(),
-                    dto.getEmail(),
-                    dto.getFirstName(),
-                    dto.getLastName()
-            );
-
-            log.info("✔ Keycloak user updated. kcUserId={}", user.getKeycloakUserId());
-            log.debug("Completed update operations for userId={}", userId);
-
-            return mapToDto(user);
-
-        } catch (KeycloakOperationException ex) {
-            log.error("❌ KC failure during update for userId={} message={} cause={}", userId, ex.getMessage(), ex.getCause().getMessage());
-            throw ex;
-        } catch (Exception ex) {
-            log.error("❌ Unexpected error updating user {} message={} stackTrace={}", userId, ex.getMessage(), ex.getMessage());
-            throw new KeycloakOperationException(
-                    "USER_UPDATE_FAILED", 3003,
-                    "Unexpected error updating user"
-            );
+        if (updateKcNeeded) {
+            log.debug("Keycloak update required. Changes: email={}, first={}, last={}",
+                    emailChanged, firstChanged, lastChanged);
+        } else {
+            log.debug("No Keycloak-relevant fields changed. Skipping KC sync.");
         }
+
+        // --- STEP 2: UPDATE LOCAL DB ---
+        user.setFirstName(dto.getFirstName());
+        user.setLastName(dto.getLastName());
+        user.setEmail(dto.getEmail());
+        user.setUserName(dto.getEmail()); // Assuming Email = Username
+        user.setPhoneNo(dto.getPhoneNumber());
+
+        if (dto.getStatus() != null && !dto.getStatus().isBlank()) {
+            user.setStatus(dto.getStatus().trim().toUpperCase());
+        }
+
+        ensureGroups(user, dto.getGroups());
+        userRepository.save(user);
+        log.info("✔ Local DB user updated.");
+
+        // --- STEP 3: CONDITIONAL KEYCLOAK UPDATE ---
+        if (updateKcNeeded) {
+            try {
+                kcUtil.updateUser(
+                        tenant.getRealmName(),
+                        user.getKeycloakUserId(),
+                        dto.getEmail(), // new username
+                        dto.getEmail(), // new email
+                        dto.getFirstName(),
+                        dto.getLastName()
+                );
+                log.info("✔ Keycloak synced successfully.");
+            } catch (KeycloakOperationException ex) {
+                log.error("❌ KC Update Failed", ex);
+                throw ex;
+            }
+        }
+
+        return mapToDto(user);
     }
 
     @Transactional

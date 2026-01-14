@@ -46,6 +46,6 @@ public class SsoConfiguration {
     // --- Optional redirects ---
     private String redirectUri;
     private Boolean setAsDefaultLogin = false;
-//    private String fkTenantId;
+    private String fkTenantId;
     private String active;
 }
