@@ -14,8 +14,8 @@ import java.util.List;
 @Entity
 @Table(name = "Tenant")
 @Data
-@ToString(exclude = {"users", "authProviderConfig"})
-@EqualsAndHashCode(exclude = {"users", "authProviderConfig"})
+@ToString(exclude = {"users", "authProviderConfig", "subscriptionPackage"})
+@EqualsAndHashCode(exclude = {"users", "authProviderConfig", "subscriptionPackage"})
 @AllArgsConstructor
 @NoArgsConstructor
 public class Tenant {
@@ -42,6 +42,11 @@ public class Tenant {
     private String billingCycleType;
     private String features;
     private String loginUrl;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "fk_package_id")
+    @JsonIgnore
+    private Package subscriptionPackage;
 
 //    @OneToOne(cascade = CascadeType.ALL)
 //    @JoinColumn(name = "admin_user_id")

@@ -18,6 +18,9 @@ public class Feature {
 
     private String featureName;
 
+    @Column(name = "feature_code", unique = true, length = 100)
+    private String featureCode;
+
     private String description;
 
     private String featureScope;
@@ -25,6 +28,10 @@ public class Feature {
     private String featureType;
 
     private Boolean isActive = true;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "fk_feature_group_id")
+    private FeatureGroup featureGroup;
 
     private Long createdBy;
     private Long lastModifiedBy;
