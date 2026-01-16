@@ -16,6 +16,7 @@ public class ResponseCodes {
     // ===== Security / Auth =====
     public static final String ACCESS_DENIED = "ACCESS DENIED";
     public static final String AUTHENTICATION_FAILED = "AUTHENTICATION FAILED";
+    public static final String FEATURE_NOT_AVAILABLE = "FEATURE_NOT_AVAILABLE";
     public static final String INVALID_TOKEN = "INVALID TOKEN";
     public static final String TOKEN_EXPIRED = "TOKEN EXPIRED";
     public static final String TOKEN_MISMATCH = "TOKEN MISMATCH";

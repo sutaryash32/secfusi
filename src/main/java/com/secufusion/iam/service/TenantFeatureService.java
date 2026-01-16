@@ -1,5 +1,7 @@
 package com.secufusion.iam.service;
 
+import com.secufusion.iam.dto.AccessLevelResponse;
+import com.secufusion.iam.dto.RetentionPeriodResponse;
 import com.secufusion.iam.dto.TenantFeatureAccessResponse;
 import com.secufusion.iam.entity.PackageFeatureMapping;
 import com.secufusion.iam.entity.Tenant;
@@ -177,5 +179,91 @@ public class TenantFeatureService {
 
         tenantRepository.save(tenant);
         log.info("Tenant {} package updated to {}", tenantId, packageId);
+    }
+
+    /**
+     * Get tenant's current package name.
+     */
+    public String getTenantPackageName(String tenantId) {
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant not found: " + tenantId));
+
+        if (tenant.getSubscriptionPackage() == null) {
+            return "No Package";
+        }
+
+        return tenant.getSubscriptionPackage().getPackageName();
+    }
+
+    /**
+     * Get full access level details for a feature.
+     */
+    public AccessLevelResponse getFeatureAccessLevel(String tenantId, String featureCode) {
+        log.debug("Getting access level details for tenant: {}, feature: {}", tenantId, featureCode);
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant not found: " + tenantId));
+
+        if (tenant.getSubscriptionPackage() == null) {
+            return null;
+        }
+
+        Long packageId = tenant.getSubscriptionPackage().getPkPackageId();
+        Optional<PackageFeatureMapping> mapping = mappingRepository
+                .findByPackageIdAndFeatureCode(packageId, featureCode);
+
+        if (mapping.isEmpty()) {
+            return null;
+        }
+
+        PackageFeatureMapping pfm = mapping.get();
+        return AccessLevelResponse.builder()
+                .accessLevelId(pfm.getAccessLevel().getPkAccessLevelId())
+                .levelName(pfm.getAccessLevel().getLevelName())
+                .levelCode(pfm.getAccessLevel().getLevelCode())
+                .levelValue(pfm.getAccessLevel().getLevelValue())
+                .description(pfm.getAccessLevel().getDescription())
+                .isActive(pfm.getAccessLevel().getIsActive())
+                .build();
+    }
+
+    /**
+     * Get full retention period details for a feature.
+     */
+    public RetentionPeriodResponse getFeatureRetention(String tenantId, String featureCode) {
+        log.debug("Getting retention details for tenant: {}, feature: {}", tenantId, featureCode);
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant not found: " + tenantId));
+
+        if (tenant.getSubscriptionPackage() == null) {
+            return null;
+        }
+
+        Long packageId = tenant.getSubscriptionPackage().getPkPackageId();
+        Optional<PackageFeatureMapping> mapping = mappingRepository
+                .findByPackageIdAndFeatureCode(packageId, featureCode);
+
+        if (mapping.isEmpty() || mapping.get().getRetentionPeriod() == null) {
+            return null;
+        }
+
+        var rp = mapping.get().getRetentionPeriod();
+        return RetentionPeriodResponse.builder()
+                .retentionPeriodId(rp.getPkRetentionPeriodId())
+                .periodName(rp.getPeriodName())
+                .periodCode(rp.getPeriodCode())
+                .periodDays(rp.getPeriodDays())
+                .description(rp.getDescription())
+                .isActive(rp.getIsActive())
+                .build();
+    }
+
+    /**
+     * Get all feature access details as a list.
+     */
+    public List<TenantFeatureAccessResponse.FeatureAccess> getAllFeatureAccess(String tenantId) {
+        TenantFeatureAccessResponse response = getTenantFeatureAccess(tenantId);
+        return response.getFeatures();
     }
 }
