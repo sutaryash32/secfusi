@@ -8,4 +8,5 @@ import org.springframework.stereotype.Repository;
 public interface FeatureRepository extends JpaRepository<Feature, Long> {
     boolean existsByFeatureNameIgnoreCase(String featureName);
 
+    java.util.Optional<Feature> findByFeatureCode(String featureCode);
 }

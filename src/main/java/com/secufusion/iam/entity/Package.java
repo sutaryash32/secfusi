@@ -27,6 +27,10 @@ public class Package {
     @JoinColumn(name = "package_type_id")
     private PackageType packageType;
 
+    @ManyToOne
+    @JoinColumn(name = "fk_billing_cycle_id")
+    private BillingCycle billingCycle;
+
     @Column(name = "description")
     private String description;
 

@@ -204,4 +204,42 @@ public class DropdownsController {
         log.info("GET /roles/dropdown - returning {} items", dropdownList != null ? dropdownList.size() : 0);
         return ResponseEntity.ok(new ResponseDto<>(dropdownList, String.valueOf(HttpStatus.OK.value())));
     }
+
+    /**
+     * Retrieve all package types for dropdown.
+     *
+     * @return list of PackageType entities
+     */
+    @Operation(summary = "Get all package types", description = "Retrieve all package types to populate a dropdown")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "List of package types",
+            content = @Content(mediaType = "application/json",
+                array = @ArraySchema(schema = @Schema(implementation = PackageType.class))))
+    })
+    @GetMapping("/package-types")
+    public ResponseEntity<ResponseDto<List<PackageType>>> getPackageTypes() {
+        log.debug("GET /package-types - fetching package types");
+        List<PackageType> packageTypes = dropdownService.getAllPackageTypes();
+        log.debug("GET /package-types - returning {} items", packageTypes != null ? packageTypes.size() : 0);
+        return ResponseEntity.ok(new ResponseDto<>(packageTypes, String.valueOf(HttpStatus.OK.value())));
+    }
+
+    /**
+     * Retrieve all active billing cycles for dropdown.
+     *
+     * @return list of active BillingCycle entities
+     */
+    @Operation(summary = "Get all billing cycles", description = "Retrieve all active billing cycles to populate a dropdown")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "List of billing cycles",
+            content = @Content(mediaType = "application/json",
+                array = @ArraySchema(schema = @Schema(implementation = BillingCycle.class))))
+    })
+    @GetMapping("/billing-cycles")
+    public ResponseEntity<ResponseDto<List<BillingCycle>>> getBillingCycles() {
+        log.debug("GET /billing-cycles - fetching billing cycles");
+        List<BillingCycle> billingCycles = dropdownService.getAllBillingCycles();
+        log.debug("GET /billing-cycles - returning {} items", billingCycles != null ? billingCycles.size() : 0);
+        return ResponseEntity.ok(new ResponseDto<>(billingCycles, String.valueOf(HttpStatus.OK.value())));
+    }
 }
