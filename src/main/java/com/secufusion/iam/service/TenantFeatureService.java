@@ -5,14 +5,17 @@ import com.secufusion.iam.dto.RetentionPeriodResponse;
 import com.secufusion.iam.dto.TenantFeatureAccessResponse;
 import com.secufusion.iam.entity.PackageFeatureMapping;
 import com.secufusion.iam.entity.Tenant;
+import com.secufusion.iam.entity.TenantAddonFeature;
 import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.PackageFeatureMappingRepository;
+import com.secufusion.iam.repository.TenantAddonFeatureRepository;
 import com.secufusion.iam.repository.TenantRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -28,12 +31,26 @@ public class TenantFeatureService {
     @Autowired
     private PackageFeatureMappingRepository mappingRepository;
 
+    @Autowired
+    private TenantAddonFeatureRepository addonRepository;
+
     /**
-     * Check if a tenant has access to a specific feature based on their package.
+     * Check if a tenant has access to a specific feature based on their package or add-ons.
      */
     public boolean hasFeatureAccess(String tenantId, String featureCode) {
         log.debug("Checking feature access for tenant: {}, feature: {}", tenantId, featureCode);
 
+        // First check for addon feature (higher priority)
+        Optional<TenantAddonFeature> addon = addonRepository.findActiveAddonByTenantAndFeatureCode(
+                tenantId, featureCode, LocalDate.now());
+        if (addon.isPresent()) {
+            TenantAddonFeature taf = addon.get();
+            boolean hasAccess = taf.getAccessLevel().getLevelValue() > 0;
+            log.debug("Feature access via ADDON: tenant={}, feature={}, hasAccess={}", tenantId, featureCode, hasAccess);
+            return hasAccess;
+        }
+
+        // Fall back to package-based access
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant not found: " + tenantId));
 
@@ -59,7 +76,7 @@ public class TenantFeatureService {
 
         // Access granted if level value > 0 (anything except "No")
         boolean hasAccess = pfm.getAccessLevel().getLevelValue() > 0;
-        log.debug("Feature access result: tenant={}, feature={}, hasAccess={}", tenantId, featureCode, hasAccess);
+        log.debug("Feature access via PACKAGE: tenant={}, feature={}, hasAccess={}", tenantId, featureCode, hasAccess);
 
         return hasAccess;
     }
@@ -109,11 +126,19 @@ public class TenantFeatureService {
     }
 
     /**
-     * Get retention period in days for a feature.
+     * Get retention period in days for a feature (checks addon first, then package).
      */
     public Integer getFeatureRetentionDays(String tenantId, String featureCode) {
         log.debug("Getting retention days for tenant: {}, feature: {}", tenantId, featureCode);
 
+        // Check addon first
+        Optional<TenantAddonFeature> addon = addonRepository.findActiveAddonByTenantAndFeatureCode(
+                tenantId, featureCode, LocalDate.now());
+        if (addon.isPresent() && addon.get().getRetentionPeriod() != null) {
+            return addon.get().getRetentionPeriod().getPeriodDays();
+        }
+
+        // Fall back to package
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant not found: " + tenantId));
 
@@ -134,11 +159,19 @@ public class TenantFeatureService {
     }
 
     /**
-     * Get access level code for a feature (YES, NO, LIMITED, BASIC, ADVANCED, COMING_SOON).
+     * Get access level code for a feature (checks addon first, then package).
      */
     public String getFeatureAccessLevelCode(String tenantId, String featureCode) {
         log.debug("Getting access level for tenant: {}, feature: {}", tenantId, featureCode);
 
+        // Check addon first
+        Optional<TenantAddonFeature> addon = addonRepository.findActiveAddonByTenantAndFeatureCode(
+                tenantId, featureCode, LocalDate.now());
+        if (addon.isPresent()) {
+            return addon.get().getAccessLevel().getLevelCode();
+        }
+
+        // Fall back to package
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant not found: " + tenantId));
 
