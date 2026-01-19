@@ -1,5 +1,6 @@
 package com.secufusion.iam.service;
 
+import com.secufusion.iam.annotation.RequiresFeature;
 import com.secufusion.iam.dto.LoginAuditEventDTO;
 import com.secufusion.iam.dto.LoginAuditPageResponse;
 import com.secufusion.iam.entity.LoginAuditEvent;
@@ -680,7 +681,9 @@ public class LoginAuditService {
 
     /**
      * Get all audit events for a tenant with pagination.
+     * Requires POLICY_AUDIT_LOGS feature access.
      */
+    @RequiresFeature("POLICY_AUDIT_LOGS")
     public LoginAuditPageResponse getEvents(String tenantId, int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
         Page<LoginAuditEvent> events = loginAuditRepository
@@ -742,7 +745,9 @@ public class LoginAuditService {
 
     /**
      * Get user management events.
+     * Requires POLICY_ADVANCED_AUDIT feature with at least BASIC access level.
      */
+    @RequiresFeature(value = "POLICY_ADVANCED_AUDIT", minimumLevel = "BASIC")
     public LoginAuditPageResponse getUserManagementEvents(String tenantId, LocalDateTime start,
                                                            LocalDateTime end, int page, int size) {
         Pageable pageable = PageRequest.of(page, size);

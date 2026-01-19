@@ -17,28 +17,37 @@ import java.util.Set;
 public class Package {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "pk_package_id")
     private Long pkPackageId;
 
+    @Column(name = "package_name")
     private String packageName;
 
     @ManyToOne
-    @JoinColumn(name = "packageTypeId")
+    @JoinColumn(name = "package_type_id")
     private PackageType packageType;
 
-
+    @Column(name = "description")
     private String description;
 
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
-            name = "package_feature_map",
-            joinColumns = @JoinColumn(name = "fk_package_id", referencedColumnName = "pkPackageId"),
-            inverseJoinColumns = @JoinColumn(name = "fk_feature_id", referencedColumnName = "pkFeatureId")
+            name = "package_feature_mapping",
+            joinColumns = @JoinColumn(name = "fk_package_id", referencedColumnName = "pk_package_id"),
+            inverseJoinColumns = @JoinColumn(name = "fk_feature_id", referencedColumnName = "pk_feature_id")
     )
     private Set<Feature> features = new HashSet<>();
 
+    @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @Column(name = "created_by")
     private Long createdBy;
+
+    @Column(name = "updated_by")
     private Long updatedBy;
 
 }
