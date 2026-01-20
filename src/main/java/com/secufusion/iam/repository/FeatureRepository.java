@@ -10,6 +10,8 @@ public interface FeatureRepository extends JpaRepository<Feature, Long> {
 
     java.util.Optional<Feature> findByFeatureCode(String featureCode);
 
+    boolean existsByFeatureCodeIgnoreCase(String featureCode);
+
     /**
      * Find all active addon features.
      */
