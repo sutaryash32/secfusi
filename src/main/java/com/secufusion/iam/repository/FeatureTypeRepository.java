@@ -6,4 +6,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface FeatureTypeRepository extends JpaRepository<FeatureType, Long> {
+    java.util.Optional<FeatureType> findByFeatureTypeNameIgnoreCase(String featureTypeName);
 }
