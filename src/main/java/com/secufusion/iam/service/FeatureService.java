@@ -3,10 +3,12 @@ package com.secufusion.iam.service;
 import com.secufusion.iam.dto.CreateFeatureRequest;
 import com.secufusion.iam.dto.FeatureResponse;
 import com.secufusion.iam.entity.Feature;
+import com.secufusion.iam.entity.FeatureGroup;
 import com.secufusion.iam.entity.FeatureType;
 import com.secufusion.iam.entity.TenantType;
 import com.secufusion.iam.exception.ResourceConflictException;
 import com.secufusion.iam.exception.ResourceNotFoundException;
+import com.secufusion.iam.repository.FeatureGroupRepository;
 import com.secufusion.iam.repository.FeatureRepository;
 import com.secufusion.iam.repository.FeatureTypeRepository;
 import com.secufusion.iam.repository.TenantTypeRepository;
@@ -30,6 +32,9 @@ public class FeatureService {
     @Autowired
     private TenantTypeRepository tenantTypeRepository;
 
+    @Autowired
+    private FeatureGroupRepository featureGroupRepository;
+
     // CREATE
     public FeatureResponse createFeature(CreateFeatureRequest request) {
 
@@ -37,7 +42,12 @@ public class FeatureService {
 
         // Unique Feature Name Check
         if (featureRepository.existsByFeatureNameIgnoreCase(request.getFeatureName())) {
-            throw new ResourceNotFoundException("Feature already exists: " + request.getFeatureName());
+            throw new ResourceConflictException("Feature name already exists: " + request.getFeatureName());
+        }
+
+        // Unique Feature Code Check
+        if (request.getFeatureCode() != null && featureRepository.existsByFeatureCodeIgnoreCase(request.getFeatureCode())) {
+            throw new ResourceConflictException("Feature code already exists: " + request.getFeatureCode());
         }
 
         // Validate Feature Scope
@@ -48,11 +58,23 @@ public class FeatureService {
         FeatureType type = featureTypeRepository.findById(request.getFeatureTypeId())
                 .orElseThrow(() -> new ResourceNotFoundException("Invalid featureTypeId: " + request.getFeatureTypeId()));
 
+        // Validate Feature Group (optional)
+        FeatureGroup featureGroup = null;
+        if (request.getFeatureGroupId() != null) {
+            featureGroup = featureGroupRepository.findById(request.getFeatureGroupId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureGroupId: " + request.getFeatureGroupId()));
+        }
+
         Feature feature = new Feature();
         feature.setFeatureName(request.getFeatureName());
+        feature.setFeatureCode(request.getFeatureCode());
         feature.setDescription(request.getDescription());
         feature.setFeatureScope(scope.getTenantTypeName());
         feature.setFeatureType(type.getFeatureTypeName());
+        feature.setFeatureGroup(featureGroup);
+        feature.setIsAddon(request.getIsAddon() != null ? request.getIsAddon() : false);
+        feature.setAddonMonthlyPrice(request.getAddonMonthlyPrice());
+        feature.setAddonTrialDays(request.getAddonTrialDays());
         feature.setCreatedBy(request.getCreatedBy());
         feature.setLastModifiedBy(request.getCreatedBy());
         feature.setIsActive(true);
@@ -98,6 +120,13 @@ public class FeatureService {
             throw new ResourceConflictException("Feature name already exists: " + request.getFeatureName());
         }
 
+        // Unique feature code check but allow same code
+        if (request.getFeatureCode() != null &&
+                (existing.getFeatureCode() == null || !existing.getFeatureCode().equalsIgnoreCase(request.getFeatureCode())) &&
+                featureRepository.existsByFeatureCodeIgnoreCase(request.getFeatureCode())) {
+            throw new ResourceConflictException("Feature code already exists: " + request.getFeatureCode());
+        }
+
         // Validate Scope
         TenantType scope = tenantTypeRepository.findById(request.getFeatureScopeId())
                 .orElseThrow(() -> new ResourceNotFoundException("Invalid featureScopeId"));
@@ -106,10 +135,22 @@ public class FeatureService {
         FeatureType type = featureTypeRepository.findById(request.getFeatureTypeId())
                 .orElseThrow(() -> new ResourceNotFoundException("Invalid featureTypeId"));
 
+        // Validate Feature Group (optional)
+        FeatureGroup featureGroup = null;
+        if (request.getFeatureGroupId() != null) {
+            featureGroup = featureGroupRepository.findById(request.getFeatureGroupId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureGroupId: " + request.getFeatureGroupId()));
+        }
+
         existing.setFeatureName(request.getFeatureName());
+        existing.setFeatureCode(request.getFeatureCode());
         existing.setDescription(request.getDescription());
         existing.setFeatureScope(scope.getTenantTypeName());
         existing.setFeatureType(type.getFeatureTypeName());
+        existing.setFeatureGroup(featureGroup);
+        existing.setIsAddon(request.getIsAddon() != null ? request.getIsAddon() : false);
+        existing.setAddonMonthlyPrice(request.getAddonMonthlyPrice());
+        existing.setAddonTrialDays(request.getAddonTrialDays());
         existing.setLastModifiedBy(request.getCreatedBy());
 
         Feature updated = featureRepository.save(existing);
@@ -138,10 +179,16 @@ public class FeatureService {
         return FeatureResponse.builder()
                 .featureId(feature.getPkFeatureID())
                 .featureName(feature.getFeatureName())
+                .featureCode(feature.getFeatureCode())
                 .description(feature.getDescription())
                 .featureScope(feature.getFeatureScope())
                 .featureType(feature.getFeatureType())
+                .featureGroupId(feature.getFeatureGroup() != null ? feature.getFeatureGroup().getPkFeatureGroupId() : null)
+                .featureGroupName(feature.getFeatureGroup() != null ? feature.getFeatureGroup().getGroupName() : null)
                 .isActive(feature.getIsActive())
+                .isAddon(feature.getIsAddon())
+                .addonMonthlyPrice(feature.getAddonMonthlyPrice())
+                .addonTrialDays(feature.getAddonTrialDays())
                 .lastModifiedTimestamp(feature.getLastModifiedTimestamp())
                 .build();
     }
