@@ -11,7 +11,7 @@ import java.util.Optional;
 @Repository
 public interface TenantTypeRepository extends JpaRepository<TenantType, Serializable> {
 
-//    Optional<TenantType> findByNameIgnoreCase(String name);
+    Optional<TenantType> findByTenantTypeNameIgnoreCase(String tenantTypeName);
 
     List<TenantType> findByTenantTypeNameIgnoreCaseIn(List<String> names);
 }
