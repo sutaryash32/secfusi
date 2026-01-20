@@ -215,6 +215,34 @@ public class FeatureService {
         log.info("Deleted feature with ID: {}", id);
     }
 
+    // DEACTIVATE
+    public FeatureResponse deactivateFeature(Long id) {
+        log.info("Deactivating feature with ID: {}", id);
+
+        Feature feature = featureRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Feature not found"));
+
+        feature.setIsActive(false);
+        Feature updated = featureRepository.save(feature);
+
+        log.info("Feature deactivated successfully: {}", id);
+        return mapToResponse(updated);
+    }
+
+    // ACTIVATE
+    public FeatureResponse activateFeature(Long id) {
+        log.info("Activating feature with ID: {}", id);
+
+        Feature feature = featureRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Feature not found"));
+
+        feature.setIsActive(true);
+        Feature updated = featureRepository.save(feature);
+
+        log.info("Feature activated successfully: {}", id);
+        return mapToResponse(updated);
+    }
+
 
     // Convert entity to response
     private FeatureResponse mapToResponse(Feature feature) {
