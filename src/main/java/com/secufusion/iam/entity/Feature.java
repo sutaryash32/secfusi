@@ -1,5 +1,6 @@
 package com.secufusion.iam.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;
@@ -47,6 +48,7 @@ public class Feature {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "fk_feature_group_id")
+    @JsonIgnore
     private FeatureGroup featureGroup;
 
     @Column(name = "created_by")

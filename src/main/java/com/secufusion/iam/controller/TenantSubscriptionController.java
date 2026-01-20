@@ -36,11 +36,7 @@ public class TenantSubscriptionController {
         SubscriptionResponse response = subscriptionService.createSubscription(request);
 
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ResponseDto.<SubscriptionResponse>builder()
-                        .responseCode("201")
-                        .message("Subscription created successfully")
-                        .data(response)
-                        .build());
+                .body(new ResponseDto<>(response, "201"));
     }
 
     @PostMapping("/default/{tenantId}")
@@ -53,11 +49,7 @@ public class TenantSubscriptionController {
         SubscriptionResponse response = subscriptionService.createDefaultSubscription(tenantId, createdBy);
 
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ResponseDto.<SubscriptionResponse>builder()
-                        .responseCode("201")
-                        .message("Default subscription created successfully")
-                        .data(response)
-                        .build());
+                .body(new ResponseDto<>(response, "201"));
     }
 
     @GetMapping("/tenant/{tenantId}")
@@ -68,11 +60,7 @@ public class TenantSubscriptionController {
 
         SubscriptionResponse response = subscriptionService.getActiveSubscription(tenantId);
 
-        return ResponseEntity.ok(ResponseDto.<SubscriptionResponse>builder()
-                .responseCode("200")
-                .message("Success")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 
     @GetMapping("/tenant/{tenantId}/history")
@@ -83,11 +71,7 @@ public class TenantSubscriptionController {
 
         List<SubscriptionResponse> response = subscriptionService.getSubscriptionHistory(tenantId);
 
-        return ResponseEntity.ok(ResponseDto.<List<SubscriptionResponse>>builder()
-                .responseCode("200")
-                .message("Success")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 
     // ==================== Subscription Actions ====================
@@ -104,11 +88,7 @@ public class TenantSubscriptionController {
         SubscriptionResponse response = subscriptionService.upgradeSubscription(
                 tenantId, packageId, billingCycleId, updatedBy);
 
-        return ResponseEntity.ok(ResponseDto.<SubscriptionResponse>builder()
-                .responseCode("200")
-                .message("Subscription upgraded successfully")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 
     @PostMapping("/tenant/{tenantId}/downgrade")
@@ -122,11 +102,7 @@ public class TenantSubscriptionController {
         SubscriptionResponse response = subscriptionService.downgradeSubscription(
                 tenantId, packageId, updatedBy);
 
-        return ResponseEntity.ok(ResponseDto.<SubscriptionResponse>builder()
-                .responseCode("200")
-                .message("Subscription downgraded successfully")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 
     @PostMapping("/tenant/{tenantId}/convert-trial")
@@ -138,11 +114,7 @@ public class TenantSubscriptionController {
 
         SubscriptionResponse response = subscriptionService.convertTrial(tenantId, request);
 
-        return ResponseEntity.ok(ResponseDto.<SubscriptionResponse>builder()
-                .responseCode("200")
-                .message("Trial converted to paid subscription successfully")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 
     @PostMapping("/tenant/{tenantId}/cancel")
@@ -154,11 +126,7 @@ public class TenantSubscriptionController {
 
         SubscriptionResponse response = subscriptionService.cancelSubscription(tenantId, request);
 
-        return ResponseEntity.ok(ResponseDto.<SubscriptionResponse>builder()
-                .responseCode("200")
-                .message("Subscription cancelled successfully")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 
     @PostMapping("/tenant/{tenantId}/renew")
@@ -170,11 +138,7 @@ public class TenantSubscriptionController {
 
         SubscriptionResponse response = subscriptionService.renewSubscription(tenantId, updatedBy);
 
-        return ResponseEntity.ok(ResponseDto.<SubscriptionResponse>builder()
-                .responseCode("200")
-                .message("Subscription renewed successfully")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 
     // ==================== Pricing APIs ====================
@@ -186,11 +150,7 @@ public class TenantSubscriptionController {
 
         List<PackagePricingResponse.PackageWithPricing> response = subscriptionService.getAllPackagesWithPricing();
 
-        return ResponseEntity.ok(ResponseDto.<List<PackagePricingResponse.PackageWithPricing>>builder()
-                .responseCode("200")
-                .message("Success")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 
     @GetMapping("/pricing/package/{packageId}")
@@ -201,11 +161,7 @@ public class TenantSubscriptionController {
 
         List<PackagePricingResponse> response = subscriptionService.getPackagePricing(packageId);
 
-        return ResponseEntity.ok(ResponseDto.<List<PackagePricingResponse>>builder()
-                .responseCode("200")
-                .message("Success")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 
     // ==================== Addon Pricing APIs ====================
@@ -217,11 +173,7 @@ public class TenantSubscriptionController {
 
         List<AddonPricingResponse.AddonWithAllPricing> response = addonPricingService.getAllAddonFeaturesWithPricing();
 
-        return ResponseEntity.ok(ResponseDto.<List<AddonPricingResponse.AddonWithAllPricing>>builder()
-                .responseCode("200")
-                .message("Success")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 
     @GetMapping("/pricing/addon/{featureCode}")
@@ -232,11 +184,7 @@ public class TenantSubscriptionController {
 
         AddonPricingResponse.AddonWithAllPricing response = addonPricingService.getAddonPricingByFeatureCode(featureCode);
 
-        return ResponseEntity.ok(ResponseDto.<AddonPricingResponse.AddonWithAllPricing>builder()
-                .responseCode("200")
-                .message("Success")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 
     @GetMapping("/pricing/addon/{featureCode}/cycle/{billingCycleCode}")
@@ -248,10 +196,6 @@ public class TenantSubscriptionController {
 
         AddonPricingResponse response = addonPricingService.getAddonPricing(featureCode, billingCycleCode);
 
-        return ResponseEntity.ok(ResponseDto.<AddonPricingResponse>builder()
-                .responseCode("200")
-                .message("Success")
-                .data(response)
-                .build());
+        return ResponseEntity.ok(new ResponseDto<>(response, "200"));
     }
 }

@@ -1,5 +1,6 @@
 package com.secufusion.iam.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -39,6 +40,7 @@ public class FeatureGroup {
     private Boolean isActive = true;
 
     @OneToMany(mappedBy = "featureGroup", fetch = FetchType.LAZY)
+    @JsonIgnore
     private List<Feature> features = new ArrayList<>();
 
     @CreationTimestamp
