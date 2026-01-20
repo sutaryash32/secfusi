@@ -34,6 +34,12 @@ public class Package {
     @Column(name = "description")
     private String description;
 
+    @Column(name = "trial_days")
+    private Integer trialDays = 14;
+
+    @Column(name = "is_trial_available")
+    private Boolean isTrialAvailable = true;
+
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
             name = "package_feature_mapping",

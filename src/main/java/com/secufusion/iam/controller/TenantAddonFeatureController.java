@@ -18,7 +18,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
+
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -188,5 +191,71 @@ public class TenantAddonFeatureController {
         log.info("DELETE /tenant-addon-features/tenant/{}/feature/{} - Deleting addon", tenantId, featureId);
         tenantAddonFeatureService.deleteAddonByTenantAndFeature(tenantId, featureId);
         return ResponseEntity.noContent().build();
+    }
+
+    // ==================== Purchase & Billing APIs ====================
+
+    @PostMapping("/tenant/{tenantId}/purchase")
+    @Operation(summary = "Purchase addon feature", description = "Purchase an addon feature for a tenant with billing")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Addon purchased successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid request or feature not available as addon"),
+            @ApiResponse(responseCode = "404", description = "Tenant, feature, or pricing not found"),
+            @ApiResponse(responseCode = "409", description = "Addon already purchased")
+    })
+    public ResponseEntity<ResponseDto<TenantAddonFeatureResponse>> purchaseAddon(
+            @Parameter(description = "Tenant ID") @PathVariable String tenantId,
+            @Valid @RequestBody PurchaseAddonRequest request,
+            HttpServletRequest httpRequest) {
+        String userId = jwtUtl.getUserId(httpRequest);
+        log.info("POST /tenant-addon-features/tenant/{}/purchase - Purchasing addon", tenantId);
+        TenantAddonFeatureResponse response = tenantAddonFeatureService.purchaseAddon(tenantId, request, userId);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(new ResponseDto<>(response, String.valueOf(HttpStatus.CREATED.value())));
+    }
+
+    @PostMapping("/{addonId}/renew")
+    @Operation(summary = "Renew addon subscription", description = "Renew an existing addon subscription")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Addon renewed successfully"),
+            @ApiResponse(responseCode = "404", description = "Addon or billing cycle not found")
+    })
+    public ResponseEntity<ResponseDto<TenantAddonFeatureResponse>> renewAddon(
+            @Parameter(description = "Addon ID") @PathVariable Long addonId,
+            @Parameter(description = "Billing cycle ID") @RequestParam Long billingCycleId,
+            HttpServletRequest httpRequest) {
+        String userId = jwtUtl.getUserId(httpRequest);
+        log.info("POST /tenant-addon-features/{}/renew - Renewing addon", addonId);
+        TenantAddonFeatureResponse response = tenantAddonFeatureService.renewAddon(addonId, billingCycleId, userId);
+        return ResponseEntity.ok(new ResponseDto<>(response, String.valueOf(HttpStatus.OK.value())));
+    }
+
+    @PostMapping("/{addonId}/convert-trial")
+    @Operation(summary = "Convert addon trial to paid", description = "Convert an addon trial subscription to paid")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trial converted successfully"),
+            @ApiResponse(responseCode = "400", description = "Addon is not in trial state"),
+            @ApiResponse(responseCode = "404", description = "Addon or billing cycle not found")
+    })
+    public ResponseEntity<ResponseDto<TenantAddonFeatureResponse>> convertAddonTrial(
+            @Parameter(description = "Addon ID") @PathVariable Long addonId,
+            @Parameter(description = "Billing cycle ID") @RequestParam Long billingCycleId,
+            HttpServletRequest httpRequest) {
+        String userId = jwtUtl.getUserId(httpRequest);
+        log.info("POST /tenant-addon-features/{}/convert-trial - Converting trial", addonId);
+        TenantAddonFeatureResponse response = tenantAddonFeatureService.convertAddonTrial(addonId, billingCycleId, userId);
+        return ResponseEntity.ok(new ResponseDto<>(response, String.valueOf(HttpStatus.OK.value())));
+    }
+
+    @GetMapping("/tenant/{tenantId}/billing-summary")
+    @Operation(summary = "Get addon billing summary", description = "Get billing summary for all active addons of a tenant")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Billing summary retrieved")
+    })
+    public ResponseEntity<ResponseDto<Map<String, Object>>> getAddonBillingSummary(
+            @Parameter(description = "Tenant ID") @PathVariable String tenantId) {
+        log.debug("GET /tenant-addon-features/tenant/{}/billing-summary", tenantId);
+        Map<String, Object> summary = tenantAddonFeatureService.getAddonBillingSummary(tenantId);
+        return ResponseEntity.ok(new ResponseDto<>(summary, String.valueOf(HttpStatus.OK.value())));
     }
 }
