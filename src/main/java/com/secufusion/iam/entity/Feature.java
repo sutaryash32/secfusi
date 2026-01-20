@@ -35,6 +35,16 @@ public class Feature {
     @Column(name = "is_active")
     private Boolean isActive = true;
 
+    // Addon feature fields
+    @Column(name = "is_addon")
+    private Boolean isAddon = false;
+
+    @Column(name = "addon_monthly_price")
+    private java.math.BigDecimal addonMonthlyPrice;
+
+    @Column(name = "addon_trial_days")
+    private Integer addonTrialDays = 7;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "fk_feature_group_id")
     private FeatureGroup featureGroup;

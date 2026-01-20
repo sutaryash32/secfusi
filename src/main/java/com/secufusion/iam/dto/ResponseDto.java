@@ -1,33 +1,44 @@
 package com.secufusion.iam.dto;
 
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
+@Builder
+@NoArgsConstructor
 public class ResponseDto<T> {
-    private T results;
+    private T data;
     private String message;
-    private String code;
+    private String responseCode;
 
-    public ResponseDto() {}
-
-
-    public ResponseDto(T results, String message, String code) {
-        super();
-        this.results = results;
+    // All-args constructor (data, message, responseCode)
+    public ResponseDto(T data, String message, String responseCode) {
+        this.data = data;
         this.message = message;
-        this.code = code;
+        this.responseCode = responseCode;
     }
 
-    public ResponseDto(T results, String code) {
-        super();
-        this.results = results;
-        this.code = code;
+    // Two-arg constructor (data, responseCode) - used by existing controllers
+    public ResponseDto(T data, String responseCode) {
+        this.data = data;
+        this.responseCode = responseCode;
     }
 
-    public ResponseDto(String message, String code) {
-        super();
-        this.message = message;
-        this.code = code;
+    // Legacy getters for backward compatibility
+    public T getResults() {
+        return data;
     }
 
+    public void setResults(T results) {
+        this.data = results;
+    }
+
+    public String getCode() {
+        return responseCode;
+    }
+
+    public void setCode(String code) {
+        this.responseCode = code;
+    }
 }
