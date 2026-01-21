@@ -37,6 +37,9 @@ public class AuthConfigService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private LoginAuditService loginAuditService;
+
     /**
      * Load authentication details for a tenant identified by host (domain or tenantName).
      *
@@ -280,16 +283,58 @@ public class AuthConfigService {
                             ));
             response.setPermissionMatrix(permissionMatrix);
 
+            // Log successful login event
+            try {
+                loginAuditService.logLoginSuccess(
+                        tenantFromRequest.getTenantID(),
+                        tenantFromRequest.getRealmName(),
+                        userFromRequest.getPkUserId(),
+                        userFromRequest.getUserName(),
+                        userFromRequest.getEmail(),
+                        request.getRemoteAddr(),
+                        request.getHeader("User-Agent"),
+                        null, // sessionId - can be extracted from token if available
+                        null, // clientId - can be extracted from token if available
+                        "TOKEN" // authMethod
+                );
+            } catch (Exception auditEx) {
+                log.warn("Failed to log login audit event: {}", auditEx.getMessage());
+            }
+
             log.info("login - completed for userId={}", userFromRequest.getPkUserId());
             return response;
 
         } catch (ResourceNotFoundException rnfe) {
-            // Known error conditions are logged above; rethrow for controller handling
+            // Log failed login event
+            logLoginFailureEvent(request, null, rnfe.getMessage(), "RESOURCE_NOT_FOUND");
             throw rnfe;
         } catch (Exception e) {
-            // Unexpected exceptions should be logged with stacktrace for diagnostics
+            // Log failed login event
+            logLoginFailureEvent(request, null, e.getMessage(), "UNEXPECTED_ERROR");
             log.error("Unexpected error in login: {}", e.getMessage(), e);
             throw e;
+        }
+    }
+
+    /**
+     * Helper method to log login failure events.
+     */
+    private void logLoginFailureEvent(HttpServletRequest request, String tenantId, String errorMessage, String errorCode) {
+        try {
+            String ipAddress = request != null ? request.getRemoteAddr() : null;
+            String userAgent = request != null ? request.getHeader("User-Agent") : null;
+            loginAuditService.logLoginFailure(
+                    tenantId,
+                    null, // realmName
+                    null, // username - not known at failure time
+                    null, // email - not known at failure time
+                    ipAddress,
+                    userAgent,
+                    errorMessage,
+                    errorCode
+            );
+        } catch (Exception auditEx) {
+            log.warn("Failed to log login failure audit event: {}", auditEx.getMessage());
         }
     }
 

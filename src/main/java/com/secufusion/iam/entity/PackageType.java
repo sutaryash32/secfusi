@@ -14,6 +14,9 @@ public class PackageType {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "pk_package_type_id")
     private Long pkPackageTypeId;
+
+    @Column(name = "package_type_name")
     private String packageTypeName;
 }

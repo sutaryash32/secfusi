@@ -6,6 +6,8 @@ import com.secufusion.iam.dto.RoleDropdownResponse;
 import com.secufusion.iam.entity.*;
 import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.*;
+import com.secufusion.iam.repository.PackageTypeRepository;
+import com.secufusion.iam.repository.BillingCycleRepository;
 import com.secufusion.iam.util.JwtUtl;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +52,12 @@ public class DropdownService {
 
     @Autowired
     private RolesRepository rolesRepository;
+
+    @Autowired
+    private PackageTypeRepository packageTypeRepository;
+
+    @Autowired
+    private BillingCycleRepository billingCycleRepository;
 
     /**
      * Retrieve all regions.
@@ -252,5 +260,33 @@ public class DropdownService {
                 })
                 .map(role -> new RoleDropdownResponse(role.getPkRoleId(), role.getName()))
                 .toList();
+    }
+
+    /**
+     * Retrieve all package types for dropdown.
+     *
+     * @return list of PackageType entities
+     */
+    public List<PackageType> getAllPackageTypes() {
+        log.debug("Entering getAllPackageTypes");
+        List<PackageType> packageTypes = packageTypeRepository.findAll();
+        int size = packageTypes == null ? 0 : packageTypes.size();
+        log.info("Retrieved {} package types", size);
+        log.debug("Exiting getAllPackageTypes");
+        return packageTypes;
+    }
+
+    /**
+     * Retrieve all active billing cycles for dropdown.
+     *
+     * @return list of active BillingCycle entities
+     */
+    public List<BillingCycle> getAllBillingCycles() {
+        log.debug("Entering getAllBillingCycles");
+        List<BillingCycle> billingCycles = billingCycleRepository.findByIsActiveTrue();
+        int size = billingCycles == null ? 0 : billingCycles.size();
+        log.info("Retrieved {} active billing cycles", size);
+        log.debug("Exiting getAllBillingCycles");
+        return billingCycles;
     }
 }

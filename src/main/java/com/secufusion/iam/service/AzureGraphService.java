@@ -3,6 +3,8 @@ package com.secufusion.iam.service;
 import com.azure.core.exception.AzureException;
 import com.azure.identity.ClientSecretCredential;
 import com.azure.identity.ClientSecretCredentialBuilder;
+import com.microsoft.graph.core.tasks.PageIterator;
+import com.microsoft.graph.models.Group;
 import com.microsoft.graph.models.ServicePrincipal;
 import com.microsoft.graph.models.ServicePrincipalCollectionResponse;
 import com.microsoft.graph.models.GroupCollectionResponse;
@@ -21,6 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -178,7 +181,6 @@ public class AzureGraphService {
      * Fetch Security Groups from the Azure Tenant (Searchable)
      */
     public List<AzureResourceDto> searchTenantGroups(Tenant tenant, String searchTerm) {
-        // Validate tenant input
         if (tenant == null || tenant.getTenantID() == null) {
             log.error("Tenant or Tenant ID is null");
             throw new BadRequestException("Tenant cannot be null");
@@ -186,65 +188,63 @@ public class AzureGraphService {
 
         try {
             log.info("Searching Azure security groups for tenant: {} with search term: '{}'",
-                    tenant.getTenantID(), searchTerm != null ? searchTerm : "none");
+                    tenant.getTenantID(), searchTerm != null ? searchTerm : "ALL");
 
             GraphServiceClient graphClient = getGraphClientForTenant(tenant);
-
             GroupCollectionResponse response;
 
             if (searchTerm != null && !searchTerm.isBlank()) {
-                // Sanitize search term to prevent OData injection
                 String sanitizedSearchTerm = searchTerm.replace("'", "''");
 
-                log.debug("Searching for groups with sanitized term: {}", sanitizedSearchTerm);
-
-                // Search query with filter
                 response = graphClient.groups().get(requestConfiguration -> {
                     requestConfiguration.queryParameters.filter = "startswith(displayName, '" + sanitizedSearchTerm + "')";
                     requestConfiguration.queryParameters.select = new String[]{"id", "displayName"};
-                    requestConfiguration.queryParameters.top = 20;
-                    // ConsistencyLevel header is required for advanced query capabilities
+                    requestConfiguration.queryParameters.top = 999;
                     requestConfiguration.headers.add("ConsistencyLevel", "eventual");
                 });
             } else {
-                log.debug("Fetching top 20 groups without search filter");
-
-                // Default: Get top 20 groups
                 response = graphClient.groups().get(requestConfiguration -> {
                     requestConfiguration.queryParameters.select = new String[]{"id", "displayName"};
-                    requestConfiguration.queryParameters.top = 20;
+                    requestConfiguration.queryParameters.top = 999;
                 });
             }
 
-            if (response == null || response.getValue() == null || response.getValue().isEmpty()) {
-                log.info("No groups found for tenant: {}", tenant.getTenantID());
+            if (response == null || response.getValue() == null) {
+                log.info("No groups found for tenant: {} (Response value was null)", tenant.getTenantID());
                 return Collections.emptyList();
             }
 
-            List<AzureResourceDto> groups = response.getValue().stream()
-                    .filter(g -> g != null && g.getId() != null && g.getDisplayName() != null)
-                    .map(g -> new AzureResourceDto(
-                            g.getId(),
-                            g.getDisplayName(),
-                            g.getId(), // For Groups, the Value for mapping is usually the ID (UUID)
-                            "GROUP"
-                    ))
-                    .collect(Collectors.toList());
+            List<AzureResourceDto> allGroups = new ArrayList<>();
 
-            log.info("Successfully fetched {} groups for tenant: {}", groups.size(), tenant.getTenantID());
-            return groups;
+            PageIterator<Group, GroupCollectionResponse> iterator = new PageIterator.Builder<Group, GroupCollectionResponse>()
+                    .client(graphClient)
+                    .collectionPage(response)
+                    .collectionPageFactory(GroupCollectionResponse::createFromDiscriminatorValue)
+                    .processPageItemCallback(group -> {
+                        if (group.getId() != null && group.getDisplayName() != null) {
+                            allGroups.add(new AzureResourceDto(
+                                    group.getId(),
+                                    group.getDisplayName(),
+                                    group.getId(),
+                                    "GROUP"
+                            ));
+                        }
+                        return true;
+                    })
+                    .build();
+
+            iterator.iterate();
+
+            log.info("Successfully fetched {} groups for tenant: {}", allGroups.size(), tenant.getTenantID());
+            return allGroups;
 
         } catch (BadRequestException e) {
-            // Re-throw our custom exceptions
             throw e;
         } catch (DataAccessException e) {
             log.error("Database error while searching groups for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
-            throw new ExternalServiceException("Failed to retrieve SSO configuration from database", e);
-        } catch (AzureException e) {
-            log.error("Azure AD error while searching groups for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
-            throw new ExternalServiceException("Failed to communicate with Azure AD: " + e.getMessage(), e);
+            throw new ExternalServiceException("Failed to retrieve SSO configuration", e);
         } catch (Exception e) {
-            log.error("Unexpected error searching Groups for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
+            log.error("Azure AD error searching Groups for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
             throw new ExternalServiceException("Error communicating with Azure AD: " + e.getMessage(), e);
         }
     }

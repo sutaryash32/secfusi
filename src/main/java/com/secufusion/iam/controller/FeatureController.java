@@ -104,4 +104,34 @@ public class FeatureController {
                 "200"
         ));
     }
+
+    @PutMapping("/{id}/deactivate")
+    @Operation(summary = "Deactivate a feature", description = "Deactivate a feature by its id")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Feature deactivated",
+                    content = @Content(schema = @Schema(implementation = FeatureResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Feature not found")
+    })
+    public ResponseEntity<ResponseDto<FeatureResponse>> deactivateFeature(
+            @Parameter(description = "ID of the feature", required = true) @PathVariable Long id) {
+        return ResponseEntity.ok(new ResponseDto<>(
+                featureService.deactivateFeature(id),
+                "200"
+        ));
+    }
+
+    @PutMapping("/{id}/activate")
+    @Operation(summary = "Activate a feature", description = "Activate a feature by its id")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Feature activated",
+                    content = @Content(schema = @Schema(implementation = FeatureResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Feature not found")
+    })
+    public ResponseEntity<ResponseDto<FeatureResponse>> activateFeature(
+            @Parameter(description = "ID of the feature", required = true) @PathVariable Long id) {
+        return ResponseEntity.ok(new ResponseDto<>(
+                featureService.activateFeature(id),
+                "200"
+        ));
+    }
 }

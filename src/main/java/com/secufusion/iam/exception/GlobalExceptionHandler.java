@@ -142,6 +142,32 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handle FeatureNotAvailableException - when tenant doesn't have access to a feature
+     */
+    @ExceptionHandler(FeatureNotAvailableException.class)
+    public ResponseEntity<Map<String, Object>> handleFeatureNotAvailable(FeatureNotAvailableException ex) {
+        log.warn("Feature not available: {} for tenant: {}", ex.getFeatureCode(), ex.getTenantId());
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("success", false);
+        body.put("errorCode", ResponseCodes.FEATURE_NOT_AVAILABLE);
+        body.put("message", ex.getMessage());
+        body.put("timestamp", Instant.now().toString());
+
+        if (ex.getFeatureCode() != null) {
+            body.put("featureCode", ex.getFeatureCode());
+        }
+        if (ex.getCurrentPackage() != null) {
+            body.put("currentPackage", ex.getCurrentPackage());
+        }
+        if (ex.getRequiredPackage() != null) {
+            body.put("requiredPackage", ex.getRequiredPackage());
+        }
+
+        return new ResponseEntity<>(body, HttpStatus.FORBIDDEN);
+    }
+
+    /**
      * Handle IllegalArgumentException
      */
     @ExceptionHandler(IllegalArgumentException.class)
@@ -241,7 +267,8 @@ public class GlobalExceptionHandler {
                  ResponseCodes.TENANT_ALREADY_ACTIVE -> HttpStatus.CONFLICT;
 
             // Forbidden
-            case ResponseCodes.ACCESS_DENIED -> HttpStatus.FORBIDDEN;
+            case ResponseCodes.ACCESS_DENIED,
+                 ResponseCodes.FEATURE_NOT_AVAILABLE -> HttpStatus.FORBIDDEN;
 
             // Unauthorized
             case ResponseCodes.INVALID_TOKEN,

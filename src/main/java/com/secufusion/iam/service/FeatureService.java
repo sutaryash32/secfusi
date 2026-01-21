@@ -3,10 +3,12 @@ package com.secufusion.iam.service;
 import com.secufusion.iam.dto.CreateFeatureRequest;
 import com.secufusion.iam.dto.FeatureResponse;
 import com.secufusion.iam.entity.Feature;
+import com.secufusion.iam.entity.FeatureGroup;
 import com.secufusion.iam.entity.FeatureType;
 import com.secufusion.iam.entity.TenantType;
 import com.secufusion.iam.exception.ResourceConflictException;
 import com.secufusion.iam.exception.ResourceNotFoundException;
+import com.secufusion.iam.repository.FeatureGroupRepository;
 import com.secufusion.iam.repository.FeatureRepository;
 import com.secufusion.iam.repository.FeatureTypeRepository;
 import com.secufusion.iam.repository.TenantTypeRepository;
@@ -30,6 +32,9 @@ public class FeatureService {
     @Autowired
     private TenantTypeRepository tenantTypeRepository;
 
+    @Autowired
+    private FeatureGroupRepository featureGroupRepository;
+
     // CREATE
     public FeatureResponse createFeature(CreateFeatureRequest request) {
 
@@ -37,22 +42,57 @@ public class FeatureService {
 
         // Unique Feature Name Check
         if (featureRepository.existsByFeatureNameIgnoreCase(request.getFeatureName())) {
-            throw new ResourceNotFoundException("Feature already exists: " + request.getFeatureName());
+            throw new ResourceConflictException("Feature name already exists: " + request.getFeatureName());
         }
 
-        // Validate Feature Scope
-        TenantType scope = tenantTypeRepository.findById(request.getFeatureScopeId())
-                .orElseThrow(() -> new ResourceNotFoundException("Invalid featureScopeId: " + request.getFeatureScopeId()));
+        // Unique Feature Code Check
+        if (request.getFeatureCode() != null && featureRepository.existsByFeatureCodeIgnoreCase(request.getFeatureCode())) {
+            throw new ResourceConflictException("Feature code already exists: " + request.getFeatureCode());
+        }
 
-        // Validate Feature Type
-        FeatureType type = featureTypeRepository.findById(request.getFeatureTypeId())
-                .orElseThrow(() -> new ResourceNotFoundException("Invalid featureTypeId: " + request.getFeatureTypeId()));
+        // Validate Feature Scope (accept either ID or name, optional)
+        String featureScopeName = null;
+        if (request.getFeatureScopeId() != null) {
+            TenantType scope = tenantTypeRepository.findById(request.getFeatureScopeId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureScopeId: " + request.getFeatureScopeId()));
+            featureScopeName = scope.getTenantTypeName();
+        } else if (request.getFeatureScope() != null) {
+            TenantType scope = tenantTypeRepository.findByTenantTypeNameIgnoreCase(request.getFeatureScope())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureScope: " + request.getFeatureScope()));
+            featureScopeName = scope.getTenantTypeName();
+        }
+        // If no scope provided, leave it null (optional field)
+
+        // Validate Feature Type (accept either ID or name, optional)
+        String featureTypeName = null;
+        if (request.getFeatureTypeId() != null) {
+            FeatureType type = featureTypeRepository.findById(request.getFeatureTypeId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureTypeId: " + request.getFeatureTypeId()));
+            featureTypeName = type.getFeatureTypeName();
+        } else if (request.getFeatureType() != null) {
+            FeatureType type = featureTypeRepository.findByFeatureTypeNameIgnoreCase(request.getFeatureType())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureType: " + request.getFeatureType()));
+            featureTypeName = type.getFeatureTypeName();
+        }
+        // If no type provided, leave it null (optional field)
+
+        // Validate Feature Group (optional)
+        FeatureGroup featureGroup = null;
+        if (request.getFeatureGroupId() != null) {
+            featureGroup = featureGroupRepository.findById(request.getFeatureGroupId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureGroupId: " + request.getFeatureGroupId()));
+        }
 
         Feature feature = new Feature();
         feature.setFeatureName(request.getFeatureName());
+        feature.setFeatureCode(request.getFeatureCode());
         feature.setDescription(request.getDescription());
-        feature.setFeatureScope(scope.getTenantTypeName());
-        feature.setFeatureType(type.getFeatureTypeName());
+        feature.setFeatureScope(featureScopeName);
+        feature.setFeatureType(featureTypeName);
+        feature.setFeatureGroup(featureGroup);
+        feature.setIsAddon(request.getIsAddon() != null ? request.getIsAddon() : false);
+        feature.setAddonMonthlyPrice(request.getAddonMonthlyPrice());
+        feature.setAddonTrialDays(request.getAddonTrialDays());
         feature.setCreatedBy(request.getCreatedBy());
         feature.setLastModifiedBy(request.getCreatedBy());
         feature.setIsActive(true);
@@ -98,18 +138,61 @@ public class FeatureService {
             throw new ResourceConflictException("Feature name already exists: " + request.getFeatureName());
         }
 
-        // Validate Scope
-        TenantType scope = tenantTypeRepository.findById(request.getFeatureScopeId())
-                .orElseThrow(() -> new ResourceNotFoundException("Invalid featureScopeId"));
+        // Unique feature code check but allow same code
+        if (request.getFeatureCode() != null &&
+                (existing.getFeatureCode() == null || !existing.getFeatureCode().equalsIgnoreCase(request.getFeatureCode())) &&
+                featureRepository.existsByFeatureCodeIgnoreCase(request.getFeatureCode())) {
+            throw new ResourceConflictException("Feature code already exists: " + request.getFeatureCode());
+        }
 
-        // Validate Type
-        FeatureType type = featureTypeRepository.findById(request.getFeatureTypeId())
-                .orElseThrow(() -> new ResourceNotFoundException("Invalid featureTypeId"));
+        // Validate Scope (accept either ID or name, optional)
+        String featureScopeName = null;
+        if (request.getFeatureScopeId() != null) {
+            TenantType scope = tenantTypeRepository.findById(request.getFeatureScopeId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureScopeId: " + request.getFeatureScopeId()));
+            featureScopeName = scope.getTenantTypeName();
+        } else if (request.getFeatureScope() != null) {
+            TenantType scope = tenantTypeRepository.findByTenantTypeNameIgnoreCase(request.getFeatureScope())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureScope: " + request.getFeatureScope()));
+            featureScopeName = scope.getTenantTypeName();
+        }
+        // If no scope provided, keep existing value
+        if (featureScopeName == null) {
+            featureScopeName = existing.getFeatureScope();
+        }
+
+        // Validate Type (accept either ID or name, optional)
+        String featureTypeName = null;
+        if (request.getFeatureTypeId() != null) {
+            FeatureType type = featureTypeRepository.findById(request.getFeatureTypeId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureTypeId: " + request.getFeatureTypeId()));
+            featureTypeName = type.getFeatureTypeName();
+        } else if (request.getFeatureType() != null) {
+            FeatureType type = featureTypeRepository.findByFeatureTypeNameIgnoreCase(request.getFeatureType())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureType: " + request.getFeatureType()));
+            featureTypeName = type.getFeatureTypeName();
+        }
+        // If no type provided, keep existing value
+        if (featureTypeName == null) {
+            featureTypeName = existing.getFeatureType();
+        }
+
+        // Validate Feature Group (optional)
+        FeatureGroup featureGroup = null;
+        if (request.getFeatureGroupId() != null) {
+            featureGroup = featureGroupRepository.findById(request.getFeatureGroupId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Invalid featureGroupId: " + request.getFeatureGroupId()));
+        }
 
         existing.setFeatureName(request.getFeatureName());
+        existing.setFeatureCode(request.getFeatureCode());
         existing.setDescription(request.getDescription());
-        existing.setFeatureScope(scope.getTenantTypeName());
-        existing.setFeatureType(type.getFeatureTypeName());
+        existing.setFeatureScope(featureScopeName);
+        existing.setFeatureType(featureTypeName);
+        existing.setFeatureGroup(featureGroup);
+        existing.setIsAddon(request.getIsAddon() != null ? request.getIsAddon() : false);
+        existing.setAddonMonthlyPrice(request.getAddonMonthlyPrice());
+        existing.setAddonTrialDays(request.getAddonTrialDays());
         existing.setLastModifiedBy(request.getCreatedBy());
 
         Feature updated = featureRepository.save(existing);
@@ -132,16 +215,50 @@ public class FeatureService {
         log.info("Deleted feature with ID: {}", id);
     }
 
+    // DEACTIVATE
+    public FeatureResponse deactivateFeature(Long id) {
+        log.info("Deactivating feature with ID: {}", id);
+
+        Feature feature = featureRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Feature not found"));
+
+        feature.setIsActive(false);
+        Feature updated = featureRepository.save(feature);
+
+        log.info("Feature deactivated successfully: {}", id);
+        return mapToResponse(updated);
+    }
+
+    // ACTIVATE
+    public FeatureResponse activateFeature(Long id) {
+        log.info("Activating feature with ID: {}", id);
+
+        Feature feature = featureRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Feature not found"));
+
+        feature.setIsActive(true);
+        Feature updated = featureRepository.save(feature);
+
+        log.info("Feature activated successfully: {}", id);
+        return mapToResponse(updated);
+    }
+
 
     // Convert entity to response
     private FeatureResponse mapToResponse(Feature feature) {
         return FeatureResponse.builder()
                 .featureId(feature.getPkFeatureID())
                 .featureName(feature.getFeatureName())
+                .featureCode(feature.getFeatureCode())
                 .description(feature.getDescription())
                 .featureScope(feature.getFeatureScope())
                 .featureType(feature.getFeatureType())
+                .featureGroupId(feature.getFeatureGroup() != null ? feature.getFeatureGroup().getPkFeatureGroupId() : null)
+                .featureGroupName(feature.getFeatureGroup() != null ? feature.getFeatureGroup().getGroupName() : null)
                 .isActive(feature.getIsActive())
+                .isAddon(feature.getIsAddon())
+                .addonMonthlyPrice(feature.getAddonMonthlyPrice())
+                .addonTrialDays(feature.getAddonTrialDays())
                 .lastModifiedTimestamp(feature.getLastModifiedTimestamp())
                 .build();
     }

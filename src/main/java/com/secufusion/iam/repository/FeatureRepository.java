@@ -8,4 +8,17 @@ import org.springframework.stereotype.Repository;
 public interface FeatureRepository extends JpaRepository<Feature, Long> {
     boolean existsByFeatureNameIgnoreCase(String featureName);
 
+    java.util.Optional<Feature> findByFeatureCode(String featureCode);
+
+    boolean existsByFeatureCodeIgnoreCase(String featureCode);
+
+    /**
+     * Find all active addon features.
+     */
+    java.util.List<Feature> findByIsAddonTrueAndIsActiveTrue();
+
+    /**
+     * Find addon features by feature group.
+     */
+    java.util.List<Feature> findByIsAddonTrueAndIsActiveTrueAndFeatureGroupGroupCode(String groupCode);
 }
