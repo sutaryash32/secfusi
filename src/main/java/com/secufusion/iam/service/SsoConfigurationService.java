@@ -39,21 +39,15 @@ public class SsoConfigurationService {
     private final SsoConfigurationRepository repository;
 
     /* ---------------- CREATE ---------------- */
-
     /**
-     * Adds an identity provider for the tenant resolved from the given request.
-     * <p>
-     * Attempts to create the provider in Keycloak first; the DB record is persisted
-     * regardless of Keycloak success, but the record's active state and redirect URI
-     * reflect the Keycloak outcome.
+     * Adds a new Identity Provider for the tenant on the request.
+     * Deactivates any existing active configurations for the tenant.
      *
      * @param request         the http request containing tenant JWT
-     * @param providerRequest the provider creation DTO
-     * @return persisted {@link SsoConfigurationResponse}
+     * @param providerRequest creation DTO
+     * @return created {@link SsoConfigurationResponse}
      */
-    public SsoConfigurationResponse addProviderToTenant(
-            HttpServletRequest request,
-            CreateIdentityProviderRequest providerRequest) {
+    public SsoConfigurationResponse addProviderToTenant(HttpServletRequest request, CreateIdentityProviderRequest providerRequest) {
 
         Tenant tenant = jwtUtl.getTenantFromRequest(request);
         String tenantId = tenant.getTenantID();
@@ -61,11 +55,8 @@ public class SsoConfigurationService {
 
         log.info("Creating IdP for tenant={} alias={} providerId={}", tenantId, providerRequest.getAlias(), providerRequest.getProviderId());
 
-        // If there are existing ACTIVE configs, mark them INACTIVE in DB and attempt to disable them in Keycloak
-        List<SsoConfiguration> activeConfigs = repository.findByFkTenantId(tenantId)
-                .stream()
-                .filter(c -> "ACTIVE".equalsIgnoreCase(c.getActive()))
-                .toList();
+        // 1. Deactivate existing active configs for this tenant
+        List<SsoConfiguration> activeConfigs = repository.findByFkTenantId(tenantId).stream().filter(c -> "ACTIVE".equalsIgnoreCase(c.getActive())).toList();
 
         if (!activeConfigs.isEmpty()) {
             activeConfigs.forEach(c -> c.setActive("INACTIVE"));
@@ -78,9 +69,9 @@ public class SsoConfigurationService {
                 }
             }
             repository.saveAll(activeConfigs);
-            log.info("Deactivated {} existing SSO configurations for tenant={}", activeConfigs.size(), tenantId);
         }
 
+        // 2. Create the new Identity Provider in Keycloak
         boolean kcSuccess = false;
         String redirectUrl = null;
 
@@ -92,23 +83,19 @@ public class SsoConfigurationService {
             log.error("Keycloak provider creation failed for realm={} alias={}, proceeding to persist INACTIVE record", realm, providerRequest.getAlias(), e);
         }
 
+        // 3. Persist to DB
         SsoConfiguration cfg = mapToEntity(providerRequest, tenantId);
-        cfg.setRedirectUri(
-                redirectUrl != null ? redirectUrl : providerRequest.getRedirectUri()
-        );
+        cfg.setRedirectUri(redirectUrl != null ? redirectUrl : providerRequest.getRedirectUri());
         cfg.setActive(kcSuccess ? "ACTIVE" : "INACTIVE");
-
-        // Save DB record
         SsoConfiguration saved = repository.save(cfg);
-        log.info("SSO configuration saved for tenant={} id={} active={}", tenantId, saved.getId(), saved.getActive());
 
-        // Set default login in Keycloak if requested
+        // 4. (Optional) Set as default login ONLY if requested
+        // "Don't use default IdPs" interpretation: We only force this if specifically asked.
         if (kcSuccess && Boolean.TRUE.equals(providerRequest.getSetAsDefaultLogin())) {
             try {
                 kcUtil.setAsDefaultIdentityProvider(realm, providerRequest.getAlias());
-                log.info("Set IdP as default login in Keycloak for realm={} alias={}", realm, providerRequest.getAlias());
             } catch (Exception e) {
-                log.warn("Failed to set default IdP in Keycloak for realm={} alias={}", realm, providerRequest.getAlias(), e);
+                log.warn("Failed to set default IdP in Keycloak: {}", e.getMessage());
             }
         }
 
@@ -130,10 +117,7 @@ public class SsoConfigurationService {
         String tenantId = tenant.getTenantID();
         log.debug("Fetching all SSO configurations for tenant={}", tenantId);
 
-        List<SsoConfigurationResponse> responses = repository.findByFkTenantId(tenantId)
-                .stream()
-                .map(SsoConfigurationResponse::from)
-                .toList();
+        List<SsoConfigurationResponse> responses = repository.findByFkTenantId(tenantId).stream().map(SsoConfigurationResponse::from).toList();
 
         log.debug("Found {} SSO configurations for tenant={}", responses.size(), tenantId);
         return responses;
@@ -153,12 +137,10 @@ public class SsoConfigurationService {
         String tenantId = tenant.getTenantID();
         log.debug("Fetching SSO configuration id={} for tenant={}", id, tenantId);
 
-        SsoConfiguration cfg = repository
-                .findByIdAndFkTenantId(id, tenantId)
-                .orElseThrow(() -> {
-                    log.warn("SSO configuration not found id={} tenant={}", id, tenantId);
-                    return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
-                });
+        SsoConfiguration cfg = repository.findByIdAndFkTenantId(id, tenantId).orElseThrow(() -> {
+            log.warn("SSO configuration not found id={} tenant={}", id, tenantId);
+            return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
+        });
 
         log.debug("Returning SSO configuration id={} for tenant={}", id, tenantId);
         return cfg;
@@ -174,21 +156,17 @@ public class SsoConfigurationService {
      * @param dto     update DTO
      * @throws ResourceNotFoundException when not found
      */
-    public void update(HttpServletRequest request,
-                       String id,
-                       CreateIdentityProviderRequest dto) {
+    public void update(HttpServletRequest request, String id, CreateIdentityProviderRequest dto) {
 
         Tenant tenant = jwtUtl.getTenantFromRequest(request);
         String tenantId = tenant.getTenantID();
         String realm = tenant.getRealmName();
         log.info("Updating SSO configuration id={} for tenant={}", id, tenantId);
 
-        SsoConfiguration cfg = repository
-                .findByIdAndFkTenantId(id, tenantId)
-                .orElseThrow(() -> {
-                    log.warn("SSO configuration not found for update id={} tenant={}", id, tenantId);
-                    return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
-                });
+        SsoConfiguration cfg = repository.findByIdAndFkTenantId(id, tenantId).orElseThrow(() -> {
+            log.warn("SSO configuration not found for update id={} tenant={}", id, tenantId);
+            return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
+        });
 
         String oldAlias = cfg.getAlias();
         boolean aliasChanged = oldAlias == null ? dto.getAlias() != null : !oldAlias.equals(dto.getAlias());
@@ -257,12 +235,10 @@ public class SsoConfigurationService {
         String realm = tenant.getRealmName();
         log.info("Deleting SSO configuration id={} for tenant={}", id, tenantId);
 
-        SsoConfiguration cfg = repository
-                .findByIdAndFkTenantId(id, tenantId)
-                .orElseThrow(() -> {
-                    log.warn("SSO configuration not found for delete id={} tenant={}", id, tenantId);
-                    return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
-                });
+        SsoConfiguration cfg = repository.findByIdAndFkTenantId(id, tenantId).orElseThrow(() -> {
+            log.warn("SSO configuration not found for delete id={} tenant={}", id, tenantId);
+            return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
+        });
 
         try {
             kcUtil.deleteIdentityProvider(realm, cfg.getAlias());
@@ -293,12 +269,10 @@ public class SsoConfigurationService {
 
         deactivateOthers(tenantId);
 
-        SsoConfiguration cfg = repository
-                .findByIdAndFkTenantId(id, tenantId)
-                .orElseThrow(() -> {
-                    log.warn("SSO configuration not found for activate id={} tenant={}", id, tenantId);
-                    return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
-                });
+        SsoConfiguration cfg = repository.findByIdAndFkTenantId(id, tenantId).orElseThrow(() -> {
+            log.warn("SSO configuration not found for activate id={} tenant={}", id, tenantId);
+            return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
+        });
 
         cfg.setActive("ACTIVE");
         repository.save(cfg);
