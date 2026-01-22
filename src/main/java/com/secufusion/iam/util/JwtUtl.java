@@ -295,6 +295,28 @@ public class JwtUtl {
         }
     }
 
+    /**
+     * Get Azure tenant ID from a raw JWT token string.
+     *
+     * @param token raw JWT string
+     * @return azure_tenant_id claim or null if not present or on error
+     */
+    public String getAzureTenantIdFromToken(String token) {
+        try {
+            JWTClaimsSet claims = decodeToken(token);
+            if (claims == null) return null;
+
+            String azureTenantId = claims.getStringClaim("azure_tenant_id");
+            if (azureTenantId == null) {
+                logger.debug("getAzureTenantIdFromToken: 'azure_tenant_id' claim not found");
+            }
+            return azureTenantId;
+        } catch (Exception e) {
+            logger.error("getAzureTenantIdFromToken: unexpected error", e);
+            return null;
+        }
+    }
+
     public boolean validateRequestToken(HttpServletRequest request, String token) {
         log.info("validateRequestToken: start");
         if (token == null) {

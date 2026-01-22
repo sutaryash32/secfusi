@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import jakarta.mail.*;
 
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -62,97 +63,97 @@ public class KeycloakAdminUtil {
         return new KeycloakOperationException(code, status, op + " failed: " + e.getMessage());
     }
 
-    public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
-        log.info("Adding identity provider '{}' to realm {}", dto.getAlias(), realm);
-
-        Response resp = null;
-
-        try {
-            if (dto == null) {
-                throw new KeycloakOperationException("INVALID_INPUT", 400,
-                        "CreateIdentityProviderRequest must not be null");
-            }
-
-            RealmResource rr = keycloak.realm(realm);
-
-            // -------------------------------
-            // 1️⃣ Build IDP object
-            // -------------------------------
-            IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
-            idpRep.setAlias(dto.getAlias());
-            idpRep.setProviderId(dto.getProviderId());
-            idpRep.setEnabled(Boolean.TRUE.equals(dto.getEnabled()));
-            idpRep.setStoreToken(Boolean.TRUE.equals(dto.getStoreToken()));
-            idpRep.setLinkOnly(Boolean.TRUE.equals(dto.getLinkOnly()));
-            idpRep.setTrustEmail(Boolean.TRUE.equals(dto.getTrustEmail()));
-            idpRep.setDisplayName(dto.getDisplayName());
-
-            // IDP Configuration
-            Map<String, String> config = new HashMap<>();
-            put(config, "clientId", dto.getClientId());
-            put(config, "clientSecret", dto.getClientSecret());
-            put(config, "authorizationUrl", dto.getAuthorizationUrl());
-            put(config, "tokenUrl", dto.getTokenUrl());
-            put(config, "userInfoUrl", dto.getUserInfoUrl());
-            put(config, "issuer", dto.getIssuer());
-            put(config, "redirectUri", dto.getRedirectUri());
-            put(config, "tenantId", dto.getTenantId());
-            config.put("scopes", "openid email profile");
-            config.put("disableUserInfo", "true");
-
-            idpRep.setConfig(config);
-
-            // -------------------------------
-            // 2️⃣ Create IDP in Keycloak
-            // -------------------------------
-            resp = rr.identityProviders().create(idpRep);
-
-            int status = resp.getStatus();
-            log.debug("IDP create response = {}", status);
-
-            if (status != 201 && status != 409) {
-                String body = resp.readEntity(String.class);
-                throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
-                        "Identity provider creation failed: " + body);
-            }
-
-            if (status == 409) {
-                log.warn("Identity provider '{}' already exists in realm {}", dto.getAlias(), realm);
-            } else {
-                log.info("Identity provider '{}' created successfully in realm {}", dto.getAlias(), realm);
-            }
-
-            // -------------------------------
-            // 3️⃣ Update IDP config (optional patches)
-            // -------------------------------
-            IdentityProviderResource idpRes = rr.identityProviders().get(dto.getAlias());
-            IdentityProviderRepresentation rep = idpRes.toRepresentation();
-
-            rep.setTrustEmail(true);
-            rep.getConfig().put("disableUserInfo", "true");
-            rep.getConfig().put("scopes", "openid email profile");
-
-            idpRes.update(rep);
-
-            try {
-                configureAttributePassthrough(rr, dto.getAlias());
-                configureRolePassthrough(rr, dto.getAlias());
-            } catch (Exception e) {
-                // We log error but DO NOT throw, so we still return the redirect URL
-                log.error("Failed to configure auto-mappers for IdP '{}'. Users may not have groups in token. Error: {}",
-                        dto.getAlias(), e.getMessage());
-            }            // -------------------------------
-            // 4️⃣ Return redirect URL
-            // -------------------------------
-            return buildAzureRedirectUrl(realm, dto.getAlias());
-
-        } catch (KeycloakOperationException e) {
-            throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
-                    "Failed to create identity provider in realm " + realm);
-        } finally {
-            if (resp != null) resp.close();
-        }
-    }
+//    public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
+//        log.info("Adding identity provider '{}' to realm {}", dto.getAlias(), realm);
+//
+//        Response resp = null;
+//
+//        try {
+//            if (dto == null) {
+//                throw new KeycloakOperationException("INVALID_INPUT", 400,
+//                        "CreateIdentityProviderRequest must not be null");
+//            }
+//
+//            RealmResource rr = keycloak.realm(realm);
+//
+//            // -------------------------------
+//            // 1️⃣ Build IDP object
+//            // -------------------------------
+//            IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
+//            idpRep.setAlias(dto.getAlias());
+//            idpRep.setProviderId(dto.getProviderId());
+//            idpRep.setEnabled(Boolean.TRUE.equals(dto.getEnabled()));
+//            idpRep.setStoreToken(Boolean.TRUE.equals(dto.getStoreToken()));
+//            idpRep.setLinkOnly(Boolean.TRUE.equals(dto.getLinkOnly()));
+//            idpRep.setTrustEmail(Boolean.TRUE.equals(dto.getTrustEmail()));
+//            idpRep.setDisplayName(dto.getDisplayName());
+//
+//            // IDP Configuration
+//            Map<String, String> config = new HashMap<>();
+//            put(config, "clientId", dto.getClientId());
+//            put(config, "clientSecret", dto.getClientSecret());
+//            put(config, "authorizationUrl", dto.getAuthorizationUrl());
+//            put(config, "tokenUrl", dto.getTokenUrl());
+//            put(config, "userInfoUrl", dto.getUserInfoUrl());
+//            put(config, "issuer", dto.getIssuer());
+//            put(config, "redirectUri", dto.getRedirectUri());
+//            put(config, "tenantId", dto.getTenantId());
+//            config.put("scopes", "openid email profile");
+//            config.put("disableUserInfo", "true");
+//
+//            idpRep.setConfig(config);
+//
+//            // -------------------------------
+//            // 2️⃣ Create IDP in Keycloak
+//            // -------------------------------
+//            resp = rr.identityProviders().create(idpRep);
+//
+//            int status = resp.getStatus();
+//            log.debug("IDP create response = {}", status);
+//
+//            if (status != 201 && status != 409) {
+//                String body = resp.readEntity(String.class);
+//                throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
+//                        "Identity provider creation failed: " + body);
+//            }
+//
+//            if (status == 409) {
+//                log.warn("Identity provider '{}' already exists in realm {}", dto.getAlias(), realm);
+//            } else {
+//                log.info("Identity provider '{}' created successfully in realm {}", dto.getAlias(), realm);
+//            }
+//
+//            // -------------------------------
+//            // 3️⃣ Update IDP config (optional patches)
+//            // -------------------------------
+//            IdentityProviderResource idpRes = rr.identityProviders().get(dto.getAlias());
+//            IdentityProviderRepresentation rep = idpRes.toRepresentation();
+//
+//            rep.setTrustEmail(true);
+//            rep.getConfig().put("disableUserInfo", "true");
+//            rep.getConfig().put("scopes", "openid email profile");
+//
+//            idpRes.update(rep);
+//
+//            try {
+//                configureAttributePassthrough(rr, dto.getAlias());
+//                configureRolePassthrough(rr, dto.getAlias());
+//            } catch (Exception e) {
+//                // We log error but DO NOT throw, so we still return the redirect URL
+//                log.error("Failed to configure auto-mappers for IdP '{}'. Users may not have groups in token. Error: {}",
+//                        dto.getAlias(), e.getMessage());
+//            }            // -------------------------------
+//            // 4️⃣ Return redirect URL
+//            // -------------------------------
+//            return buildAzureRedirectUrl(realm, dto.getAlias());
+//
+//        } catch (KeycloakOperationException e) {
+//            throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
+//                    "Failed to create identity provider in realm " + realm);
+//        } finally {
+//            if (resp != null) resp.close();
+//        }
+//    }
 
     private String buildAzureRedirectUrl(String realm, String alias) {
         String keycloakBaseUrl = keycloakServerUrl;
@@ -219,283 +220,209 @@ public class KeycloakAdminUtil {
         log.info("Default Identity Provider for realm={} set to {}", realm, alias);
     }
 
-    private void configureRolePassthrough(RealmResource rr, String idpAlias) {
-        log.info("Configuring Azure App Role Mappers for IdP: {}", idpAlias);
-
-        try {
-            IdentityProviderResource idpResource = rr.identityProviders().get(idpAlias);
-
-            // ---------------------------------------------------------
-            // A. Add Identity Provider Mapper (Azure -> Keycloak DB)
-            //    This reads the "roles" claim which contains names like "Manager"
-            // ---------------------------------------------------------
-            try {
-                IdentityProviderMapperRepresentation roleImporter = new IdentityProviderMapperRepresentation();
-                roleImporter.setName("Import Azure App Roles");
-                roleImporter.setIdentityProviderAlias(idpAlias);
-                roleImporter.setIdentityProviderMapper("oidc-user-attribute-idp-mapper");
-
-                // CONFIGURATION:
-                // "claim": "roles"        <-- This is what Azure sends (The readable names)
-                // "user.attribute": "azure_roles" <-- We store it here in Keycloak
-                roleImporter.setConfig(Map.of(
-                        "claim", "roles",
-                        "user.attribute", "azure_roles",
-                        "syncMode", "FORCE"
-                ));
-
-                idpResource.addMapper(roleImporter);
-                log.info("Added 'Import Azure App Roles' mapper for IdP: {}", idpAlias);
-            } catch (Exception e) {
-                log.warn("Could not add Role Mapper (might already exist): {}", e.getMessage());
-            }
-
-            // ---------------------------------------------------------
-            // B. Add Client Scope (Keycloak DB -> JWT Token)
-            //    This ensures the 'azure_roles' attribute gets written to the token
-            // ---------------------------------------------------------
-            String scopeName = "azure-role-data";
-            ClientScopesResource scopesResource = rr.clientScopes();
-            String scopeId = null;
-
-            // 1. Create/Find Scope
-            try {
-                List<ClientScopeRepresentation> existingScopes = scopesResource.findAll();
-                scopeId = existingScopes.stream()
-                        .filter(s -> s.getName().equals(scopeName))
-                        .map(ClientScopeRepresentation::getId)
-                        .findFirst()
-                        .orElse(null);
-
-                if (scopeId == null) {
-                    ClientScopeRepresentation scopeRep = new ClientScopeRepresentation();
-                    scopeRep.setName(scopeName);
-                    scopeRep.setProtocol("openid-connect");
-                    scopeRep.setAttributes(Map.of(
-                            "include.in.token.scope", "true",
-                            "display.on.consent.screen", "false"
-                    ));
-
-                    try (Response r = scopesResource.create(scopeRep)) {
-                        if (r.getStatus() == 201) {
-                            String path = r.getLocation().getPath();
-                            scopeId = path.substring(path.lastIndexOf("/") + 1);
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                log.error("Error creating client scope: {}", e.getMessage());
-            }
-
-            // 2. Add Protocol Mapper to Scope
-            if (scopeId != null) {
-                ClientScopeResource scopeRes = scopesResource.get(scopeId);
-
-                try {
-                    ProtocolMapperRepresentation pmRoles = new ProtocolMapperRepresentation();
-                    pmRoles.setName("Pass Roles to Token");
-                    pmRoles.setProtocol("openid-connect");
-                    pmRoles.setProtocolMapper("oidc-usermodel-attribute-mapper");
-
-                    // CONFIGURATION:
-                    // "user.attribute": "azure_roles" <-- Read from here
-                    // "claim.name": "roles"           <-- Write to Token as "roles"
-                    pmRoles.setConfig(Map.of(
-                            "user.attribute", "azure_roles",
-                            "claim.name", "roles",
-                            "jsonType.label", "String",
-                            "multivalued", "true",
-                            "id.token.claim", "true",
-                            "access.token.claim", "true"
-                    ));
-
-                    scopeRes.getProtocolMappers().createMapper(pmRoles);
-                    log.info("Added 'Pass Roles to Token' mapper to scope '{}'", scopeName);
-                } catch (Exception e) {
-                    log.warn("Mapper might already exist in scope: {}", e.getMessage());
-                }
-
-                // 3. Make it a Default Scope (So all apps get it automatically)
-                try {
-                    rr.addDefaultDefaultClientScope(scopeId);
-                } catch (Exception e) {
-                    // Ignore if already default
-                }
-            }
-
-        } catch (Exception e) {
-            log.error("Fatal error configuring role passthrough: {}", e.getMessage(), e);
-        }
-    }
-    /**
-     * Automates the creation of Mappers so Azure Groups/Roles appear in the Spring Boot Token.
-     * Contains granular try-catch blocks to prevent one failure from stopping the whole process.
-     */
-    private void configureAttributePassthrough(RealmResource rr, String idpAlias) {
-        log.info("Configuring Auto-Mappers for IdP: {}", idpAlias);
-
-        try {
-            IdentityProviderResource idpResource = rr.identityProviders().get(idpAlias);
-
-            // ---------------------------------------------------------
-            // A. Add Identity Provider Mappers (Azure -> Keycloak DB)
-            // ---------------------------------------------------------
-
-            // 1. Map "groups" claim (Azure UUIDs) -> user attribute "azure_groups"
-            try {
-                IdentityProviderMapperRepresentation groupImporter = new IdentityProviderMapperRepresentation();
-                groupImporter.setName("Import Azure Groups");
-                groupImporter.setIdentityProviderAlias(idpAlias);
-                groupImporter.setIdentityProviderMapper("oidc-user-attribute-idp-mapper");
-                groupImporter.setConfig(Map.of(
-                        "claim", "groups",
-                        "user.attribute", "azure_groups",
-                        "syncMode", "FORCE"
-                ));
-                idpResource.addMapper(groupImporter);
-                log.info("Added 'Import Azure Groups' mapper for IdP: {}", idpAlias);
-            } catch (Exception e) {
-                // Usually 409 Conflict if it already exists
-                log.warn("Could not add 'Import Azure Groups' mapper (might already exist) for IdP {}: {}", idpAlias, e.getMessage());
-            }
-
-            // 2. Map "roles" claim (Azure App Role Names) -> user attribute "azure_roles"
-            try {
-                IdentityProviderMapperRepresentation roleImporter = new IdentityProviderMapperRepresentation();
-                roleImporter.setName("Import Azure Roles");
-                roleImporter.setIdentityProviderAlias(idpAlias);
-                roleImporter.setIdentityProviderMapper("oidc-user-attribute-idp-mapper");
-                roleImporter.setConfig(Map.of(
-                        "claim", "roles",
-                        "user.attribute", "azure_roles",
-                        "syncMode", "FORCE"
-                ));
-                idpResource.addMapper(roleImporter);
-                log.info("Added 'Import Azure Roles' mapper for IdP: {}", idpAlias);
-            } catch (Exception e) {
-                log.warn("Could not add 'Import Azure Roles' mapper (might already exist) for IdP {}: {}", idpAlias, e.getMessage());
-            }
-
-            // ---------------------------------------------------------
-            // B. Add Client Scope Mappers (Keycloak DB -> JWT Token)
-            // ---------------------------------------------------------
-            String scopeName = "azure-data";
-            ClientScopesResource scopesResource = rr.clientScopes();
-            String scopeId = null;
-
-            // Try to create or find the scope
-            try {
-                List<ClientScopeRepresentation> existingScopes = scopesResource.findAll();
-
-                // Check if exists
-                scopeId = existingScopes.stream()
-                        .filter(s -> s.getName().equals(scopeName))
-                        .map(ClientScopeRepresentation::getId)
-                        .findFirst()
-                        .orElse(null);
-
-                if (scopeId == null) {
-                    ClientScopeRepresentation scopeRep = new ClientScopeRepresentation();
-                    scopeRep.setName(scopeName);
-                    scopeRep.setProtocol("openid-connect");
-                    scopeRep.setAttributes(Map.of(
-                            "include.in.token.scope", "true",
-                            "display.on.consent.screen", "false"
-                    ));
-
-                    try (Response r = scopesResource.create(scopeRep)) {
-                        if (r.getStatus() == 201) {
-                            String path = r.getLocation().getPath();
-                            scopeId = path.substring(path.lastIndexOf("/") + 1);
-                            log.info("Created new global client scope '{}' with ID: {}", scopeName, scopeId);
-                        } else {
-                            log.error("Failed to create client scope '{}'. Status: {}", scopeName, r.getStatus());
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                log.error("Error checking/creating client scope '{}': {}", scopeName, e.getMessage());
-            }
-
-            // If we have a valid Scope ID (either found or created), add the mappers
-            if (scopeId != null) {
-                ClientScopeResource scopeRes = scopesResource.get(scopeId);
-
-                // Mapper 1: azure_groups -> Token "groups"
-                try {
-                    ProtocolMapperRepresentation pmGroups = new ProtocolMapperRepresentation();
-                    pmGroups.setName("Pass Azure Groups");
-                    pmGroups.setProtocol("openid-connect");
-                    pmGroups.setProtocolMapper("oidc-usermodel-attribute-mapper");
-                    pmGroups.setConfig(Map.of(
-                            "user.attribute", "azure_groups",
-                            "claim.name", "groups",
-                            "jsonType.label", "String",
-                            "multivalued", "true",
-                            "id.token.claim", "true",
-                            "access.token.claim", "true"
-                    ));
-                    scopeRes.getProtocolMappers().createMapper(pmGroups);
-                    log.info("Added 'Pass Azure Groups' protocol mapper to scope '{}'", scopeName);
-                } catch (Exception e) {
-                    log.warn("Could not add 'Pass Azure Groups' mapper to scope '{}' (might exist): {}", scopeName, e.getMessage());
-                }
-
-                // Mapper 2: azure_roles -> Token "roles"
-                try {
-                    ProtocolMapperRepresentation pmRoles = new ProtocolMapperRepresentation();
-                    pmRoles.setName("Pass Azure Roles");
-                    pmRoles.setProtocol("openid-connect");
-                    pmRoles.setProtocolMapper("oidc-usermodel-attribute-mapper");
-                    pmRoles.setConfig(Map.of(
-                            "user.attribute", "azure_roles",
-                            "claim.name", "roles",
-                            "jsonType.label", "String",
-                            "multivalued", "true",
-                            "id.token.claim", "true",
-                            "access.token.claim", "true"
-                    ));
-                    scopeRes.getProtocolMappers().createMapper(pmRoles);
-                    log.info("Added 'Pass Azure Roles' protocol mapper to scope '{}'", scopeName);
-                } catch (Exception e) {
-                    log.warn("Could not add 'Pass Azure Roles' mapper to scope '{}' (might exist): {}", scopeName, e.getMessage());
-                }
-
-                // Add this scope to Realm Default Client Scopes
-                try {
-                    rr.addDefaultDefaultClientScope(scopeId);
-                    log.info("Ensured scope '{}' is a default realm scope", scopeName);
-                } catch (Exception e) {
-                    // Keycloak throws an error if it's already a default scope, so we just log debug
-                    log.debug("Scope '{}' is already default or could not be added: {}", scopeName, e.getMessage());
-                }
-            }
-
-        } catch (Exception e) {
-            log.error("Fatal error in configureAttributePassthrough for IdP {}: {}", idpAlias, e.getMessage(), e);
-        }
-    }
-
     public void disableIdentityProvider(String realm, String alias) {
-            log.info("Disabling Identity Provider '{}' in realm '{}'", alias, realm);
-            try {
-                RealmResource rr = keycloak.realm(realm);
-                IdentityProviderResource idpRes = rr.identityProviders().get(alias);
-                IdentityProviderRepresentation rep = idpRes.toRepresentation();
-                if (rep == null) {
-                    throw new KeycloakOperationException("IDP_NOT_FOUND", 404,
-                            "Identity provider not found: " + alias);
-                }
-                rep.setEnabled(false);
-                idpRes.update(rep);
-                log.info("Disabled Identity Provider '{}' in realm '{}'", alias, realm);
-            } catch (KeycloakOperationException e) {
-                throw e;
-            } catch (Exception e) {
-                throw wrap("IDP_DISABLE_FAILED", 500,
-                        "Failed to disable identity provider " + alias + " in realm " + realm, e);
+        log.info("Disabling Identity Provider '{}' in realm '{}'", alias, realm);
+        try {
+            RealmResource rr = keycloak.realm(realm);
+            IdentityProviderResource idpRes = rr.identityProviders().get(alias);
+            IdentityProviderRepresentation rep = idpRes.toRepresentation();
+            if (rep == null) {
+                throw new KeycloakOperationException("IDP_NOT_FOUND", 404,
+                        "Identity provider not found: " + alias);
             }
+            rep.setEnabled(false);
+            idpRes.update(rep);
+            log.info("Disabled Identity Provider '{}' in realm '{}'", alias, realm);
+        } catch (KeycloakOperationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap("IDP_DISABLE_FAILED", 500,
+                    "Failed to disable identity provider " + alias + " in realm " + realm, e);
         }
+    }
+
+
+// -------------------------------------------------------------------------
+// KEYCLOAK UTIL METHODS (Refined)
+// -------------------------------------------------------------------------
+
+    public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
+        log.info("Adding identity provider '{}' to realm {}", dto.getAlias(), realm);
+        Response resp = null;
+        try {
+            RealmResource rr = keycloak.realm(realm);
+
+            // --- 1. Create IDP Object ---
+            IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
+            idpRep.setAlias(dto.getAlias());
+            idpRep.setProviderId("oidc"); // Enforce OIDC
+            idpRep.setEnabled(Boolean.TRUE.equals(dto.getEnabled()));
+            idpRep.setStoreToken(Boolean.TRUE.equals(dto.getStoreToken()));
+            idpRep.setLinkOnly(Boolean.FALSE);
+            idpRep.setTrustEmail(true); // Always trust email for SSO
+            idpRep.setDisplayName(dto.getDisplayName());
+
+            Map<String, String> config = new HashMap<>();
+            config.put("clientId", dto.getClientId());
+            config.put("clientSecret", dto.getClientSecret());
+
+            // Multi-tenant Azure configs
+            config.put("authorizationUrl", "https://login.microsoftonline.com/common/oauth2/v2.0/authorize");
+            config.put("tokenUrl", "https://login.microsoftonline.com/common/oauth2/v2.0/token");
+            config.put("logoutUrl", "https://login.microsoftonline.com/common/oauth2/v2.0/logout");
+            config.put("userInfoUrl", "https://graph.microsoft.com/oidc/userinfo");
+            config.put("jwksUrl", "https://login.microsoftonline.com/common/discovery/v2.0/keys");
+
+            // CRITICAL: Empty Issuer for Multi-tenant to avoid validation errors
+            config.put("issuer", "");
+            config.put("validateSignature", "true");
+            config.put("useJwksUrl", "true");
+
+            // Scopes: Ensure we ask for what we need
+            config.put("scopes", "openid email profile offline_access");
+
+            idpRep.setConfig(config);
+
+            // --- 2. Create in Keycloak ---
+            resp = rr.identityProviders().create(idpRep);
+            if (resp.getStatus() != 201 && resp.getStatus() != 409) {
+                throw new RuntimeException("Failed to create IdP: " + resp.getStatusInfo());
+            }
+
+            // --- 3. Configure Mappers (The "Enhancement") ---
+            // This programmatically sets up the "tid" -> "azure_tenant_id" flow
+            configureOidcMappers(rr, realm, dto.getAlias());
+            return buildAzureRedirectUrl(realm, dto.getAlias());
+
+        } catch (Exception e) {
+            log.error("Error creating IdP: {}", e.getMessage(), e);
+            throw new RuntimeException("IdP creation failed", e);
+        } finally {
+            if (resp != null) resp.close();
+        }
+    }
+
+    /**
+     * Consolidates mapper logic.
+     * 1. Creates IdP Mappers (Azure JWT -> Keycloak User Attribute)
+     * 2. Creates DEDICATED Client Mappers (Keycloak User Attribute -> App Access Token)
+     */
+    private void configureOidcMappers(RealmResource rr, String realmName, String idpAlias) {
+        // Logic: Client ID is exactly the same as the Realm Name
+        String targetClientId = realmName;
+
+        log.info("Configuring Mappers. Realm: {}, IdP: {}, TargetClient: {}", realmName, idpAlias, targetClientId);
+
+        // =================================================================================
+        // STEP A: Import Data from Azure Token (IdP Mappers)
+        // =================================================================================
+        try {
+            IdentityProviderResource idpRes = rr.identityProviders().get(idpAlias);
+
+            // 1. Tenant ID (tid -> azure_tenant_id)
+            createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Tenant ID", "tid", "azure_tenant_id");
+
+            // 2. Roles (roles -> azure_roles)
+            createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Roles", "roles", "azure_roles");
+
+            // 3. Groups (groups -> azure_groups)
+            createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Groups", "groups", "azure_groups");
+
+        } catch (Exception e) {
+            log.error("Failed to configure IdP Mappers for {}: {}", idpAlias, e.getMessage());
+        }
+
+        // =================================================================================
+        // STEP B: Export Data to App Token (Dedicated Client Mappers)
+        // =================================================================================
+
+        ClientsResource clientsRes = rr.clients();
+        ClientResource clientResource = null;
+
+        // 1. Find the Client (using realmName as the clientId)
+        try {
+            List<ClientRepresentation> foundClients = clientsRes.findByClientId(targetClientId);
+
+            if (foundClients == null || foundClients.isEmpty()) {
+                log.error("CRITICAL: Client '{}' not found. Mappers cannot be added.", targetClientId);
+                return;
+            }
+
+            // We must use the internal UUID to get the resource
+            String internalId = foundClients.get(0).getId();
+            clientResource = clientsRes.get(internalId);
+
+        } catch (Exception e) {
+            log.error("Error finding client '{}': {}", targetClientId, e.getMessage());
+            return;
+        }
+
+        // 2. Get existing mappers to prevent duplicates
+        List<ProtocolMapperRepresentation> currentMappers = clientResource.getProtocolMappers().getMappers();
+        Predicate<String> exists = name -> currentMappers.stream().anyMatch(m -> m.getName().equals(name));
+
+        // Mapper 1: Pass Tenant ID
+        if (!exists.test("Pass Tenant ID")) {
+            createClientProtocolMapper(clientResource, "Pass Tenant ID", "azure_tenant_id", "azure_tenant_id", "String", false);
+        }
+
+        // Mapper 2: Pass Roles
+        if (!exists.test("Pass Roles")) {
+            createClientProtocolMapper(clientResource, "Pass Roles", "azure_roles", "roles", "String", true);
+        }
+
+        // Mapper 3: Pass Groups
+        if (!exists.test("Pass Groups")) {
+            createClientProtocolMapper(clientResource, "Pass Groups", "azure_groups", "groups", "String", true);
+        }
+    }
+
+    // --- HELPER 1: Create IdP Mapper (Import from Azure) ---
+    private void createIdpAttributeMapper(IdentityProviderResource idpRes, String alias, String name, String claimName, String userAttribute) {
+        try {
+            IdentityProviderMapperRepresentation mapper = new IdentityProviderMapperRepresentation();
+            mapper.setName(name);
+            mapper.setIdentityProviderAlias(alias);
+            mapper.setIdentityProviderMapper("oidc-user-attribute-idp-mapper");
+            mapper.setConfig(Map.of(
+                    "claim", claimName,
+                    "user.attribute", userAttribute,
+                    "syncMode", "FORCE"
+            ));
+            idpRes.addMapper(mapper);
+            log.info("IdP Mapper created: {}", name);
+        } catch (Exception e) {
+            // Safe to ignore if exists
+        }
+    }
+
+    // --- HELPER 2: Create Client Protocol Mapper (Export to Token) ---
+// UPDATED: Accepts ClientResource instead of ClientScopeResource
+    private void createClientProtocolMapper(ClientResource clientRes, String name, String userAttribute, String tokenClaimName, String jsonType, boolean multivalued) {
+        try {
+            ProtocolMapperRepresentation mapper = new ProtocolMapperRepresentation();
+            mapper.setName(name);
+            mapper.setProtocol("openid-connect");
+            mapper.setProtocolMapper("oidc-usermodel-attribute-mapper");
+
+            mapper.setConfig(Map.of(
+                    "user.attribute", userAttribute,      // Read from Keycloak DB
+                    "claim.name", tokenClaimName,         // Write to Backend Token
+                    "jsonType.label", jsonType,
+                    "multivalued", String.valueOf(multivalued),
+                    "id.token.claim", "true",
+                    "access.token.claim", "true"
+            ));
+
+            // Add mapper directly to the client
+            clientRes.getProtocolMappers().createMapper(mapper);
+            log.info("Created Dedicated Client Mapper: {}", name);
+
+        } catch (Exception e) {
+            log.error("Failed to create client mapper '{}': {}", name, e.getMessage());
+        }
+    }
+
     /**
      * Create a user. Returns created Keycloak user id or null if already exists.
      */

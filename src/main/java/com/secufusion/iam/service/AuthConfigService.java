@@ -2,9 +2,11 @@ package com.secufusion.iam.service;
 
 import com.secufusion.iam.dto.AuthDetailsDto;
 import com.secufusion.iam.dto.LoginResponseDto;
+import com.secufusion.iam.dto.SsoLoginResponseDto;
 import com.secufusion.iam.entity.*;
 import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.AuthProviderConfigRepository;
+import com.secufusion.iam.repository.SsoConfigurationRepository;
 import com.secufusion.iam.repository.TenantRepository;
 import com.secufusion.iam.repository.UserRepository;
 import com.secufusion.iam.util.JwtUtl;
@@ -39,6 +41,9 @@ public class AuthConfigService {
 
     @Autowired
     private LoginAuditService loginAuditService;
+
+    @Autowired
+    private SsoConfigurationRepository ssoConfigurationRepository;
 
     /**
      * Load authentication details for a tenant identified by host (domain or tenantName).
@@ -446,6 +451,105 @@ public class AuthConfigService {
 
         } catch (Exception e) {
             log.error("Unexpected error in loginByEmail for email={}", email, e);
+            throw e;
+        }
+    }
+
+    /**
+     * Handle SSO login by validating the Azure tenant ID from JWT token
+     * against registered SSO configurations.
+     *
+     * @param request incoming HTTP request
+     * @param token   bearer token (raw)
+     * @return SsoLoginResponseDto with authorization status
+     * @throws ResourceNotFoundException when SSO configuration is not found or disabled
+     */
+    public SsoLoginResponseDto ssoLogin(HttpServletRequest request, String token) {
+        log.info("ssoLogin - start");
+
+        try {
+            if (request == null) {
+                log.error("ssoLogin: HttpServletRequest is null");
+                throw new ResourceNotFoundException("Invalid request");
+            }
+
+            // Validate token against request header
+            log.debug("ssoLogin: Validating request token");
+            if (!jwtUtil.validateRequestToken(request, token)) {
+                log.warn("ssoLogin: Token validation failed for request from {}", request.getRemoteAddr());
+                throw new ResourceNotFoundException("Invalid or missing token");
+            }
+            log.info("ssoLogin: Token validated successfully");
+
+            // Extract Azure tenant ID from token
+            String azureTenantId = jwtUtil.getAzureTenantIdFromToken(token);
+            if (azureTenantId == null || azureTenantId.isBlank()) {
+                log.warn("ssoLogin: azure_tenant_id claim is missing or empty in token");
+                throw new ResourceNotFoundException("Azure tenant ID not found in token");
+            }
+            log.info("ssoLogin: Extracted azure_tenant_id={}", azureTenantId);
+
+            // Look up SSO configuration by tenantId (Azure tenant ID)
+            List<SsoConfiguration> ssoConfigurations = ssoConfigurationRepository.findByTenantId(azureTenantId);
+
+            if (ssoConfigurations == null || ssoConfigurations.isEmpty()) {
+                log.warn("ssoLogin: No SSO configuration found for azure_tenant_id={}", azureTenantId);
+                throw new ResourceNotFoundException(
+                        "SSO configuration not registered for Azure tenant: " + azureTenantId
+                );
+            }
+
+            // Get the first matching configuration
+            SsoConfiguration ssoConfig = ssoConfigurations.get(0);
+            log.debug("ssoLogin: Found SSO configuration id={} alias={}", ssoConfig.getId(), ssoConfig.getAlias());
+
+            // Check if SSO is enabled
+            if (ssoConfig.getEnabled() == null || !ssoConfig.getEnabled()) {
+                log.warn("ssoLogin: SSO is disabled for configuration id={}", ssoConfig.getId());
+                throw new ResourceNotFoundException("SSO is not enabled for this tenant");
+            }
+
+            // Extract additional claims for response
+            String email = jwtUtil.getEmail(request);
+            String preferredUsername = jwtUtil.getPreferredUsernameFromRequest(request);
+
+            // Build successful response with all SSO configuration fields
+            SsoLoginResponseDto response = SsoLoginResponseDto.builder()
+                    .authorized(true)
+                    .message("SSO authentication successful")
+                    .email(email)
+                    .preferredUsername(preferredUsername)
+                    // SSO Configuration fields
+                    .ssoConfigId(ssoConfig.getId())
+                    .alias(ssoConfig.getAlias())
+                    .providerId(ssoConfig.getProviderId())
+                    .tenantId(ssoConfig.getTenantId())
+                    .enabled(ssoConfig.getEnabled())
+                    .trustEmail(ssoConfig.getTrustEmail())
+                    .storeToken(ssoConfig.getStoreToken())
+                    .linkOnly(ssoConfig.getLinkOnly())
+                    .displayName(ssoConfig.getDisplayName())
+                    .clientId(ssoConfig.getClientId())
+                    .authorizationUrl(ssoConfig.getAuthorizationUrl())
+                    .tokenUrl(ssoConfig.getTokenUrl())
+                    .userInfoUrl(ssoConfig.getUserInfoUrl())
+                    .issuer(ssoConfig.getIssuer())
+                    .redirectUri(ssoConfig.getRedirectUri())
+                    .setAsDefaultLogin(ssoConfig.getSetAsDefaultLogin())
+                    .fkTenantId(ssoConfig.getFkTenantId())
+                    .active(ssoConfig.getActive())
+                    .build();
+
+            log.info("ssoLogin: Completed successfully for azure_tenant_id={}, user={}",
+                    azureTenantId, preferredUsername);
+
+            return response;
+
+        } catch (ResourceNotFoundException rnfe) {
+            log.warn("ssoLogin: Resource not found - {}", rnfe.getMessage());
+            throw rnfe;
+        } catch (Exception e) {
+            log.error("ssoLogin: Unexpected error - {}", e.getMessage(), e);
             throw e;
         }
     }
