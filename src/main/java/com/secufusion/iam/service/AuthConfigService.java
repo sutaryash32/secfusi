@@ -485,7 +485,10 @@ public class AuthConfigService {
             String azureTenantId = jwtUtil.getAzureTenantIdFromToken(token);
             if (azureTenantId == null || azureTenantId.isBlank()) {
                 log.warn("ssoLogin: azure_tenant_id claim is missing or empty in token");
-                throw new ResourceNotFoundException("Azure tenant ID not found in token");
+                return SsoLoginResponseDto.builder()
+                        .authorized(false)
+                        .message("Unauthorized - Azure tenant ID not found in token")
+                        .build();
             }
             log.info("ssoLogin: Extracted azure_tenant_id={}", azureTenantId);
 
@@ -494,9 +497,10 @@ public class AuthConfigService {
 
             if (ssoConfigurations == null || ssoConfigurations.isEmpty()) {
                 log.warn("ssoLogin: No SSO configuration found for azure_tenant_id={}", azureTenantId);
-                throw new ResourceNotFoundException(
-                        "SSO configuration not registered for Azure tenant: " + azureTenantId
-                );
+                return SsoLoginResponseDto.builder()
+                        .authorized(false)
+                        .message("Unauthorized - Tenant not registered")
+                        .build();
             }
 
             // Get the first matching configuration
@@ -506,14 +510,17 @@ public class AuthConfigService {
             // Check if SSO is enabled
             if (ssoConfig.getEnabled() == null || !ssoConfig.getEnabled()) {
                 log.warn("ssoLogin: SSO is disabled for configuration id={}", ssoConfig.getId());
-                throw new ResourceNotFoundException("SSO is not enabled for this tenant");
+                return SsoLoginResponseDto.builder()
+                        .authorized(false)
+                        .message("Unauthorized - SSO is not enabled for this tenant")
+                        .build();
             }
 
             // Extract claims for response
             String username = jwtUtil.getUsername(request);
             String preferredUsername = jwtUtil.getPreferredUsernameFromRequest(request);
 
-            // Get tenant name from fkTenantId
+            // Get tenant name from tenants table using fkTenantId
             String tenantName = null;
             if (ssoConfig.getFkTenantId() != null) {
                 tenantName = tenantRepository.findById(ssoConfig.getFkTenantId())
