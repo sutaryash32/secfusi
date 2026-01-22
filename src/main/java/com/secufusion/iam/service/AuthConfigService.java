@@ -509,35 +509,26 @@ public class AuthConfigService {
                 throw new ResourceNotFoundException("SSO is not enabled for this tenant");
             }
 
-            // Extract additional claims for response
-            String email = jwtUtil.getEmail(request);
+            // Extract claims for response
+            String username = jwtUtil.getUsername(request);
             String preferredUsername = jwtUtil.getPreferredUsernameFromRequest(request);
 
-            // Build successful response with all SSO configuration fields
+            // Get tenant name from fkTenantId
+            String tenantName = null;
+            if (ssoConfig.getFkTenantId() != null) {
+                tenantName = tenantRepository.findById(ssoConfig.getFkTenantId())
+                        .map(Tenant::getTenantName)
+                        .orElse(null);
+            }
+
+            // Build successful response
             SsoLoginResponseDto response = SsoLoginResponseDto.builder()
                     .authorized(true)
                     .message("SSO authentication successful")
-                    .email(email)
+                    .username(username)
                     .preferredUsername(preferredUsername)
-                    // SSO Configuration fields
-                    .ssoConfigId(ssoConfig.getId())
+                    .tenantName(tenantName)
                     .alias(ssoConfig.getAlias())
-                    .providerId(ssoConfig.getProviderId())
-                    .tenantId(ssoConfig.getTenantId())
-                    .enabled(ssoConfig.getEnabled())
-                    .trustEmail(ssoConfig.getTrustEmail())
-                    .storeToken(ssoConfig.getStoreToken())
-                    .linkOnly(ssoConfig.getLinkOnly())
-                    .displayName(ssoConfig.getDisplayName())
-                    .clientId(ssoConfig.getClientId())
-                    .authorizationUrl(ssoConfig.getAuthorizationUrl())
-                    .tokenUrl(ssoConfig.getTokenUrl())
-                    .userInfoUrl(ssoConfig.getUserInfoUrl())
-                    .issuer(ssoConfig.getIssuer())
-                    .redirectUri(ssoConfig.getRedirectUri())
-                    .setAsDefaultLogin(ssoConfig.getSetAsDefaultLogin())
-                    .fkTenantId(ssoConfig.getFkTenantId())
-                    .active(ssoConfig.getActive())
                     .build();
 
             log.info("ssoLogin: Completed successfully for azure_tenant_id={}, user={}",
