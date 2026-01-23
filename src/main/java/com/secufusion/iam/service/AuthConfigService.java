@@ -492,40 +492,61 @@ public class AuthConfigService {
             }
             log.info("ssoLogin: Extracted azure_tenant_id={}", azureTenantId);
 
-            // Look up SSO configuration by tenantId (Azure tenant ID)
-            List<SsoConfiguration> ssoConfigurations = ssoConfigurationRepository.findByTenantId(azureTenantId);
-
-            if (ssoConfigurations == null || ssoConfigurations.isEmpty()) {
-                log.warn("ssoLogin: No SSO configuration found for azure_tenant_id={}", azureTenantId);
+            // Look up Tenant by azureTenantId
+            Optional<Tenant> tenantOpt = tenantRepository.findByAzureTenantId(azureTenantId);
+            if (tenantOpt.isEmpty()) {
+                log.warn("ssoLogin: No tenant found for azure_tenant_id={}", azureTenantId);
                 return SsoLoginResponseDto.builder()
                         .authorized(false)
                         .message("Unauthorized - Tenant not registered")
                         .build();
             }
 
-            // Get the first matching configuration
-            SsoConfiguration ssoConfig = ssoConfigurations.get(0);
-            log.debug("ssoLogin: Found SSO configuration id={} alias={}", ssoConfig.getId(), ssoConfig.getAlias());
-
-            // Check if SSO is enabled
-            if (ssoConfig.getEnabled() == null || !ssoConfig.getEnabled()) {
-                log.warn("ssoLogin: SSO is disabled for configuration id={}", ssoConfig.getId());
-                return SsoLoginResponseDto.builder()
-                        .authorized(false)
-                        .message("Unauthorized - SSO is not enabled for this tenant")
-                        .build();
-            }
+            Tenant tenant = tenantOpt.get();
+            log.debug("ssoLogin: Found tenant id={} name={}", tenant.getTenantID(), tenant.getTenantName());
 
             // Extract claims for response
             String username = jwtUtil.getUsername(request);
             String preferredUsername = jwtUtil.getPreferredUsernameFromRequest(request);
+            String tenantName = tenant.getTenantName();
+            String alias = null;
 
-            // Get tenant name from tenants table using fkTenantId
-            String tenantName = null;
-            if (ssoConfig.getFkTenantId() != null) {
-                tenantName = tenantRepository.findById(ssoConfig.getFkTenantId())
-                        .map(Tenant::getTenantName)
-                        .orElse(null);
+            // Check if tenant has azureTenantId set directly - if so, SSO config is optional
+            if (tenant.getAzureTenantId() != null && !tenant.getAzureTenantId().isBlank()) {
+                log.info("ssoLogin: Tenant has azureTenantId set directly, SSO configuration check is optional");
+
+                // Try to get SSO config for alias if available, but don't require it
+                Optional<SsoConfiguration> ssoConfigOpt = ssoConfigurationRepository.findByFkTenantIdAndActive(tenant.getTenantID(), "ACTIVE");
+                if (ssoConfigOpt.isPresent() && Boolean.TRUE.equals(ssoConfigOpt.get().getEnabled())) {
+                    alias = ssoConfigOpt.get().getAlias();
+                    log.debug("ssoLogin: Found optional SSO configuration with alias={}", alias);
+                }
+            } else {
+                // Tenant doesn't have azureTenantId set directly, SSO configuration is required
+                log.debug("ssoLogin: Tenant does not have azureTenantId set, checking SSO configuration");
+
+                Optional<SsoConfiguration> ssoConfigOpt = ssoConfigurationRepository.findByFkTenantIdAndActive(tenant.getTenantID(), "ACTIVE");
+                if (ssoConfigOpt.isEmpty()) {
+                    log.warn("ssoLogin: No active SSO configuration found for tenant_id={}", tenant.getTenantID());
+                    return SsoLoginResponseDto.builder()
+                            .authorized(false)
+                            .message("Unauthorized - SSO not configured for this tenant")
+                            .build();
+                }
+
+                SsoConfiguration ssoConfig = ssoConfigOpt.get();
+                log.debug("ssoLogin: Found SSO configuration id={} alias={}", ssoConfig.getId(), ssoConfig.getAlias());
+
+                // Check if SSO is enabled
+                if (ssoConfig.getEnabled() == null || !ssoConfig.getEnabled()) {
+                    log.warn("ssoLogin: SSO is disabled for configuration id={}", ssoConfig.getId());
+                    return SsoLoginResponseDto.builder()
+                            .authorized(false)
+                            .message("Unauthorized - SSO is not enabled for this tenant")
+                            .build();
+                }
+
+                alias = ssoConfig.getAlias();
             }
 
             // Build successful response
@@ -535,7 +556,7 @@ public class AuthConfigService {
                     .username(username)
                     .preferredUsername(preferredUsername)
                     .tenantName(tenantName)
-                    .alias(ssoConfig.getAlias())
+                    .alias(alias)
                     .build();
 
             log.info("ssoLogin: Completed successfully for azure_tenant_id={}, user={}",

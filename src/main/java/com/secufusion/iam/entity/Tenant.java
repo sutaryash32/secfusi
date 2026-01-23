@@ -67,6 +67,8 @@ public class Tenant {
 
     private String parentTenantId;
 
+    private String azureTenantId;
+
     @OneToOne(mappedBy = "tenant", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JsonManagedReference
     private AuthProviderConfig authProviderConfig;
