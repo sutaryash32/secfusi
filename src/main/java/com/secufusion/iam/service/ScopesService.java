@@ -1,6 +1,7 @@
 package com.secufusion.iam.service;
 
 import com.secufusion.iam.dto.LoggedInUserDetailsBean;
+import com.secufusion.iam.dto.UpdateScopeRequest;
 import com.secufusion.iam.entity.Roles;
 import com.secufusion.iam.entity.Scopes;
 import com.secufusion.iam.entity.Tenant;
@@ -124,6 +125,14 @@ public class ScopesService {
         log.info("Updated tenantTypes for scopeId={} -> {}",
                 scopeId, tenantTypes);
 
+        // Auto-assign scope to default admin roles based on updated tenant types
+        try {
+            assignScopeToDefaultAdminRole(saved);
+        } catch (Exception e) {
+            log.error("Failed to auto-assign scope {} to default admin role: {}",
+                    saved.getScopeName(), e.getMessage(), e);
+        }
+
         return saved;
     }
 
@@ -179,7 +188,7 @@ public class ScopesService {
         scope.setScopeName(scopeName);
         scope.setDisplayName(displayName);
         scope.setDescription(description);
-        scope.setUserType(userType);
+//        scope.setUserType(userType);
         scope.setMenuName(menuName);
         scope.setAction(action);
         scope.setSubMenu(subMenu);
@@ -274,6 +283,38 @@ public class ScopesService {
             log.info("Auto-assigned scope {} to default admin role {} for tenant type {}",
                     scope.getScopeName(), roleName, tenantTypeName);
         }
+    }
+
+    @Transactional
+    public Scopes updateScope(
+            String scopeId,
+            UpdateScopeRequest request
+    ) {
+        Scopes scope = scopesRepository.findByPkScopeId(scopeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Scope not found: " + scopeId));
+
+        if (request.getScopeName() != null) {
+            scope.setScopeName(request.getScopeName());
+        }
+        if (request.getDisplayName() != null) {
+            scope.setDisplayName(request.getDisplayName());
+        }
+        if (request.getDescription() != null) {
+            scope.setDescription(request.getDescription());
+        }
+        if (request.getMenuName() != null) {
+            scope.setMenuName(request.getMenuName());
+        }
+        if (request.getAction() != null) {
+            scope.setAction(request.getAction());
+        }
+        if (request.getSubMenu() != null) {
+            scope.setSubMenu(request.getSubMenu());
+        }
+        Scopes saved = scopesRepository.save(scope);
+        log.info("Updated scope: scopeId={}, scopeName={}", scopeId, saved.getScopeName());
+
+        return saved;
     }
 
     // ---------------------------------------------------
