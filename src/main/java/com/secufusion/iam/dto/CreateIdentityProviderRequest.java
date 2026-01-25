@@ -22,6 +22,9 @@ public class CreateIdentityProviderRequest {
     private String tokenUrl;
     private String userInfoUrl;
     private String issuer;
+    private String logoutUrl;
+    private String jwksUrl;
+    private String scopes;
 
     // Optional redirects
     private String redirectUri;

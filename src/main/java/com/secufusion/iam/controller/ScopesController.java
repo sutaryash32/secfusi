@@ -2,6 +2,7 @@ package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.CreateScopeRequest;
 import com.secufusion.iam.dto.ResponseDto;
+import com.secufusion.iam.dto.UpdateScopeRequest;
 import com.secufusion.iam.dto.UpdateScopeTenantTypesRequest;
 import com.secufusion.iam.entity.Scopes;
 import com.secufusion.iam.service.ScopesService;
@@ -171,6 +172,33 @@ public class ScopesController {
         logger.debug("Scope created: scopeId={}", createdScope.getPkScopeId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(new ResponseDto<>(createdScope, String.valueOf(HttpStatus.CREATED.value())));
+    }
+
+    // ---------------------------------------------------
+    // UPDATE SCOPE
+    // ---------------------------------------------------
+    @Operation(summary = "Update an existing scope", description = "Updates an existing scope with the provided details. Only non-null fields will be updated.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Scope updated successfully",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = Scopes.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "404", description = "Scope not found"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @PutMapping("/{scopeId}")
+    public ResponseEntity<ResponseDto<Scopes>> updateScope(
+            @Parameter(description = "ID of the scope to update", required = true)
+            @PathVariable String scopeId,
+            @RequestBody UpdateScopeRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        logger.info("Request received: PUT /scopes/{} from remoteAddr={}", scopeId, httpRequest.getRemoteAddr());
+        Scopes updatedScope = scopesService.updateScope(
+                scopeId,
+                request
+        );
+        logger.debug("Scope updated: scopeId={}", updatedScope.getPkScopeId());
+        return ResponseEntity.ok(new ResponseDto<>(updatedScope, String.valueOf(HttpStatus.OK.value())));
     }
 
     // ---------------------------------------------------

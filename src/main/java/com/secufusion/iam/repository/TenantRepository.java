@@ -34,6 +34,8 @@ public interface TenantRepository extends JpaRepository<Tenant, Serializable> {
 
     List<Tenant> findByParentTenantId(String parentTenantId);
 
+    Optional<Tenant> findByAzureTenantId(String azureTenantId);
+
 
     @Query(value = """
         WITH RECURSIVE tenant_hierarchy (tenantid, parent_tenant_id) AS (

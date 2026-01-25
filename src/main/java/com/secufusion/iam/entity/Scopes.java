@@ -20,7 +20,7 @@ public class Scopes {
     private String scopeName;
     private String displayName;
     private String description;
-    private String userType;
+//    private String userType;
     //    private String userType;
     @Column(name = "menu_name")
     private String menuName;
