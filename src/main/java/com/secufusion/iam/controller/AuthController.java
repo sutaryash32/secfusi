@@ -1,6 +1,7 @@
 package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.AuthDetailsDto;
+import com.secufusion.iam.dto.DeviceInfoRequest;
 import com.secufusion.iam.dto.LoginResponseDto;
 import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.dto.SsoLoginResponseDto;
@@ -115,16 +116,20 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<ResponseDto<LoginResponseDto>> login(HttpServletRequest request, @RequestParam String token){
+    public ResponseEntity<ResponseDto<LoginResponseDto>> login(
+            HttpServletRequest request,
+            @RequestParam String token,
+            @RequestBody(required = false) DeviceInfoRequest deviceInfo) {
 
         // Mask token info: don't log the token itself, only its length and presence
         String remoteAddr = request.getRemoteAddr();
         int tokenLength = token == null ? 0 : token.length();
-        log.info("Login attempt from remoteAddr={} with tokenPresent={} tokenLength={}",
-                remoteAddr, token != null && !token.isBlank(), tokenLength > 0 ? tokenLength : 0);
+        log.info("Login attempt from remoteAddr={} with tokenPresent={} tokenLength={} deviceInfoPresent={}",
+                remoteAddr, token != null && !token.isBlank(), tokenLength > 0 ? tokenLength : 0,
+                deviceInfo != null && deviceInfo.getDeviceFingerprint() != null);
 
-        // Delegate authentication to service
-        LoginResponseDto response = authConfigService.login(request, token);
+        // Delegate authentication to service with device info
+        LoginResponseDto response = authConfigService.login(request, token, deviceInfo);
 
         log.debug("Login processed for remoteAddr={}, resultStatus={}",
                 remoteAddr, response != null ? "non-null" : "null");
