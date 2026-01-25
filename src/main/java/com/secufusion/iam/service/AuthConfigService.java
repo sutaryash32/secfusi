@@ -1,6 +1,7 @@
 package com.secufusion.iam.service;
 
 import com.secufusion.iam.dto.AuthDetailsDto;
+import com.secufusion.iam.dto.DeviceInfoRequest;
 import com.secufusion.iam.dto.LoginResponseDto;
 import com.secufusion.iam.dto.SsoLoginResponseDto;
 import com.secufusion.iam.entity.*;
@@ -151,9 +152,7 @@ public class AuthConfigService {
 
     /**
      * Handle login by validating the token against the request and mapping the resolved User
-     * entity into a LoginResponseDto.
-     * <p>
-     * Extensive logging is performed for request validation, mapping steps and exception cases.
+     * entity into a LoginResponseDto (without device info).
      *
      * @param request incoming HTTP request
      * @param token   bearer token (raw)
@@ -161,9 +160,27 @@ public class AuthConfigService {
      * @throws ResourceNotFoundException when token validation fails or required data is missing
      */
     public LoginResponseDto login(HttpServletRequest request, String token) {
+        return login(request, token, null);
+    }
+
+    /**
+     * Handle login by validating the token against the request and mapping the resolved User
+     * entity into a LoginResponseDto.
+     * <p>
+     * Extensive logging is performed for request validation, mapping steps and exception cases.
+     *
+     * @param request    incoming HTTP request
+     * @param token      bearer token (raw)
+     * @param deviceInfo device information from frontend (optional)
+     * @return LoginResponseDto populated from resolved user
+     * @throws ResourceNotFoundException when token validation fails or required data is missing
+     */
+    public LoginResponseDto login(HttpServletRequest request, String token, DeviceInfoRequest deviceInfo) {
         log.info("login - start");
-        log.debug("login - request remoteAddr={}, tokenPresent={}", request != null ? request.getRemoteAddr() : "null",
-                token != null);
+        log.debug("login - request remoteAddr={}, tokenPresent={}, deviceInfoPresent={}",
+                request != null ? request.getRemoteAddr() : "null",
+                token != null,
+                deviceInfo != null && deviceInfo.getDeviceFingerprint() != null);
 
         try {
             if (request == null) {
@@ -288,20 +305,47 @@ public class AuthConfigService {
                             ));
             response.setPermissionMatrix(permissionMatrix);
 
-            // Log successful login event
+            // Log successful login event with device info if available
             try {
-                loginAuditService.logLoginSuccess(
-                        tenantFromRequest.getTenantID(),
-                        tenantFromRequest.getRealmName(),
-                        userFromRequest.getPkUserId(),
-                        userFromRequest.getUserName(),
-                        userFromRequest.getEmail(),
-                        request.getRemoteAddr(),
-                        request.getHeader("User-Agent"),
-                        null, // sessionId - can be extracted from token if available
-                        null, // clientId - can be extracted from token if available
-                        "TOKEN" // authMethod
-                );
+                if (deviceInfo != null && deviceInfo.getDeviceFingerprint() != null) {
+                    // Log with device tracking
+                    loginAuditService.logLoginWithDevice(
+                            tenantFromRequest.getTenantID(),
+                            tenantFromRequest.getRealmName(),
+                            userFromRequest.getPkUserId(),
+                            userFromRequest.getUserName(),
+                            userFromRequest.getEmail(),
+                            request.getRemoteAddr(),
+                            request.getHeader("User-Agent"),
+                            null, // sessionId
+                            null, // clientId
+                            "SSO", // authMethod
+                            deviceInfo.getDeviceId(),
+                            deviceInfo.getDeviceFingerprint(),
+                            deviceInfo.getDeviceName(),
+                            deviceInfo.getBrowserType(),
+                            deviceInfo.getOsInfo(),
+                            true, // success
+                            null, // errorMessage
+                            null  // errorCode
+                    );
+                    log.info("Logged login with device tracking for user={}, fingerprint={}",
+                            userFromRequest.getUserName(), deviceInfo.getDeviceFingerprint());
+                } else {
+                    // Log without device tracking (backward compatible)
+                    loginAuditService.logLoginSuccess(
+                            tenantFromRequest.getTenantID(),
+                            tenantFromRequest.getRealmName(),
+                            userFromRequest.getPkUserId(),
+                            userFromRequest.getUserName(),
+                            userFromRequest.getEmail(),
+                            request.getRemoteAddr(),
+                            request.getHeader("User-Agent"),
+                            null, // sessionId
+                            null, // clientId
+                            "TOKEN" // authMethod
+                    );
+                }
             } catch (Exception auditEx) {
                 log.warn("Failed to log login audit event: {}", auditEx.getMessage());
             }
