@@ -39,6 +39,15 @@ public class LoginAuditEventDTO {
     private String additionalDetails;
     private SourceService sourceService;
 
+    // Device tracking fields
+    private String deviceId;
+    private String deviceFingerprint;
+    private String deviceName;
+    private String browserType;
+    private String osInfo;
+    private Boolean isNewDevice;
+    private Boolean isTrustedDevice;
+
     public static LoginAuditEventDTO fromEntity(LoginAuditEvent entity) {
         return LoginAuditEventDTO.builder()
                 .id(entity.getId())
@@ -63,6 +72,14 @@ public class LoginAuditEventDTO {
                 .deviceInfo(entity.getDeviceInfo())
                 .additionalDetails(entity.getAdditionalDetails())
                 .sourceService(entity.getSourceService())
+                // Device tracking fields
+                .deviceId(entity.getDeviceId())
+                .deviceFingerprint(entity.getDeviceFingerprint())
+                .deviceName(entity.getDeviceName())
+                .browserType(entity.getBrowserType())
+                .osInfo(entity.getOsInfo())
+                .isNewDevice(entity.getIsNewDevice())
+                .isTrustedDevice(entity.getIsTrustedDevice())
                 .build();
     }
 }
