@@ -142,19 +142,31 @@ public class AuthController {
         );
     }
 
+    @Operation(summary = "Extension Login",
+            description = "Authenticates browser extension with JWT token and optional device info for device tracking.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Login successful",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = LoginResponseDto.class))),
+            @ApiResponse(responseCode = "401", description = "Invalid or expired token"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @PostMapping("/login/extension")
-    public ResponseEntity<ResponseDto<LoginResponseDto>> extensionLogin(HttpServletRequest request, @RequestParam String token){
+    public ResponseEntity<ResponseDto<LoginResponseDto>> extensionLogin(
+            HttpServletRequest request,
+            @RequestParam String token,
+            @RequestBody(required = false) DeviceInfoRequest deviceInfo) {
 
         // Mask token info: don't log the token itself, only its length and presence
         String remoteAddr = request.getRemoteAddr();
         int tokenLength = token == null ? 0 : token.length();
-        log.info("Login attempt from remoteAddr={} with tokenPresent={} tokenLength={}",
-                remoteAddr, token != null && !token.isBlank(), tokenLength > 0 ? tokenLength : 0);
+        log.info("Extension login attempt from remoteAddr={} with tokenPresent={} tokenLength={} deviceInfoPresent={}",
+                remoteAddr, token != null && !token.isBlank(), tokenLength > 0 ? tokenLength : 0,
+                deviceInfo != null && deviceInfo.getDeviceFingerprint() != null);
 
-        // Delegate authentication to service
-        LoginResponseDto response = authConfigService.login(request, token);
+        // Delegate authentication to service with device info
+        LoginResponseDto response = authConfigService.login(request, token, deviceInfo);
 
-        log.debug("Login processed for remoteAddr={}, resultStatus={}",
+        log.debug("Extension login processed for remoteAddr={}, resultStatus={}",
                 remoteAddr, response != null ? "non-null" : "null");
 
         return ResponseEntity.ok(
