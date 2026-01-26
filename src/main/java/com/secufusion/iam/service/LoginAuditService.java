@@ -2,6 +2,7 @@ package com.secufusion.iam.service;
 
 import com.secufusion.iam.annotation.RequiresFeature;
 import com.secufusion.iam.dto.DeviceLoginStatsDTO;
+import com.secufusion.iam.dto.DeviceRegistrationEvent;
 import com.secufusion.iam.dto.LoginAuditEventDTO;
 import com.secufusion.iam.dto.LoginAuditPageResponse;
 import com.secufusion.iam.dto.LoginDeviceDTO;
@@ -10,6 +11,7 @@ import com.secufusion.iam.entity.LoginAuditEvent.LoginEventType;
 import com.secufusion.iam.entity.LoginAuditEvent.SourceService;
 import com.secufusion.iam.entity.UserDeviceLogin;
 import com.secufusion.iam.entity.UserDeviceLogin.DeviceLoginStatus;
+import com.secufusion.iam.kafka.DeviceRegistrationProducer;
 import com.secufusion.iam.repository.LoginAuditRepository;
 import com.secufusion.iam.repository.UserDeviceLoginRepository;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -39,6 +42,7 @@ public class LoginAuditService {
 
     private final LoginAuditRepository loginAuditRepository;
     private final UserDeviceLoginRepository userDeviceLoginRepository;
+    private final DeviceRegistrationProducer deviceRegistrationProducer;
 
     private static final SourceService DEFAULT_SOURCE = SourceService.IAM_API;
 
@@ -905,6 +909,7 @@ public class LoginAuditService {
 
     /**
      * Update or create a user-device login record.
+     * Also publishes device registration event to Kafka for Events API sync.
      */
     @Transactional
     public UserDeviceLogin updateOrCreateDeviceLogin(String tenantId, String userId, String username,
@@ -912,6 +917,22 @@ public class LoginAuditService {
                                                       String deviceName, String browserType, String osInfo,
                                                       String userAgent, String ipAddress, String location,
                                                       String sessionId, boolean successfulLogin) {
+        return updateOrCreateDeviceLogin(tenantId, userId, username, deviceId, deviceFingerprint,
+                deviceName, browserType, osInfo, userAgent, ipAddress, location, sessionId,
+                successfulLogin, null, null);
+    }
+
+    /**
+     * Update or create a user-device login record with extension info.
+     * Also publishes device registration event to Kafka for Events API sync.
+     */
+    @Transactional
+    public UserDeviceLogin updateOrCreateDeviceLogin(String tenantId, String userId, String username,
+                                                      String deviceId, String deviceFingerprint,
+                                                      String deviceName, String browserType, String osInfo,
+                                                      String userAgent, String ipAddress, String location,
+                                                      String sessionId, boolean successfulLogin,
+                                                      String extensionVersion, String loginType) {
         Optional<UserDeviceLogin> existingOpt = userDeviceLoginRepository
                 .findByTenantIdAndUserIdAndDeviceFingerprint(tenantId, userId, deviceFingerprint);
 
@@ -954,7 +975,48 @@ public class LoginAuditService {
                     .build();
         }
 
-        return userDeviceLoginRepository.save(deviceLogin);
+        UserDeviceLogin savedDevice = userDeviceLoginRepository.save(deviceLogin);
+
+        // Publish device registration event to Kafka for Events API sync
+        if (successfulLogin && deviceFingerprint != null && !deviceFingerprint.isBlank()) {
+            publishDeviceRegistrationEvent(savedDevice, userAgent, extensionVersion, loginType);
+        }
+
+        return savedDevice;
+    }
+
+    /**
+     * Publish device registration event to Kafka for Events API sync.
+     */
+    private void publishDeviceRegistrationEvent(UserDeviceLogin deviceLogin, String userAgent,
+                                                 String extensionVersion, String loginType) {
+        try {
+            DeviceRegistrationEvent event = DeviceRegistrationEvent.builder()
+                    .eventId(UUID.randomUUID().toString())
+                    .tenantId(deviceLogin.getTenantId())
+                    .userId(deviceLogin.getUserId())
+                    .userName(deviceLogin.getUsername())
+                    .deviceFingerprint(deviceLogin.getDeviceFingerprint())
+                    .deviceId(deviceLogin.getDeviceId())
+                    .deviceName(deviceLogin.getDeviceName())
+                    .browserType(deviceLogin.getBrowserType())
+                    .osInfo(deviceLogin.getOsInfo())
+                    .userAgent(userAgent != null ? userAgent : deviceLogin.getUserAgent())
+                    .ipAddress(deviceLogin.getLastIpAddress())
+                    .location(deviceLogin.getLastLocation())
+                    .extensionVersion(extensionVersion)
+                    .loginTimestamp(System.currentTimeMillis())
+                    .loginType(loginType != null ? loginType : "WEBSITE")
+                    .build();
+
+            deviceRegistrationProducer.publishDeviceRegistration(event);
+            log.debug("Published device registration event: fingerprint={} tenant={}",
+                    deviceLogin.getDeviceFingerprint(), deviceLogin.getTenantId());
+        } catch (Exception e) {
+            log.error("Failed to publish device registration event: fingerprint={} tenant={}",
+                    deviceLogin.getDeviceFingerprint(), deviceLogin.getTenantId(), e);
+            // Don't throw - device sync failure shouldn't break login flow
+        }
     }
 
     /**
