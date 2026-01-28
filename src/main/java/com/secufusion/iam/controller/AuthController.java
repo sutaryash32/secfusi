@@ -1,8 +1,10 @@
 package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.AuthDetailsDto;
+import com.secufusion.iam.dto.DeviceInfoRequest;
 import com.secufusion.iam.dto.LoginResponseDto;
 import com.secufusion.iam.dto.ResponseDto;
+import com.secufusion.iam.dto.SsoLoginResponseDto;
 import com.secufusion.iam.service.AuthConfigService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -114,19 +116,92 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<ResponseDto<LoginResponseDto>> login(HttpServletRequest request, @RequestParam String token){
+    public ResponseEntity<ResponseDto<LoginResponseDto>> login(
+            HttpServletRequest request,
+            @RequestParam String token,
+            @RequestBody(required = false) DeviceInfoRequest deviceInfo) {
 
         // Mask token info: don't log the token itself, only its length and presence
         String remoteAddr = request.getRemoteAddr();
         int tokenLength = token == null ? 0 : token.length();
-        log.info("Login attempt from remoteAddr={} with tokenPresent={} tokenLength={}",
-                remoteAddr, token != null && !token.isBlank(), tokenLength > 0 ? tokenLength : 0);
+        log.info("Login attempt from remoteAddr={} with tokenPresent={} tokenLength={} deviceInfoPresent={}",
+                remoteAddr, token != null && !token.isBlank(), tokenLength > 0 ? tokenLength : 0,
+                deviceInfo != null && deviceInfo.getDeviceFingerprint() != null);
 
-        // Delegate authentication to service
-        LoginResponseDto response = authConfigService.login(request, token);
+        // Delegate authentication to service with device info
+        LoginResponseDto response = authConfigService.login(request, token, deviceInfo);
 
         log.debug("Login processed for remoteAddr={}, resultStatus={}",
                 remoteAddr, response != null ? "non-null" : "null");
+
+        return ResponseEntity.ok(
+                new ResponseDto<>(
+                        response,
+                        String.valueOf(HttpStatus.OK)
+                )
+        );
+    }
+
+    @Operation(summary = "Extension Login",
+            description = "Authenticates browser extension with JWT token and optional device info for device tracking.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Login successful",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = LoginResponseDto.class))),
+            @ApiResponse(responseCode = "401", description = "Invalid or expired token"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @PostMapping("/login/extension")
+    public ResponseEntity<ResponseDto<LoginResponseDto>> extensionLogin(
+            HttpServletRequest request,
+            @RequestParam String token,
+            @RequestBody(required = false) DeviceInfoRequest deviceInfo) {
+
+        // Mask token info: don't log the token itself, only its length and presence
+        String remoteAddr = request.getRemoteAddr();
+        int tokenLength = token == null ? 0 : token.length();
+        log.info("Extension login attempt from remoteAddr={} with tokenPresent={} tokenLength={} deviceInfoPresent={}",
+                remoteAddr, token != null && !token.isBlank(), tokenLength > 0 ? tokenLength : 0,
+                deviceInfo != null && deviceInfo.getDeviceFingerprint() != null);
+
+        // Delegate authentication to service with device info
+        LoginResponseDto response = authConfigService.login(request, token, deviceInfo);
+
+        log.debug("Extension login processed for remoteAddr={}, resultStatus={}",
+                remoteAddr, response != null ? "non-null" : "null");
+
+        return ResponseEntity.ok(
+                new ResponseDto<>(
+                        response,
+                        String.valueOf(HttpStatus.OK)
+                )
+        );
+    }
+
+    @Operation(summary = "SSO Login",
+            description = "Validates Azure tenant ID from JWT token against registered SSO configurations and returns authorization status.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "SSO authentication successful",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = SsoLoginResponseDto.class))),
+            @ApiResponse(responseCode = "401", description = "Invalid or expired token"),
+            @ApiResponse(responseCode = "404", description = "SSO tenant not registered or SSO not enabled"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @PostMapping("/login/sso")
+    public ResponseEntity<ResponseDto<SsoLoginResponseDto>> ssoLogin(
+            HttpServletRequest request,
+            @RequestParam String token) {
+
+        // Mask token info: don't log the token itself, only its length and presence
+        String remoteAddr = request.getRemoteAddr();
+        int tokenLength = token == null ? 0 : token.length();
+        log.info("SSO Login attempt from remoteAddr={} with tokenPresent={} tokenLength={}",
+                remoteAddr, token != null && !token.isBlank(), tokenLength > 0 ? tokenLength : 0);
+
+        // Delegate SSO authentication to service
+        SsoLoginResponseDto response = authConfigService.ssoLogin(request, token);
+
+        log.debug("SSO Login processed for remoteAddr={}, authorized={}",
+                remoteAddr, response != null ? response.isAuthorized() : "null");
 
         return ResponseEntity.ok(
                 new ResponseDto<>(

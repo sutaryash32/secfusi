@@ -1,10 +1,13 @@
 package com.secufusion.iam.service;
 
 import com.secufusion.iam.dto.AuthDetailsDto;
+import com.secufusion.iam.dto.DeviceInfoRequest;
 import com.secufusion.iam.dto.LoginResponseDto;
+import com.secufusion.iam.dto.SsoLoginResponseDto;
 import com.secufusion.iam.entity.*;
 import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.AuthProviderConfigRepository;
+import com.secufusion.iam.repository.SsoConfigurationRepository;
 import com.secufusion.iam.repository.TenantRepository;
 import com.secufusion.iam.repository.UserRepository;
 import com.secufusion.iam.util.JwtUtl;
@@ -39,6 +42,9 @@ public class AuthConfigService {
 
     @Autowired
     private LoginAuditService loginAuditService;
+
+    @Autowired
+    private SsoConfigurationRepository ssoConfigurationRepository;
 
     /**
      * Load authentication details for a tenant identified by host (domain or tenantName).
@@ -146,9 +152,7 @@ public class AuthConfigService {
 
     /**
      * Handle login by validating the token against the request and mapping the resolved User
-     * entity into a LoginResponseDto.
-     * <p>
-     * Extensive logging is performed for request validation, mapping steps and exception cases.
+     * entity into a LoginResponseDto (without device info).
      *
      * @param request incoming HTTP request
      * @param token   bearer token (raw)
@@ -156,9 +160,27 @@ public class AuthConfigService {
      * @throws ResourceNotFoundException when token validation fails or required data is missing
      */
     public LoginResponseDto login(HttpServletRequest request, String token) {
+        return login(request, token, null);
+    }
+
+    /**
+     * Handle login by validating the token against the request and mapping the resolved User
+     * entity into a LoginResponseDto.
+     * <p>
+     * Extensive logging is performed for request validation, mapping steps and exception cases.
+     *
+     * @param request    incoming HTTP request
+     * @param token      bearer token (raw)
+     * @param deviceInfo device information from frontend (optional)
+     * @return LoginResponseDto populated from resolved user
+     * @throws ResourceNotFoundException when token validation fails or required data is missing
+     */
+    public LoginResponseDto login(HttpServletRequest request, String token, DeviceInfoRequest deviceInfo) {
         log.info("login - start");
-        log.debug("login - request remoteAddr={}, tokenPresent={}", request != null ? request.getRemoteAddr() : "null",
-                token != null);
+        log.debug("login - request remoteAddr={}, tokenPresent={}, deviceInfoPresent={}",
+                request != null ? request.getRemoteAddr() : "null",
+                token != null,
+                deviceInfo != null && deviceInfo.getDeviceFingerprint() != null);
 
         try {
             if (request == null) {
@@ -283,20 +305,47 @@ public class AuthConfigService {
                             ));
             response.setPermissionMatrix(permissionMatrix);
 
-            // Log successful login event
+            // Log successful login event with device info if available
             try {
-                loginAuditService.logLoginSuccess(
-                        tenantFromRequest.getTenantID(),
-                        tenantFromRequest.getRealmName(),
-                        userFromRequest.getPkUserId(),
-                        userFromRequest.getUserName(),
-                        userFromRequest.getEmail(),
-                        request.getRemoteAddr(),
-                        request.getHeader("User-Agent"),
-                        null, // sessionId - can be extracted from token if available
-                        null, // clientId - can be extracted from token if available
-                        "TOKEN" // authMethod
-                );
+                if (deviceInfo != null && deviceInfo.getDeviceFingerprint() != null) {
+                    // Log with device tracking
+                    loginAuditService.logLoginWithDevice(
+                            tenantFromRequest.getTenantID(),
+                            tenantFromRequest.getRealmName(),
+                            userFromRequest.getPkUserId(),
+                            userFromRequest.getUserName(),
+                            userFromRequest.getEmail(),
+                            request.getRemoteAddr(),
+                            request.getHeader("User-Agent"),
+                            null, // sessionId
+                            null, // clientId
+                            "SSO", // authMethod
+                            deviceInfo.getDeviceId(),
+                            deviceInfo.getDeviceFingerprint(),
+                            deviceInfo.getDeviceName(),
+                            deviceInfo.getBrowserType(),
+                            deviceInfo.getOsInfo(),
+                            true, // success
+                            null, // errorMessage
+                            null  // errorCode
+                    );
+                    log.info("Logged login with device tracking for user={}, fingerprint={}",
+                            userFromRequest.getUserName(), deviceInfo.getDeviceFingerprint());
+                } else {
+                    // Log without device tracking (backward compatible)
+                    loginAuditService.logLoginSuccess(
+                            tenantFromRequest.getTenantID(),
+                            tenantFromRequest.getRealmName(),
+                            userFromRequest.getPkUserId(),
+                            userFromRequest.getUserName(),
+                            userFromRequest.getEmail(),
+                            request.getRemoteAddr(),
+                            request.getHeader("User-Agent"),
+                            null, // sessionId
+                            null, // clientId
+                            "TOKEN" // authMethod
+                    );
+                }
             } catch (Exception auditEx) {
                 log.warn("Failed to log login audit event: {}", auditEx.getMessage());
             }
@@ -446,6 +495,124 @@ public class AuthConfigService {
 
         } catch (Exception e) {
             log.error("Unexpected error in loginByEmail for email={}", email, e);
+            throw e;
+        }
+    }
+
+    /**
+     * Handle SSO login by validating the Azure tenant ID from JWT token
+     * against registered SSO configurations.
+     *
+     * @param request incoming HTTP request
+     * @param token   bearer token (raw)
+     * @return SsoLoginResponseDto with authorization status
+     * @throws ResourceNotFoundException when SSO configuration is not found or disabled
+     */
+    public SsoLoginResponseDto ssoLogin(HttpServletRequest request, String token) {
+        log.info("ssoLogin - start");
+
+        try {
+            if (request == null) {
+                log.error("ssoLogin: HttpServletRequest is null");
+                throw new ResourceNotFoundException("Invalid request");
+            }
+
+            // Validate token against request header
+            log.debug("ssoLogin: Validating request token");
+            if (!jwtUtil.validateRequestToken(request, token)) {
+                log.warn("ssoLogin: Token validation failed for request from {}", request.getRemoteAddr());
+                throw new ResourceNotFoundException("Invalid or missing token");
+            }
+            log.info("ssoLogin: Token validated successfully");
+
+            // Extract Azure tenant ID from token
+            String azureTenantId = jwtUtil.getAzureTenantIdFromToken(token);
+            if (azureTenantId == null || azureTenantId.isBlank()) {
+                log.warn("ssoLogin: azure_tenant_id claim is missing or empty in token");
+                return SsoLoginResponseDto.builder()
+                        .authorized(false)
+                        .message("Unauthorized - Azure tenant ID not found in token")
+                        .build();
+            }
+            log.info("ssoLogin: Extracted azure_tenant_id={}", azureTenantId);
+
+            // Look up Tenant by azureTenantId
+            Optional<Tenant> tenantOpt = tenantRepository.findByAzureTenantId(azureTenantId);
+            if (tenantOpt.isEmpty()) {
+                log.warn("ssoLogin: No tenant found for azure_tenant_id={}", azureTenantId);
+                return SsoLoginResponseDto.builder()
+                        .authorized(false)
+                        .message("Unauthorized - Tenant not registered")
+                        .build();
+            }
+
+            Tenant tenant = tenantOpt.get();
+            log.debug("ssoLogin: Found tenant id={} name={}", tenant.getTenantID(), tenant.getTenantName());
+
+            // Extract claims for response
+            String username = jwtUtil.getUsername(request);
+            String preferredUsername = jwtUtil.getPreferredUsernameFromRequest(request);
+            String tenantName = tenant.getTenantName();
+            String alias = null;
+
+            // Check if tenant has azureTenantId set directly - if so, SSO config is optional
+            if (tenant.getAzureTenantId() != null && !tenant.getAzureTenantId().isBlank()) {
+                log.info("ssoLogin: Tenant has azureTenantId set directly, SSO configuration check is optional");
+
+                // Try to get SSO config for alias if available, but don't require it
+                Optional<SsoConfiguration> ssoConfigOpt = ssoConfigurationRepository.findByFkTenantIdAndActive(tenant.getTenantID(), "ACTIVE");
+                if (ssoConfigOpt.isPresent() && Boolean.TRUE.equals(ssoConfigOpt.get().getEnabled())) {
+                    alias = ssoConfigOpt.get().getAlias();
+                    log.debug("ssoLogin: Found optional SSO configuration with alias={}", alias);
+                }
+            } else {
+                // Tenant doesn't have azureTenantId set directly, SSO configuration is required
+                log.debug("ssoLogin: Tenant does not have azureTenantId set, checking SSO configuration");
+
+                Optional<SsoConfiguration> ssoConfigOpt = ssoConfigurationRepository.findByFkTenantIdAndActive(tenant.getTenantID(), "ACTIVE");
+                if (ssoConfigOpt.isEmpty()) {
+                    log.warn("ssoLogin: No active SSO configuration found for tenant_id={}", tenant.getTenantID());
+                    return SsoLoginResponseDto.builder()
+                            .authorized(false)
+                            .message("Unauthorized - SSO not configured for this tenant")
+                            .build();
+                }
+
+                SsoConfiguration ssoConfig = ssoConfigOpt.get();
+                log.debug("ssoLogin: Found SSO configuration id={} alias={}", ssoConfig.getId(), ssoConfig.getAlias());
+
+                // Check if SSO is enabled
+                if (ssoConfig.getEnabled() == null || !ssoConfig.getEnabled()) {
+                    log.warn("ssoLogin: SSO is disabled for configuration id={}", ssoConfig.getId());
+                    return SsoLoginResponseDto.builder()
+                            .authorized(false)
+                            .message("Unauthorized - SSO is not enabled for this tenant")
+                            .build();
+                }
+
+                alias = ssoConfig.getAlias();
+            }
+
+            // Build successful response
+            SsoLoginResponseDto response = SsoLoginResponseDto.builder()
+                    .authorized(true)
+                    .message("SSO authentication successful")
+                    .username(username)
+                    .preferredUsername(preferredUsername)
+                    .tenantName(tenantName)
+                    .alias(alias)
+                    .build();
+
+            log.info("ssoLogin: Completed successfully for azure_tenant_id={}, user={}",
+                    azureTenantId, preferredUsername);
+
+            return response;
+
+        } catch (ResourceNotFoundException rnfe) {
+            log.warn("ssoLogin: Resource not found - {}", rnfe.getMessage());
+            throw rnfe;
+        } catch (Exception e) {
+            log.error("ssoLogin: Unexpected error - {}", e.getMessage(), e);
             throw e;
         }
     }

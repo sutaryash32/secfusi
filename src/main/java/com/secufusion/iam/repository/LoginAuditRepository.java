@@ -180,4 +180,239 @@ public interface LoginAuditRepository extends JpaRepository<LoginAuditEvent, Lon
      */
     Page<LoginAuditEvent> findByTenantIdAndUserIdAndSourceServiceOrderByEventTimestampDesc(
             String tenantId, String userId, SourceService sourceService, Pageable pageable);
+
+    // ==================== Device-Based Queries ====================
+
+    /**
+     * Find login events by device ID.
+     */
+    Page<LoginAuditEvent> findByTenantIdAndDeviceIdOrderByEventTimestampDesc(
+            String tenantId, String deviceId, Pageable pageable);
+
+    /**
+     * Find login events by device fingerprint.
+     */
+    Page<LoginAuditEvent> findByTenantIdAndDeviceFingerprintOrderByEventTimestampDesc(
+            String tenantId, String deviceFingerprint, Pageable pageable);
+
+    /**
+     * Find login events for a user on a specific device.
+     */
+    Page<LoginAuditEvent> findByTenantIdAndUserIdAndDeviceIdOrderByEventTimestampDesc(
+            String tenantId, String userId, String deviceId, Pageable pageable);
+
+    /**
+     * Find login events for a user on a specific device fingerprint.
+     */
+    Page<LoginAuditEvent> findByTenantIdAndUserIdAndDeviceFingerprintOrderByEventTimestampDesc(
+            String tenantId, String userId, String deviceFingerprint, Pageable pageable);
+
+    /**
+     * Count unique devices used for login by a user.
+     */
+    @Query("SELECT COUNT(DISTINCT e.deviceFingerprint) FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId AND e.userId = :userId " +
+            "AND e.eventType = 'LOGIN_SUCCESS' " +
+            "AND e.eventTimestamp BETWEEN :start AND :end")
+    long countUniqueDevicesByUser(@Param("tenantId") String tenantId,
+                                   @Param("userId") String userId,
+                                   @Param("start") LocalDateTime start,
+                                   @Param("end") LocalDateTime end);
+
+    /**
+     * Count unique devices used for login across tenant.
+     */
+    @Query("SELECT COUNT(DISTINCT e.deviceFingerprint) FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.eventType = 'LOGIN_SUCCESS' " +
+            "AND e.eventTimestamp BETWEEN :start AND :end")
+    long countUniqueDevices(@Param("tenantId") String tenantId,
+                             @Param("start") LocalDateTime start,
+                             @Param("end") LocalDateTime end);
+
+    /**
+     * Find new device logins (first login from a device).
+     */
+    @Query("SELECT e FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.isNewDevice = true " +
+            "AND e.eventType = 'LOGIN_SUCCESS' " +
+            "AND e.eventTimestamp BETWEEN :start AND :end " +
+            "ORDER BY e.eventTimestamp DESC")
+    Page<LoginAuditEvent> findNewDeviceLogins(@Param("tenantId") String tenantId,
+                                               @Param("start") LocalDateTime start,
+                                               @Param("end") LocalDateTime end,
+                                               Pageable pageable);
+
+    /**
+     * Get device login statistics - count by device type.
+     */
+    @Query("SELECT e.deviceInfo, COUNT(e) FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.eventType = 'LOGIN_SUCCESS' " +
+            "AND e.eventTimestamp BETWEEN :start AND :end " +
+            "AND e.deviceInfo IS NOT NULL " +
+            "GROUP BY e.deviceInfo")
+    List<Object[]> getLoginCountsByDeviceType(@Param("tenantId") String tenantId,
+                                               @Param("start") LocalDateTime start,
+                                               @Param("end") LocalDateTime end);
+
+    /**
+     * Get login count by browser type.
+     */
+    @Query("SELECT e.browserType, COUNT(e) FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.eventType = 'LOGIN_SUCCESS' " +
+            "AND e.eventTimestamp BETWEEN :start AND :end " +
+            "AND e.browserType IS NOT NULL " +
+            "GROUP BY e.browserType")
+    List<Object[]> getLoginCountsByBrowser(@Param("tenantId") String tenantId,
+                                            @Param("start") LocalDateTime start,
+                                            @Param("end") LocalDateTime end);
+
+    /**
+     * Get login count by OS.
+     */
+    @Query("SELECT e.osInfo, COUNT(e) FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.eventType = 'LOGIN_SUCCESS' " +
+            "AND e.eventTimestamp BETWEEN :start AND :end " +
+            "AND e.osInfo IS NOT NULL " +
+            "GROUP BY e.osInfo")
+    List<Object[]> getLoginCountsByOS(@Param("tenantId") String tenantId,
+                                       @Param("start") LocalDateTime start,
+                                       @Param("end") LocalDateTime end);
+
+    /**
+     * Find login failures by device.
+     */
+    @Query("SELECT e FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.deviceId = :deviceId " +
+            "AND e.eventType = 'LOGIN_FAILURE' " +
+            "AND e.eventTimestamp BETWEEN :start AND :end " +
+            "ORDER BY e.eventTimestamp DESC")
+    List<LoginAuditEvent> findLoginFailuresByDevice(@Param("tenantId") String tenantId,
+                                                     @Param("deviceId") String deviceId,
+                                                     @Param("start") LocalDateTime start,
+                                                     @Param("end") LocalDateTime end);
+
+    /**
+     * Count login failures by device.
+     */
+    @Query("SELECT COUNT(e) FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.deviceId = :deviceId " +
+            "AND e.eventType = 'LOGIN_FAILURE' " +
+            "AND e.eventTimestamp > :since")
+    long countLoginFailuresByDevice(@Param("tenantId") String tenantId,
+                                     @Param("deviceId") String deviceId,
+                                     @Param("since") LocalDateTime since);
+
+    /**
+     * Get devices with most login failures (suspicious activity).
+     */
+    @Query("SELECT e.deviceFingerprint, e.deviceName, COUNT(e) as failureCount FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.eventType = 'LOGIN_FAILURE' " +
+            "AND e.eventTimestamp BETWEEN :start AND :end " +
+            "AND e.deviceFingerprint IS NOT NULL " +
+            "GROUP BY e.deviceFingerprint, e.deviceName " +
+            "ORDER BY failureCount DESC")
+    List<Object[]> getDevicesWithMostLoginFailures(@Param("tenantId") String tenantId,
+                                                    @Param("start") LocalDateTime start,
+                                                    @Param("end") LocalDateTime end,
+                                                    Pageable pageable);
+
+    /**
+     * Get last login event for a device.
+     */
+    @Query("SELECT e FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.deviceId = :deviceId " +
+            "AND e.eventType = 'LOGIN_SUCCESS' " +
+            "ORDER BY e.eventTimestamp DESC " +
+            "LIMIT 1")
+    LoginAuditEvent findLastLoginByDevice(@Param("tenantId") String tenantId,
+                                           @Param("deviceId") String deviceId);
+
+    /**
+     * Get last login event for a user on any device.
+     */
+    @Query("SELECT e FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.userId = :userId " +
+            "AND e.eventType = 'LOGIN_SUCCESS' " +
+            "ORDER BY e.eventTimestamp DESC " +
+            "LIMIT 1")
+    LoginAuditEvent findLastLoginByUser(@Param("tenantId") String tenantId,
+                                         @Param("userId") String userId);
+
+    /**
+     * Get distinct devices used by a user.
+     */
+    @Query("SELECT DISTINCT e.deviceFingerprint, e.deviceName, e.browserType, e.osInfo, " +
+            "MAX(e.eventTimestamp) as lastUsed, COUNT(e) as loginCount " +
+            "FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.userId = :userId " +
+            "AND e.eventType = 'LOGIN_SUCCESS' " +
+            "AND e.deviceFingerprint IS NOT NULL " +
+            "GROUP BY e.deviceFingerprint, e.deviceName, e.browserType, e.osInfo")
+    List<Object[]> getDevicesUsedByUser(@Param("tenantId") String tenantId,
+                                         @Param("userId") String userId);
+
+    /**
+     * Daily login activity by device.
+     */
+    @Query(value = """
+            SELECT DATE(event_timestamp) as login_date,
+                   COUNT(*) as total_logins,
+                   COUNT(CASE WHEN success = true THEN 1 END) as successful_logins,
+                   COUNT(CASE WHEN success = false THEN 1 END) as failed_logins,
+                   COUNT(DISTINCT device_fingerprint) as unique_devices
+            FROM login_audit_event
+            WHERE tenant_id = :tenantId
+            AND event_type IN ('LOGIN_SUCCESS', 'LOGIN_FAILURE')
+            AND event_timestamp BETWEEN :start AND :end
+            GROUP BY DATE(event_timestamp)
+            ORDER BY login_date ASC
+            """, nativeQuery = true)
+    List<Object[]> getDailyLoginActivityWithDevices(@Param("tenantId") String tenantId,
+                                                     @Param("start") LocalDateTime start,
+                                                     @Param("end") LocalDateTime end);
+
+    /**
+     * Count total login events in a time range.
+     */
+    @Query("SELECT COUNT(e) FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.eventType IN ('LOGIN_SUCCESS', 'LOGIN_FAILURE') " +
+            "AND e.eventTimestamp BETWEEN :start AND :end")
+    long countLoginsByTimeRange(@Param("tenantId") String tenantId,
+                                 @Param("start") LocalDateTime start,
+                                 @Param("end") LocalDateTime end);
+
+    /**
+     * Count successful logins in a time range.
+     */
+    @Query("SELECT COUNT(e) FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.eventType = 'LOGIN_SUCCESS' " +
+            "AND e.eventTimestamp BETWEEN :start AND :end")
+    long countSuccessfulLoginsByTimeRange(@Param("tenantId") String tenantId,
+                                           @Param("start") LocalDateTime start,
+                                           @Param("end") LocalDateTime end);
+
+    /**
+     * Count new device logins in a time range.
+     */
+    @Query("SELECT COUNT(e) FROM LoginAuditEvent e " +
+            "WHERE e.tenantId = :tenantId " +
+            "AND e.isNewDevice = true " +
+            "AND e.eventType = 'LOGIN_SUCCESS' " +
+            "AND e.eventTimestamp BETWEEN :start AND :end")
+    long countNewDeviceLogins(@Param("tenantId") String tenantId,
+                               @Param("start") LocalDateTime start,
+                               @Param("end") LocalDateTime end);
 }

@@ -20,7 +20,9 @@ import java.time.LocalDateTime;
         @Index(name = "idx_login_audit_username", columnList = "username"),
         @Index(name = "idx_login_audit_event_type", columnList = "event_type"),
         @Index(name = "idx_login_audit_timestamp", columnList = "event_timestamp"),
-        @Index(name = "idx_login_audit_ip", columnList = "ip_address")
+        @Index(name = "idx_login_audit_ip", columnList = "ip_address"),
+        @Index(name = "idx_login_audit_device", columnList = "device_id"),
+        @Index(name = "idx_login_audit_fingerprint", columnList = "device_fingerprint")
 })
 @Data
 @NoArgsConstructor
@@ -89,6 +91,27 @@ public class LoginAuditEvent {
 
     @Column(name = "device_info", length = 200)
     private String deviceInfo;
+
+    @Column(name = "device_id", length = 100)
+    private String deviceId;
+
+    @Column(name = "device_fingerprint", length = 100)
+    private String deviceFingerprint;
+
+    @Column(name = "device_name", length = 200)
+    private String deviceName;
+
+    @Column(name = "browser_type", length = 100)
+    private String browserType;
+
+    @Column(name = "os_info", length = 100)
+    private String osInfo;
+
+    @Column(name = "is_new_device")
+    private Boolean isNewDevice;
+
+    @Column(name = "is_trusted_device")
+    private Boolean isTrustedDevice;
 
     @Column(name = "additional_details", columnDefinition = "TEXT")
     private String additionalDetails;

@@ -18,10 +18,8 @@ public class SsoConfiguration {
     @Column(name = "id", updatable = false, nullable = false)
     private String id;
 
-    @Column(nullable = false)
     private String alias;               // microsoft, google, saml-idp
 
-    @Column(nullable = false)
     private String providerId;          // oidc, saml, github, google, etc.
 
     @Column(nullable = false)
@@ -42,6 +40,9 @@ public class SsoConfiguration {
     private String tokenUrl;
     private String userInfoUrl;
     private String issuer;
+    private String logoutUrl;
+    private String jwksUrl;
+    private String scopes;
 
     // --- Optional redirects ---
     private String redirectUri;
