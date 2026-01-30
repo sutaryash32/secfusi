@@ -261,24 +261,25 @@ public class KeycloakAdminUtil {
             idpRep.setEnabled(Boolean.TRUE.equals(dto.getEnabled()));
             idpRep.setStoreToken(Boolean.TRUE.equals(dto.getStoreToken()));
             idpRep.setLinkOnly(Boolean.FALSE);
-            idpRep.setTrustEmail(true); // Always trust email for SSO
+            idpRep.setTrustEmail(true);
             idpRep.setDisplayName(dto.getDisplayName());
 
             Map<String, String> config = new HashMap<>();
             config.put("clientId", dto.getClientId());
             config.put("clientSecret", dto.getClientSecret());
+            config.put("authorizationUrl", dto.getAuthorizationUrl());
+            config.put("tokenUrl", dto.getTokenUrl());
+            config.put("logoutUrl", dto.getLogoutUrl());
+            config.put("userInfoUrl", dto.getUserInfoUrl());
+            config.put("jwksUrl", dto.getJwksUrl());
+            config.put("issuer", dto.getIssuer());
+            config.put("scopes", dto.getScopes());
 
-            // --- Use URLs from DTO (populated by SsoConfigurationService) ---
-            put(config, "authorizationUrl", dto.getAuthorizationUrl());
-            put(config, "tokenUrl", dto.getTokenUrl());
-            put(config, "logoutUrl", dto.getLogoutUrl());
-            put(config, "userInfoUrl", dto.getUserInfoUrl());
-            put(config, "jwksUrl", dto.getJwksUrl());
-            put(config, "issuer", dto.getIssuer());
-            put(config, "scopes", dto.getScopes());
-
+            // Critical for Azure AD
             config.put("validateSignature", "true");
             config.put("useJwksUrl", "true");
+            // Ensure we send client secret as POST for Azure
+            config.put("clientAuthMethod", "client_secret_post");
 
             idpRep.setConfig(config);
 
@@ -288,9 +289,10 @@ public class KeycloakAdminUtil {
                 throw new RuntimeException("Failed to create IdP: " + resp.getStatusInfo());
             }
 
-            // --- 3. Configure Mappers (The "Enhancement") ---
-            // This programmatically sets up the "tid" -> "azure_tenant_id" flow
+            // --- 3. Configure Mappers ---
+            // Maps Azure Attributes -> Keycloak Attributes -> Client Token
             configureOidcMappers(rr, realm, dto.getAlias());
+
             return buildAzureRedirectUrl(realm, dto.getAlias());
 
         } catch (Exception e) {
@@ -302,77 +304,51 @@ public class KeycloakAdminUtil {
     }
 
     /**
-     * Consolidates mapper logic.
-     * 1. Creates IdP Mappers (Azure JWT -> Keycloak User Attribute)
-     * 2. Creates DEDICATED Client Mappers (Keycloak User Attribute -> App Access Token)
+     * Maps external IdP attributes to Keycloak attributes, and then to the Client Token.
      */
     private void configureOidcMappers(RealmResource rr, String realmName, String idpAlias) {
-        // Logic: Client ID is exactly the same as the Realm Name
+        // Assumption: The frontend client ID matches the realm name (e.g., 'magellanic')
+        // If your frontend client ID is different (e.g., 'secufusion-web'), change this variable.
         String targetClientId = realmName;
 
         log.info("Configuring Mappers. Realm: {}, IdP: {}, TargetClient: {}", realmName, idpAlias, targetClientId);
 
-        // =================================================================================
-        // STEP A: Import Data from Azure Token (IdP Mappers)
-        // =================================================================================
         try {
             IdentityProviderResource idpRes = rr.identityProviders().get(idpAlias);
 
-            // 1. Tenant ID (tid -> azure_tenant_id)
+            // A. Import from Azure Token (IdP Mappers)
             createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Tenant ID", "tid", "azure_tenant_id");
-
-            // 2. Roles (roles -> azure_roles)
             createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Roles", "roles", "azure_roles");
-
-            // 3. Groups (groups -> azure_groups)
             createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Groups", "groups", "azure_groups");
 
-        } catch (Exception e) {
-            log.error("Failed to configure IdP Mappers for {}: {}", idpAlias, e.getMessage());
-        }
-
-        // =================================================================================
-        // STEP B: Export Data to App Token (Dedicated Client Mappers)
-        // =================================================================================
-
-        ClientsResource clientsRes = rr.clients();
-        ClientResource clientResource = null;
-
-        // 1. Find the Client (using realmName as the clientId)
-        try {
+            // B. Export to App Token (Client Mappers)
+            ClientsResource clientsRes = rr.clients();
             List<ClientRepresentation> foundClients = clientsRes.findByClientId(targetClientId);
 
             if (foundClients == null || foundClients.isEmpty()) {
-                log.error("CRITICAL: Client '{}' not found. Mappers cannot be added.", targetClientId);
+                log.warn("Client '{}' not found. Skipping client mappers.", targetClientId);
                 return;
             }
 
-            // We must use the internal UUID to get the resource
             String internalId = foundClients.get(0).getId();
-            clientResource = clientsRes.get(internalId);
+            ClientResource clientResource = clientsRes.get(internalId);
+
+            // Check for existence before adding
+            List<ProtocolMapperRepresentation> currentMappers = clientResource.getProtocolMappers().getMappers();
+            Predicate<String> exists = name -> currentMappers.stream().anyMatch(m -> m.getName().equals(name));
+
+            if (!exists.test("Pass Tenant ID")) {
+                createClientProtocolMapper(clientResource, "Pass Tenant ID", "azure_tenant_id", "azure_tenant_id", "String", false);
+            }
+            if (!exists.test("Pass Roles")) {
+                createClientProtocolMapper(clientResource, "Pass Roles", "azure_roles", "roles", "String", true);
+            }
+            if (!exists.test("Pass Groups")) {
+                createClientProtocolMapper(clientResource, "Pass Groups", "azure_groups", "groups", "String", true);
+            }
 
         } catch (Exception e) {
-            log.error("Error finding client '{}': {}", targetClientId, e.getMessage());
-            return;
-        }
-
-        // 2. Get existing mappers to prevent duplicates
-        List<ProtocolMapperRepresentation> currentMappers = clientResource.getProtocolMappers().getMappers();
-        Predicate<String> exists = name -> currentMappers.stream().anyMatch(m -> m.getName().equals(name));
-
-        // Mapper 1: Pass Tenant ID
-        if (!exists.test("Pass Tenant ID")) {
-            createClientProtocolMapper(clientResource, "Pass Tenant ID", "azure_tenant_id", "azure_tenant_id", "String", false);
-        }
-
-        // Mapper 2: Pass Roles
-        if (!exists.test("Pass Roles")) {
-            createClientProtocolMapper(clientResource, "Pass Roles", "azure_roles", "roles", "String", true);
-        }
-
-        // Mapper 3: Pass Groups
-        if (!exists.test("Pass Groups")) {
-            createClientProtocolMapper(clientResource, "Pass Groups", "azure_groups", "groups", "String", true);
+            log.error("Failed to configure mappers for {}: {}", idpAlias, e.getMessage());
         }
     }
 
@@ -422,48 +398,29 @@ public class KeycloakAdminUtil {
         }
     }
 
-    /**
-     * Core Logic to link a Child Tenant Realm to a Parent/Gateway Realm.
-     * This enables the "Hub & Spoke" SSO architecture.
-     */
     public void linkTenantToGatewayRealm(Tenant tenant, String gatewayRealmName) {
         log.info("Initiating SSO Link. Child: {}, Gateway: {}", tenant.getRealmName(), gatewayRealmName);
 
         RealmResource gatewayRealmRes = keycloak.realm(gatewayRealmName);
         RealmResource tenantRealmRes = keycloak.realm(tenant.getRealmName());
 
-        // This alias is what the child tenant sees in their Login screen (e.g., "Login via Parent")
         String idpAlias = "parent-gateway";
         String idpDisplayName = "Login via " + gatewayRealmName;
-
-        // =========================================================================
-        // STEP 1: Create Client in the PARENT (Gateway) Realm
-        // =========================================================================
-
-        // The Client ID in the parent realm that represents the child
         String brokerClientId = "broker-for-" + tenant.getRealmName();
 
-        // The Child's callback URL where the Parent sends the token back
+        // Child's callback URL
         String tenantRedirectUri = keycloakServerUrl + "/realms/" + tenant.getRealmName() + "/broker/" + idpAlias + "/endpoint";
 
-        // =========================================================================
-        // STEP 1: Create Client in the PARENT (Gateway) Realm
-        // =========================================================================
-
+        // 1. Create Client in PARENT Realm (The "Broker" client)
         List<ClientRepresentation> existingClients = gatewayRealmRes.clients().findByClientId(brokerClientId);
         if (existingClients.isEmpty()) {
             ClientRepresentation gatewayClient = new ClientRepresentation();
             gatewayClient.setClientId(brokerClientId);
             gatewayClient.setName("Broker for " + tenant.getTenantName());
             gatewayClient.setProtocol("openid-connect");
-
-            // --- CORRECTED SECTION START ---
-            // For "Confidential" Access Type:
             gatewayClient.setPublicClient(false);
             gatewayClient.setBearerOnly(false);
-            gatewayClient.setServiceAccountsEnabled(true); // Optional: if you need service account support
-            // --- CORRECTED SECTION END ---
-
+            gatewayClient.setServiceAccountsEnabled(false);
             gatewayClient.setStandardFlowEnabled(true);
             gatewayClient.setDirectAccessGrantsEnabled(true);
             gatewayClient.setRedirectUris(List.of(tenantRedirectUri));
@@ -471,33 +428,25 @@ public class KeycloakAdminUtil {
 
             try (Response response = gatewayRealmRes.clients().create(gatewayClient)) {
                 if (response.getStatus() != 201) {
-                    throw new RuntimeException("Failed to create Gateway Client in " + gatewayRealmName + ": " + response.getStatusInfo());
+                    throw new RuntimeException("Failed to create Gateway Client: " + response.getStatusInfo());
                 }
             }
-
+            // Add mapper to pass the 'azure_tenant_id' from Parent -> Child
             addGatewayClientMapper(gatewayRealmRes, brokerClientId);
         }
 
-        // Retrieve the Client Secret generated by Keycloak for this new client
+        // 2. Fetch Secret
         String clientSecret = getClientSecret(gatewayRealmRes, brokerClientId);
-        if (clientSecret == null) {
-            throw new RuntimeException("Could not retrieve client secret for " + brokerClientId);
-        }
 
-        // =========================================================================
-        // STEP 2: Create IdP in the CHILD (Tenant) Realm
-        // =========================================================================
-
+        // 3. Create IdP in CHILD Realm
         try {
-            // Check if the link already exists to avoid duplicates
             tenantRealmRes.identityProviders().get(idpAlias).toRepresentation();
-            log.info("SSO Link already exists in tenant realm '{}'", tenant.getRealmName());
+            log.info("SSO Link already exists.");
         } catch (NotFoundException e) {
-            // Create the Identity Provider (Keycloak OIDC)
             IdentityProviderRepresentation idp = new IdentityProviderRepresentation();
             idp.setAlias(idpAlias);
             idp.setDisplayName(idpDisplayName);
-            idp.setProviderId("keycloak-oidc"); // Specific Keycloak-to-Keycloak provider
+            idp.setProviderId("keycloak-oidc"); // Keycloak specific OIDC
             idp.setEnabled(true);
             idp.setStoreToken(true);
             idp.setTrustEmail(true);
@@ -506,23 +455,18 @@ public class KeycloakAdminUtil {
             config.put("clientId", brokerClientId);
             config.put("clientSecret", clientSecret);
 
-            // Dynamic URLs pointing to the Parent Gateway Realm
             String gatewayBase = keycloakServerUrl + "/realms/" + gatewayRealmName;
             config.put("authorizationUrl", gatewayBase + "/protocol/openid-connect/auth");
             config.put("tokenUrl", gatewayBase + "/protocol/openid-connect/token");
             config.put("userInfoUrl", gatewayBase + "/protocol/openid-connect/userinfo");
             config.put("jwksUrl", gatewayBase + "/protocol/openid-connect/certs");
             config.put("issuer", gatewayBase);
-
-            // "login_hint" ensures if the user entered email in Child, it auto-fills in Parent
             config.put("forwardedQueryParameters", "login_hint");
 
             idp.setConfig(config);
-
             tenantRealmRes.identityProviders().create(idp);
 
-            // Add IdP Mapper to the Child Realm:
-            // EXTRACTS the "azure_tenant_id" from the incoming token and saves it to the user.
+            // Add IdP Mapper to Child to receive the tenant ID
             addTenantIdpMapper(tenantRealmRes, idpAlias);
 
             log.info("Successfully linked tenant '{}' to gateway '{}'", tenant.getTenantName(), gatewayRealmName);
@@ -530,8 +474,32 @@ public class KeycloakAdminUtil {
     }
 
     /**
-     * Adds a Protocol Mapper to the Gateway Client (Parent Side).
-     * Logic: Take User Attribute "azure_tenant_id" -> Put into Token Claim "azure_tenant_id".
+     * IMPLEMENTED: Helper to add a mapper to the Child's IdP.
+     * It reads 'azure_tenant_id' from the Parent's token and saves it to the Child's user attribute.
+     */
+    private void addTenantIdpMapper(RealmResource realmRes, String idpAlias) {
+        try {
+            IdentityProviderResource idpRes = realmRes.identityProviders().get(idpAlias);
+
+            IdentityProviderMapperRepresentation mapper = new IdentityProviderMapperRepresentation();
+            mapper.setName("Import Parent Tenant ID");
+            mapper.setIdentityProviderAlias(idpAlias);
+            mapper.setIdentityProviderMapper("oidc-user-attribute-idp-mapper");
+
+            mapper.setConfig(Map.of(
+                    "claim", "azure_tenant_id",       // The claim coming from the Parent Gateway
+                    "user.attribute", "azure_tenant_id", // Where to store it in the Child User
+                    "syncMode", "FORCE"
+            ));
+
+            idpRes.addMapper(mapper);
+        } catch (Exception e) {
+            log.error("Failed to add Tenant ID mapper to child IdP: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Adds a mapper to the PARENT Client to export 'azure_tenant_id' into the token sent to the child.
      */
     private void addGatewayClientMapper(RealmResource gatewayRes, String clientId) {
         try {
@@ -544,15 +512,14 @@ public class KeycloakAdminUtil {
             mapper.setProtocolMapper("oidc-usermodel-attribute-mapper");
 
             Map<String, String> config = new HashMap<>();
-            config.put("user.attribute", "azure_tenant_id"); // Read from DB
-            config.put("claim.name", "azure_tenant_id");     // Write to Token
+            config.put("user.attribute", "azure_tenant_id");
+            config.put("claim.name", "azure_tenant_id");
             config.put("jsonType.label", "String");
             config.put("id.token.claim", "true");
             config.put("access.token.claim", "true");
 
             mapper.setConfig(config);
             clientRes.getProtocolMappers().createMapper(mapper);
-            log.debug("Added Gateway Mapper for client {}", clientId);
         } catch (Exception e) {
             log.error("Failed to add gateway client mapper", e);
         }
@@ -592,32 +559,6 @@ public class KeycloakAdminUtil {
         } catch (Exception e) {
             log.error("Failed to remove IdP '{}' from realm '{}'", alias, realmName, e);
             throw new RuntimeException("Failed to remove IdP", e);
-        }
-    }
-
-    /**
-     * Adds an IdP Mapper to the Tenant IdP (Child Side).
-     * Logic: Take Token Claim "azure_tenant_id" -> Put into User Attribute "azure_tenant_id".
-     */
-    private void addTenantIdpMapper(RealmResource tenantRes, String idpAlias) {
-        try {
-            IdentityProviderResource idpRes = tenantRes.identityProviders().get(idpAlias);
-
-            IdentityProviderMapperRepresentation mapper = new IdentityProviderMapperRepresentation();
-            mapper.setName("Import Tenant ID");
-            mapper.setIdentityProviderAlias(idpAlias);
-            mapper.setIdentityProviderMapper("oidc-user-attribute-idp-mapper");
-
-            Map<String, String> config = new HashMap<>();
-            config.put("claim", "azure_tenant_id");          // Read from Token
-            config.put("user.attribute", "azure_tenant_id"); // Write to DB
-            config.put("syncMode", "FORCE");                 // Always update on login
-
-            mapper.setConfig(config);
-            idpRes.addMapper(mapper);
-            log.debug("Added Tenant IdP Mapper for alias {}", idpAlias);
-        } catch (Exception e) {
-            log.error("Failed to add tenant IdP mapper", e);
         }
     }
     /**
