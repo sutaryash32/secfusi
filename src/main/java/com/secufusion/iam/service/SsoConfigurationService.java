@@ -58,19 +58,25 @@ public class SsoConfigurationService {
      * @param providerRequest creation DTO
      * @return created {@link SsoConfigurationResponse}
      */
+    @Transactional
     public SsoConfigurationResponse addProviderToTenant(HttpServletRequest request, CreateIdentityProviderRequest providerRequest) {
 
         Tenant tenant = jwtUtl.getTenantFromRequest(request);
         String tenantId = tenant.getTenantID();
         String realm = tenant.getRealmName();
+
+        // 1. Governance Check
         validateSsoGovernance(tenant);
         log.info("Creating IdP for tenant={} alias={} providerId={}", tenantId, providerRequest.getAlias(), providerRequest.getProviderId());
 
-        // 1. Populate DTO with provider URLs from database based on providerId
-        enrichRequestWithProviderUrls(providerRequest);
+        // 2. Enrich Config (Pre-fill URLs from DB if using a preset like 'azure')
+        enrichRequestWithProviderUrls(providerRequest, providerRequest.getTenantId());
 
-        // 2. Deactivate existing active configs for this tenant
-        List<SsoConfiguration> activeConfigs = repository.findByFkTenantId(tenantId).stream().filter(c -> "ACTIVE".equalsIgnoreCase(c.getActive())).toList();
+        // 3. Deactivate existing active configs for this tenant (Single Active IdP Policy)
+        List<SsoConfiguration> activeConfigs = repository.findByFkTenantId(tenantId)
+                .stream()
+                .filter(c -> "ACTIVE".equalsIgnoreCase(c.getActive()))
+                .toList();
 
         if (!activeConfigs.isEmpty()) {
             activeConfigs.forEach(c -> c.setActive("INACTIVE"));
@@ -85,7 +91,7 @@ public class SsoConfigurationService {
             repository.saveAll(activeConfigs);
         }
 
-        // 3. Create the new Identity Provider in Keycloak
+        // 4. Create the new Identity Provider in Keycloak
         boolean kcSuccess = false;
         String redirectUrl = null;
 
@@ -97,32 +103,27 @@ public class SsoConfigurationService {
             log.error("Keycloak provider creation failed for realm={} alias={}, proceeding to persist INACTIVE record", realm, providerRequest.getAlias(), e);
         }
 
-        // 4. Persist to DB (includes the URLs from provider config)
+        // 5. Persist to DB
         SsoConfiguration cfg = mapToEntity(providerRequest, tenantId);
         cfg.setRedirectUri(redirectUrl != null ? redirectUrl : providerRequest.getRedirectUri());
         cfg.setActive(kcSuccess ? "ACTIVE" : "INACTIVE");
         SsoConfiguration saved = repository.save(cfg);
 
-        // ... (Existing Default Logic) ...
-
         // ---------------------------------------------------------
-        // 🚀 RETROACTIVE UPDATE: The "Override" Logic
+        // 🚀 RETROACTIVE UPDATE: Gateway "Override" Logic
         // ---------------------------------------------------------
-        // If an MSSP activates SSO, they become a Gateway.
-        // We must pull their children away from the Master and link them here.
-        Tenant currentTenant = jwtUtl.getTenantFromRequest(request); // Assuming you have access to Tenant object
-        // If not, fetch it: tenantRepository.findById(tenantId).get();
-
-        boolean isGatewayCandidate = "MSSP".equalsIgnoreCase(currentTenant.getTenantType())
-                || "MASTER_MSSP".equalsIgnoreCase(currentTenant.getTenantType());
+        boolean isGatewayCandidate = "MSSP".equalsIgnoreCase(tenant.getTenantType())
+                || "MASTER_MSSP".equalsIgnoreCase(tenant.getTenantType());
 
         if (isGatewayCandidate && "ACTIVE".equals(saved.getActive())) {
             log.info("Gateway Tenant '{}' (Type: {}) configured SSO. Re-linking children...",
-                    currentTenant.getTenantName(), currentTenant.getTenantType());
+                    tenant.getTenantName(), tenant.getTenantType());
 
-            relinkDescendantsToNewGateway(currentTenant);
+            // Trigger the recursive update
+            relinkDescendantsToNewGateway(tenant);
         }
-        // 5. (Optional) Set as default login ONLY if requested
+
+        // 6. Set Default (Optional)
         if (kcSuccess && Boolean.TRUE.equals(providerRequest.getSetAsDefaultLogin())) {
             try {
                 kcUtil.setAsDefaultIdentityProvider(realm, providerRequest.getAlias());
@@ -174,43 +175,47 @@ public class SsoConfigurationService {
     }
 
     private void relinkDescendantsRecursive(String parentTenantId, String gatewayRealmName) {
-        // 1. Find direct children
+        // Find direct children
         List<Tenant> children = tenantRepository.findByParentTenantId(parentTenantId);
 
         for (Tenant child : children) {
             // CHECK: Does this child have their own SSO Override?
-            boolean childHasSso = repository // Use SsoConfigurationRepository
+            // If they have an ACTIVE custom SSO config, we DO NOT touch them.
+            boolean childHasSso = repository
                     .existsByFkTenantIdAndActive(child.getTenantID(), "ACTIVE");
 
             if (childHasSso) {
-                // STOP! This child is independent. Don't touch them or their children.
                 log.info("Skipping child '{}' - has own SSO override.", child.getTenantName());
-                continue;
+                continue; // Stop recursion for this branch, they are independent.
             }
 
-            // ACTION: Re-link this child
+            // ACTION: Re-link this child to the new Gateway
             try {
                 log.info("Re-linking Child '{}' to New Gateway '{}'", child.getTenantName(), gatewayRealmName);
+
+                // Clean up old gateway link if it exists
                 kcUtil.removeIdentityProvider(child.getRealmName(), "parent-gateway");
+
+                // Create new link
                 kcUtil.linkTenantToGatewayRealm(child, gatewayRealmName);
             } catch (Exception e) {
                 log.error("Failed to re-link child '{}'", child.getTenantName(), e);
             }
 
-            // RECURSE: Go deeper to grandchildren
+            // RECURSE: Go deeper to grandchildren (unless this child broke the chain)
             relinkDescendantsRecursive(child.getTenantID(), gatewayRealmName);
         }
     }
     /**
-     * Enriches the provider request with URLs from the database based on providerId.
-     * Fetches configuration from sso_provider_url_config table and populates the DTO.
-     *
-     * @param providerRequest the request to enrich
+     * Enriches the provider request by fetching templates from DB and
+     * REPLACING 'common' with the specific Azure Tenant ID.
+     * * @param providerRequest the request DTO
+     * @param azureTenantId The specific Azure Tenant ID (e.g., 1b747...) to inject into the URLs
      */
-    private void enrichRequestWithProviderUrls(CreateIdentityProviderRequest providerRequest) {
+    private void enrichRequestWithProviderUrls(CreateIdentityProviderRequest providerRequest, String azureTenantId) {
         String providerId = providerRequest.getProviderId();
         if (providerId == null || providerId.isBlank()) {
-            providerId = "azure"; // Default to Azure
+            providerId = "azure";
         }
 
         log.debug("Fetching URL configuration for providerId={}", providerId);
@@ -222,38 +227,56 @@ public class SsoConfigurationService {
             SsoProviderUrlConfig config = configOpt.get();
             log.info("Enriching request with URLs from provider config: {}", config.getDisplayName());
 
-            // Only set if not already provided in the request
-            if (providerRequest.getAuthorizationUrl() == null || providerRequest.getAuthorizationUrl().isBlank()) {
-                providerRequest.setAuthorizationUrl(config.getAuthorizationUrl());
+            // Helper to replace "common" with the actual ID
+            // If azureTenantId is null/empty, we default back to "common" to be safe
+            String effectiveId = (azureTenantId != null && !azureTenantId.isBlank()) ? azureTenantId : "common";
+
+            if (isBlank(providerRequest.getAuthorizationUrl())) {
+                providerRequest.setAuthorizationUrl(replaceTenantPlaceholder(config.getAuthorizationUrl(), effectiveId));
             }
-            if (providerRequest.getTokenUrl() == null || providerRequest.getTokenUrl().isBlank()) {
-                providerRequest.setTokenUrl(config.getTokenUrl());
+            if (isBlank(providerRequest.getTokenUrl())) {
+                providerRequest.setTokenUrl(replaceTenantPlaceholder(config.getTokenUrl(), effectiveId));
             }
-            if (providerRequest.getLogoutUrl() == null || providerRequest.getLogoutUrl().isBlank()) {
-                providerRequest.setLogoutUrl(config.getLogoutUrl());
+            if (isBlank(providerRequest.getLogoutUrl())) {
+                providerRequest.setLogoutUrl(replaceTenantPlaceholder(config.getLogoutUrl(), effectiveId));
             }
-            if (providerRequest.getUserInfoUrl() == null || providerRequest.getUserInfoUrl().isBlank()) {
-                providerRequest.setUserInfoUrl(config.getUserInfoUrl());
+            if (isBlank(providerRequest.getUserInfoUrl())) {
+                // UserInfo usually doesn't have tenant ID, but we process it just in case
+                providerRequest.setUserInfoUrl(replaceTenantPlaceholder(config.getUserInfoUrl(), effectiveId));
             }
-            if (providerRequest.getJwksUrl() == null || providerRequest.getJwksUrl().isBlank()) {
-                providerRequest.setJwksUrl(config.getJwksUrl());
+            if (isBlank(providerRequest.getJwksUrl())) {
+                providerRequest.setJwksUrl(replaceTenantPlaceholder(config.getJwksUrl(), effectiveId));
             }
-            if (providerRequest.getIssuer() == null) {
-                providerRequest.setIssuer(config.getIssuer() != null ? config.getIssuer() : "");
+            if (isBlank(providerRequest.getIssuer())) {
+                providerRequest.setIssuer(replaceTenantPlaceholder(config.getIssuer(), effectiveId));
             }
-            if (providerRequest.getScopes() == null || providerRequest.getScopes().isBlank()) {
+
+            // Scopes usually don't need replacement
+            if (isBlank(providerRequest.getScopes())) {
                 providerRequest.setScopes(config.getDefaultScopes() != null ? config.getDefaultScopes() : "openid email profile");
             }
         } else {
-            log.warn("No provider URL config found for providerId={}, using request values or defaults", providerId);
-            // Set defaults if not provided
-            if (providerRequest.getScopes() == null || providerRequest.getScopes().isBlank()) {
+            // Fallback defaults
+            if (isBlank(providerRequest.getScopes())) {
                 providerRequest.setScopes("openid email profile");
             }
-            if (providerRequest.getIssuer() == null) {
-                providerRequest.setIssuer("");
-            }
         }
+    }
+
+    // --- Helper Methods ---
+
+    private boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
+    }
+
+    /**
+     * Replaces "/common/" or "common" placeholders with the specific Tenant ID.
+     */
+    private String replaceTenantPlaceholder(String url, String tenantId) {
+        if (url == null) return null;
+        // Replace standard Azure "common" endpoints
+        return url.replace("/common/", "/" + tenantId + "/")
+                .replace("common/v2.0", tenantId + "/v2.0");
     }
 
 
