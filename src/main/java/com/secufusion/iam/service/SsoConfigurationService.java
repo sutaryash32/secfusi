@@ -5,20 +5,21 @@ import com.secufusion.iam.dto.SsoConfigurationResponse;
 import com.secufusion.iam.entity.SsoConfiguration;
 import com.secufusion.iam.entity.SsoProviderUrlConfig;
 import com.secufusion.iam.entity.Tenant;
+import com.secufusion.iam.exception.GlobalException;
 import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.SsoConfigurationRepository;
 import com.secufusion.iam.repository.SsoProviderUrlConfigRepository;
+import com.secufusion.iam.repository.TenantRepository;
 import com.secufusion.iam.util.JwtUtl;
 import com.secufusion.iam.util.KeycloakAdminUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -43,6 +44,10 @@ public class SsoConfigurationService {
     private final KeycloakAdminUtil kcUtil;
     private final SsoConfigurationRepository repository;
     private final SsoProviderUrlConfigRepository providerUrlConfigRepository;
+    private final TenantRepository tenantRepository;
+
+    @Value("${app.sso.governance.min-level:ENTERPRISE}") // Default to permissive
+    private String minSsoCreationLevel;
 
     /* ---------------- CREATE ---------------- */
     /**
@@ -58,7 +63,7 @@ public class SsoConfigurationService {
         Tenant tenant = jwtUtl.getTenantFromRequest(request);
         String tenantId = tenant.getTenantID();
         String realm = tenant.getRealmName();
-
+        validateSsoGovernance(tenant);
         log.info("Creating IdP for tenant={} alias={} providerId={}", tenantId, providerRequest.getAlias(), providerRequest.getProviderId());
 
         // 1. Populate DTO with provider URLs from database based on providerId
@@ -98,6 +103,25 @@ public class SsoConfigurationService {
         cfg.setActive(kcSuccess ? "ACTIVE" : "INACTIVE");
         SsoConfiguration saved = repository.save(cfg);
 
+        // ... (Existing Default Logic) ...
+
+        // ---------------------------------------------------------
+        // 🚀 RETROACTIVE UPDATE: The "Override" Logic
+        // ---------------------------------------------------------
+        // If an MSSP activates SSO, they become a Gateway.
+        // We must pull their children away from the Master and link them here.
+        Tenant currentTenant = jwtUtl.getTenantFromRequest(request); // Assuming you have access to Tenant object
+        // If not, fetch it: tenantRepository.findById(tenantId).get();
+
+        boolean isGatewayCandidate = "MSSP".equalsIgnoreCase(currentTenant.getTenantType())
+                || "MASTER_MSSP".equalsIgnoreCase(currentTenant.getTenantType());
+
+        if (isGatewayCandidate && "ACTIVE".equals(saved.getActive())) {
+            log.info("Gateway Tenant '{}' (Type: {}) configured SSO. Re-linking children...",
+                    currentTenant.getTenantName(), currentTenant.getTenantType());
+
+            relinkDescendantsToNewGateway(currentTenant);
+        }
         // 5. (Optional) Set as default login ONLY if requested
         if (kcSuccess && Boolean.TRUE.equals(providerRequest.getSetAsDefaultLogin())) {
             try {
@@ -110,6 +134,73 @@ public class SsoConfigurationService {
         return SsoConfigurationResponse.from(saved);
     }
 
+    /**
+     * Validates if the current tenant meets the minimum rank required to create SSO.
+     */
+    private void validateSsoGovernance(Tenant tenant) {
+        int currentRank = getTenantRank(tenant.getTenantType());
+        int requiredRank = getTenantRank(minSsoCreationLevel);
+
+        if (currentRank < requiredRank) {
+            log.warn("Governance Block: Tenant '{}' (Type: {}) tried to create SSO but policy requires Minimum Level: {}",
+                    tenant.getTenantName(), tenant.getTenantType(), minSsoCreationLevel);
+
+            throw new GlobalException("SSO_CREATION_RESTRICTED",
+                    "Your organization level (" + tenant.getTenantType() + ") is not authorized to configure custom SSO. " +
+                            "Please contact your administrator.");
+        }
+    }
+
+    /**
+     * Helper to convert Tenant Type string to a numeric rank for comparison.
+     */
+    private int getTenantRank(String tenantType) {
+        if (tenantType == null) return 0;
+
+        return switch (tenantType.toUpperCase()) {
+            case "MAIN_MASTER_MSSP" -> 4;
+            case "MASTER_MSSP" -> 3;
+            case "MSSP" -> 2;
+            case "ENTERPRISE" -> 1;
+            default -> 0; // Unknown types (should not happen)
+        };
+    }
+
+    // REPLACE the existing relinkChildrenToNewGateway with this RECURSIVE version:
+
+    private void relinkDescendantsToNewGateway(Tenant gatewayTenant) {
+        String gatewayRealmName = gatewayTenant.getRealmName();
+        relinkDescendantsRecursive(gatewayTenant.getTenantID(), gatewayRealmName);
+    }
+
+    private void relinkDescendantsRecursive(String parentTenantId, String gatewayRealmName) {
+        // 1. Find direct children
+        List<Tenant> children = tenantRepository.findByParentTenantId(parentTenantId);
+
+        for (Tenant child : children) {
+            // CHECK: Does this child have their own SSO Override?
+            boolean childHasSso = repository // Use SsoConfigurationRepository
+                    .existsByFkTenantIdAndActive(child.getTenantID(), "ACTIVE");
+
+            if (childHasSso) {
+                // STOP! This child is independent. Don't touch them or their children.
+                log.info("Skipping child '{}' - has own SSO override.", child.getTenantName());
+                continue;
+            }
+
+            // ACTION: Re-link this child
+            try {
+                log.info("Re-linking Child '{}' to New Gateway '{}'", child.getTenantName(), gatewayRealmName);
+                kcUtil.removeIdentityProvider(child.getRealmName(), "parent-gateway");
+                kcUtil.linkTenantToGatewayRealm(child, gatewayRealmName);
+            } catch (Exception e) {
+                log.error("Failed to re-link child '{}'", child.getTenantName(), e);
+            }
+
+            // RECURSE: Go deeper to grandchildren
+            relinkDescendantsRecursive(child.getTenantID(), gatewayRealmName);
+        }
+    }
     /**
      * Enriches the provider request with URLs from the database based on providerId.
      * Fetches configuration from sso_provider_url_config table and populates the DTO.
