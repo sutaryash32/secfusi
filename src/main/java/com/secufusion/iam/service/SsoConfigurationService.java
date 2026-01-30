@@ -19,7 +19,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -206,11 +208,13 @@ public class SsoConfigurationService {
             relinkDescendantsRecursive(child.getTenantID(), gatewayRealmName);
         }
     }
+
     /**
-     * Enriches the provider request by fetching templates from DB and
-     * REPLACING 'common' with the specific Azure Tenant ID.
-     * * @param providerRequest the request DTO
-     * @param azureTenantId The specific Azure Tenant ID (e.g., 1b747...) to inject into the URLs
+     * Enriches the provider request by using Hardcoded Templates and
+     * REPLACING '{tenantId}' with the actual Azure Tenant ID.
+     *
+     * @param providerRequest the request DTO
+     * @param azureTenantId The specific Azure Tenant ID (e.g., "1b747...") from the request
      */
     private void enrichRequestWithProviderUrls(CreateIdentityProviderRequest providerRequest, String azureTenantId) {
         String providerId = providerRequest.getProviderId();
@@ -218,65 +222,64 @@ public class SsoConfigurationService {
             providerId = "azure";
         }
 
-        log.debug("Fetching URL configuration for providerId={}", providerId);
+        // 1. Define the Templates in a Map (No DB required)
+        Map<String, String> azureTemplates = new HashMap<>();
+        azureTemplates.put("authorizationUrl", "https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/authorize");
+        azureTemplates.put("tokenUrl", "https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token");
+        azureTemplates.put("logoutUrl", "https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/logout");
+        azureTemplates.put("userInfoUrl", "https://graph.microsoft.com/oidc/userinfo");
+        azureTemplates.put("jwksUrl", "https://login.microsoftonline.com/{tenantId}/discovery/v2.0/keys");
+        azureTemplates.put("issuer", "https://login.microsoftonline.com/{tenantId}/v2.0");
+        azureTemplates.put("scopes", "openid email profile offline_access");
 
-        Optional<SsoProviderUrlConfig> configOpt = providerUrlConfigRepository
-                .findByProviderIdAndEnabled(providerId.toLowerCase(), true);
+        // 2. Determine the Tenant ID to use (Default to 'common' if missing)
+        String effectiveId = (azureTenantId != null && !azureTenantId.isBlank()) ? azureTenantId : "common";
 
-        if (configOpt.isPresent()) {
-            SsoProviderUrlConfig config = configOpt.get();
-            log.info("Enriching request with URLs from provider config: {}", config.getDisplayName());
+        log.info("Enriching config using Provider: {} and Tenant ID: {}", providerId, effectiveId);
 
-            // Helper to replace "common" with the actual ID
-            // If azureTenantId is null/empty, we default back to "common" to be safe
-            String effectiveId = (azureTenantId != null && !azureTenantId.isBlank()) ? azureTenantId : "common";
+        // 3. Populate and Replace dynamically
+        if (isBlank(providerRequest.getAuthorizationUrl())) {
+            providerRequest.setAuthorizationUrl(
+                    azureTemplates.get("authorizationUrl").replace("{tenantId}", effectiveId)
+            );
+        }
 
-            if (isBlank(providerRequest.getAuthorizationUrl())) {
-                providerRequest.setAuthorizationUrl(replaceTenantPlaceholder(config.getAuthorizationUrl(), effectiveId));
-            }
-            if (isBlank(providerRequest.getTokenUrl())) {
-                providerRequest.setTokenUrl(replaceTenantPlaceholder(config.getTokenUrl(), effectiveId));
-            }
-            if (isBlank(providerRequest.getLogoutUrl())) {
-                providerRequest.setLogoutUrl(replaceTenantPlaceholder(config.getLogoutUrl(), effectiveId));
-            }
-            if (isBlank(providerRequest.getUserInfoUrl())) {
-                // UserInfo usually doesn't have tenant ID, but we process it just in case
-                providerRequest.setUserInfoUrl(replaceTenantPlaceholder(config.getUserInfoUrl(), effectiveId));
-            }
-            if (isBlank(providerRequest.getJwksUrl())) {
-                providerRequest.setJwksUrl(replaceTenantPlaceholder(config.getJwksUrl(), effectiveId));
-            }
-            if (isBlank(providerRequest.getIssuer())) {
-                providerRequest.setIssuer(replaceTenantPlaceholder(config.getIssuer(), effectiveId));
-            }
+        if (isBlank(providerRequest.getTokenUrl())) {
+            providerRequest.setTokenUrl(
+                    azureTemplates.get("tokenUrl").replace("{tenantId}", effectiveId)
+            );
+        }
 
-            // Scopes usually don't need replacement
-            if (isBlank(providerRequest.getScopes())) {
-                providerRequest.setScopes(config.getDefaultScopes() != null ? config.getDefaultScopes() : "openid email profile");
-            }
-        } else {
-            // Fallback defaults
-            if (isBlank(providerRequest.getScopes())) {
-                providerRequest.setScopes("openid email profile");
-            }
+        if (isBlank(providerRequest.getLogoutUrl())) {
+            providerRequest.setLogoutUrl(
+                    azureTemplates.get("logoutUrl").replace("{tenantId}", effectiveId)
+            );
+        }
+
+        if (isBlank(providerRequest.getUserInfoUrl())) {
+            providerRequest.setUserInfoUrl(azureTemplates.get("userInfoUrl"));
+        }
+
+        if (isBlank(providerRequest.getJwksUrl())) {
+            providerRequest.setJwksUrl(
+                    azureTemplates.get("jwksUrl").replace("{tenantId}", effectiveId)
+            );
+        }
+
+        if (isBlank(providerRequest.getIssuer())) {
+            providerRequest.setIssuer(
+                    azureTemplates.get("issuer").replace("{tenantId}", effectiveId)
+            );
+        }
+
+        if (isBlank(providerRequest.getScopes())) {
+            providerRequest.setScopes(azureTemplates.get("scopes"));
         }
     }
 
-    // --- Helper Methods ---
-
+    // Helper to check for null/empty strings
     private boolean isBlank(String s) {
         return s == null || s.trim().isEmpty();
-    }
-
-    /**
-     * Replaces "/common/" or "common" placeholders with the specific Tenant ID.
-     */
-    private String replaceTenantPlaceholder(String url, String tenantId) {
-        if (url == null) return null;
-        // Replace standard Azure "common" endpoints
-        return url.replace("/common/", "/" + tenantId + "/")
-                .replace("common/v2.0", tenantId + "/v2.0");
     }
 
 
