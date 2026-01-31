@@ -65,111 +65,11 @@ public class KeycloakAdminUtil {
         return new KeycloakOperationException(code, status, op + " failed: " + e.getMessage());
     }
 
-//    public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
-//        log.info("Adding identity provider '{}' to realm {}", dto.getAlias(), realm);
-//
-//        Response resp = null;
-//
-//        try {
-//            if (dto == null) {
-//                throw new KeycloakOperationException("INVALID_INPUT", 400,
-//                        "CreateIdentityProviderRequest must not be null");
-//            }
-//
-//            RealmResource rr = keycloak.realm(realm);
-//
-//            // -------------------------------
-//            // 1️⃣ Build IDP object
-//            // -------------------------------
-//            IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
-//            idpRep.setAlias(dto.getAlias());
-//            idpRep.setProviderId(dto.getProviderId());
-//            idpRep.setEnabled(Boolean.TRUE.equals(dto.getEnabled()));
-//            idpRep.setStoreToken(Boolean.TRUE.equals(dto.getStoreToken()));
-//            idpRep.setLinkOnly(Boolean.TRUE.equals(dto.getLinkOnly()));
-//            idpRep.setTrustEmail(Boolean.TRUE.equals(dto.getTrustEmail()));
-//            idpRep.setDisplayName(dto.getDisplayName());
-//
-//            // IDP Configuration
-//            Map<String, String> config = new HashMap<>();
-//            put(config, "clientId", dto.getClientId());
-//            put(config, "clientSecret", dto.getClientSecret());
-//            put(config, "authorizationUrl", dto.getAuthorizationUrl());
-//            put(config, "tokenUrl", dto.getTokenUrl());
-//            put(config, "userInfoUrl", dto.getUserInfoUrl());
-//            put(config, "issuer", dto.getIssuer());
-//            put(config, "redirectUri", dto.getRedirectUri());
-//            put(config, "tenantId", dto.getTenantId());
-//            config.put("scopes", "openid email profile");
-//            config.put("disableUserInfo", "true");
-//
-//            idpRep.setConfig(config);
-//
-//            // -------------------------------
-//            // 2️⃣ Create IDP in Keycloak
-//            // -------------------------------
-//            resp = rr.identityProviders().create(idpRep);
-//
-//            int status = resp.getStatus();
-//            log.debug("IDP create response = {}", status);
-//
-//            if (status != 201 && status != 409) {
-//                String body = resp.readEntity(String.class);
-//                throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
-//                        "Identity provider creation failed: " + body);
-//            }
-//
-//            if (status == 409) {
-//                log.warn("Identity provider '{}' already exists in realm {}", dto.getAlias(), realm);
-//            } else {
-//                log.info("Identity provider '{}' created successfully in realm {}", dto.getAlias(), realm);
-//            }
-//
-//            // -------------------------------
-//            // 3️⃣ Update IDP config (optional patches)
-//            // -------------------------------
-//            IdentityProviderResource idpRes = rr.identityProviders().get(dto.getAlias());
-//            IdentityProviderRepresentation rep = idpRes.toRepresentation();
-//
-//            rep.setTrustEmail(true);
-//            rep.getConfig().put("disableUserInfo", "true");
-//            rep.getConfig().put("scopes", "openid email profile");
-//
-//            idpRes.update(rep);
-//
-//            try {
-//                configureAttributePassthrough(rr, dto.getAlias());
-//                configureRolePassthrough(rr, dto.getAlias());
-//            } catch (Exception e) {
-//                // We log error but DO NOT throw, so we still return the redirect URL
-//                log.error("Failed to configure auto-mappers for IdP '{}'. Users may not have groups in token. Error: {}",
-//                        dto.getAlias(), e.getMessage());
-//            }            // -------------------------------
-//            // 4️⃣ Return redirect URL
-//            // -------------------------------
-//            return buildAzureRedirectUrl(realm, dto.getAlias());
-//
-//        } catch (KeycloakOperationException e) {
-//            throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
-//                    "Failed to create identity provider in realm " + realm);
-//        } finally {
-//            if (resp != null) resp.close();
-//        }
-//    }
-
     private String buildAzureRedirectUrl(String realm, String alias) {
         String keycloakBaseUrl = keycloakServerUrl;
 
         return keycloakBaseUrl + "/realms/" + realm + "/broker/" + alias + "/endpoint";
     }
-
-
-    private void put(Map<String, String> map, String key, String value) {
-        if (value != null && !value.isEmpty()) {
-            map.put(key, value);
-        }
-    }
-
 
     public void setAsDefaultIdentityProvider(String realm, String alias) {
         RealmResource rr = keycloak.realm(realm);
@@ -199,7 +99,12 @@ public class KeycloakAdminUtil {
         // 🔥 FIX: Create AuthenticatorConfigRepresentation
         // -------------------------
         AuthenticatorConfigRepresentation cfg = new AuthenticatorConfigRepresentation();
-        cfg.setAlias("idp-redirector-config-" + alias);
+        if (configId == null) {
+            cfg.setAlias("idp-redirector-config");
+            rr.flows().newExecutionConfig(idpRedirectExec.getId(), cfg);
+        } else {
+            rr.flows().updateAuthenticatorConfig(configId, cfg);
+        }
 
         Map<String, String> configMap = new HashMap<>();
         configMap.put("defaultProvider", alias);
@@ -222,26 +127,87 @@ public class KeycloakAdminUtil {
         log.info("Default Identity Provider for realm={} set to {}", realm, alias);
     }
 
-    public void disableIdentityProvider(String realm, String alias) {
-        log.info("Disabling Identity Provider '{}' in realm '{}'", alias, realm);
-        try {
-            RealmResource rr = keycloak.realm(realm);
-            IdentityProviderResource idpRes = rr.identityProviders().get(alias);
-            IdentityProviderRepresentation rep = idpRes.toRepresentation();
-            if (rep == null) {
-                throw new KeycloakOperationException("IDP_NOT_FOUND", 404,
-                        "Identity provider not found: " + alias);
+    public void configureBrowserFlowForAutoRedirect(String realmName, String idpAlias) {
+
+        RealmResource rr = keycloak.realm(realmName);
+
+        AuthenticationFlowRepresentation browserFlow = rr.flows()
+                .getFlows()
+                .stream()
+                .filter(f -> "browser".equalsIgnoreCase(f.getAlias()))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Browser flow not found"));
+
+        List<AuthenticationExecutionInfoRepresentation> executions =
+                rr.flows().getExecutions(browserFlow.getAlias());
+
+        for (AuthenticationExecutionInfoRepresentation exec : executions) {
+            if (exec.getRequirement() == null) {
+                continue;
             }
-            rep.setEnabled(false);
-            idpRes.update(rep);
-            log.info("Disabled Identity Provider '{}' in realm '{}'", alias, realm);
-        } catch (KeycloakOperationException e) {
-            throw e;
-        } catch (Exception e) {
-            throw wrap("IDP_DISABLE_FAILED", 500,
-                    "Failed to disable identity provider " + alias + " in realm " + realm, e);
+
+            // 1️⃣ Force Identity Provider Redirector
+            if ("identity-provider-redirector".equals(exec.getProviderId())
+                    && !"REQUIRED".equals(exec.getRequirement())) {
+
+                exec.setRequirement("REQUIRED");
+                rr.flows().updateExecutions(browserFlow.getAlias(), exec);
+
+                log.info("[FLOW] IDP Redirector set to REQUIRED | realm={}", realmName);
+            }
+
+            // 2️⃣ Disable local username/password
+            if ("auth-username-password-form".equals(exec.getProviderId())
+                    && !"DISABLED".equals(exec.getRequirement())) {
+
+                exec.setRequirement("DISABLED");
+                rr.flows().updateExecutions(browserFlow.getAlias(), exec);
+
+                log.info("[FLOW] Username/password DISABLED | realm={}", realmName);
+            }
         }
     }
+
+    public void restoreBrowserFlowToLocalLogin(String realmName) {
+
+        RealmResource rr = keycloak.realm(realmName);
+
+        AuthenticationFlowRepresentation browserFlow = rr.flows()
+                .getFlows()
+                .stream()
+                .filter(f -> "browser".equalsIgnoreCase(f.getAlias()))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Browser flow not found"));
+
+        List<AuthenticationExecutionInfoRepresentation> executions =
+                rr.flows().getExecutions(browserFlow.getAlias());
+
+        for (AuthenticationExecutionInfoRepresentation exec : executions) {
+
+            if (exec.getRequirement() == null) {
+                continue;
+            }
+
+            if ("identity-provider-redirector".equals(exec.getProviderId())
+                    && !"ALTERNATIVE".equals(exec.getRequirement())) {
+
+                exec.setRequirement("ALTERNATIVE");
+                rr.flows().updateExecutions(browserFlow.getAlias(), exec);
+
+                log.info("[FLOW] IDP Redirector reverted to ALTERNATIVE | realm={}", realmName);
+            }
+
+            if ("auth-username-password-form".equals(exec.getProviderId())
+                    && !"REQUIRED".equals(exec.getRequirement())) {
+
+                exec.setRequirement("REQUIRED");
+                rr.flows().updateExecutions(browserFlow.getAlias(), exec);
+
+                log.info("[FLOW] Username/password RESTORED | realm={}", realmName);
+            }
+        }
+    }
+
 
 
 // -------------------------------------------------------------------------

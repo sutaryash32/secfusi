@@ -246,7 +246,8 @@ public class SsoConfigurationService {
             kcUtil.linkTenantToGatewayRealm(child, gatewayRealmName);
 
             if (setAsDefault) {
-                kcUtil.setAsDefaultIdentityProvider(
+                kcUtil.setAsDefaultIdentityProvider(child.getRealmName(), "parent-gateway");
+                kcUtil.configureBrowserFlowForAutoRedirect(
                         child.getRealmName(),
                         "parent-gateway"
                 );
@@ -268,6 +269,7 @@ public class SsoConfigurationService {
         List<Tenant> children = tenantRepository.findByParentTenantId(parentTenantId);
         for (Tenant child : children) {
             kcUtil.removeIdentityProvider(child.getRealmName(), "parent-gateway");
+            kcUtil.restoreBrowserFlowToLocalLogin(child.getRealmName());
             unlinkDescendantsRecursive(child.getTenantID());
         }
     }
