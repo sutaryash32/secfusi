@@ -271,6 +271,48 @@ public class SsoConfigurationService {
             unlinkDescendantsRecursive(child.getTenantID());
         }
     }
+    /* ---------------- READ ---------------- */
+
+    /**
+     * Returns all SSO configurations for the tenant on the request.
+     *
+     * @param request the http request containing tenant JWT
+     * @return list of {@link SsoConfigurationResponse}
+     */
+    @Transactional(readOnly = true)
+    public List<SsoConfigurationResponse> getAll(HttpServletRequest request) {
+        Tenant tenant = jwtUtl.getTenantFromRequest(request);
+        String tenantId = tenant.getTenantID();
+        log.debug("Fetching all SSO configurations for tenant={}", tenantId);
+
+        List<SsoConfigurationResponse> responses = repository.findByFkTenantId(tenantId).stream().map(SsoConfigurationResponse::from).toList();
+
+        log.debug("Found {} SSO configurations for tenant={}", responses.size(), tenantId);
+        return responses;
+    }
+
+    /**
+     * Returns a single SSO configuration by id for the tenant on the request.
+     *
+     * @param request the http request containing tenant JWT
+     * @param id      configuration id
+     * @return {@link SsoConfigurationResponse}
+     * @throws ResourceNotFoundException when not found
+     */
+    @Transactional(readOnly = true)
+    public SsoConfiguration getById(HttpServletRequest request, String id) {
+        Tenant tenant = jwtUtl.getTenantFromRequest(request);
+        String tenantId = tenant.getTenantID();
+        log.debug("Fetching SSO configuration id={} for tenant={}", id, tenantId);
+
+        SsoConfiguration cfg = repository.findByIdAndFkTenantId(id, tenantId).orElseThrow(() -> {
+            log.warn("SSO configuration not found id={} tenant={}", id, tenantId);
+            return new ResourceNotFoundException("SSO_CONFIG_NOT_FOUND");
+        });
+
+        log.debug("Returning SSO configuration id={} for tenant={}", id, tenantId);
+        return cfg;
+    }
 
     /* ------------------------------------------------------------------
      * HELPERS
