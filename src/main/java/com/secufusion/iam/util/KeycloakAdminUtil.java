@@ -214,68 +214,117 @@ public class KeycloakAdminUtil {
 // KEYCLOAK UTIL METHODS (Refined)
 // -------------------------------------------------------------------------
 
-    public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
-        log.info("Adding built-in Microsoft provider '{}' to realm {}", dto.getAlias(), realm);
+    public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto, boolean isGatewayRealm) {
+        log.info("Adding Azure IdP to realm {} (isGateway={})", realm, isGatewayRealm);
 
-        Response resp = null;
-        try {
-            RealmResource rr = keycloak.realm(realm);
+        RealmResource realmResource = keycloak.realm(realm);
 
-            IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
+        if (isGatewayRealm && "microsoft".equalsIgnoreCase(dto.getProviderId())) {
+            // GATEWAY REALM: Create dual IdPs for user isolation
+            log.info("Creating dual Azure IdPs for gateway realm: {}", realm);
 
-            // 1. PROVIDER ID (Matches "Microsoft" title in image_f4eb47.png)
-            idpRep.setProviderId("microsoft");
+            // 1. Create custom broker flow (no user creation)
+            createBrokerNoUserCreationFlow(realmResource);
 
-            idpRep.setAlias(dto.getAlias());
-            idpRep.setDisplayName(dto.getDisplayName());
-            idpRep.setEnabled(true);
+            // 2. Create "azure" - Direct login (creates users)
+            createAzureIdp(realmResource, dto, "azure", "Azure AD", true);
 
-            // 2. STORE TOKENS (Matches "Store tokens: On" in image_f4eb47.png)
-            idpRep.setStoreToken(true);
+            // 3. Create "azure-broker" - Broker login (no user creation)
+            createAzureIdp(realmResource, dto, "azure-broker", "Azure AD (Broker)", false);
 
-            // 3. TRUST EMAIL (Matches "Trust Email: On" in image_f4eb5e.png)
-            idpRep.setTrustEmail(true);
+            return buildAzureRedirectUrl(realm, "azure");
 
-            Map<String, String> config = new HashMap<>();
-            config.put("clientId", dto.getClientId());
-            config.put("clientSecret", dto.getClientSecret());
+        } else {
+            // NON-GATEWAY REALM: Single IdP
+            log.info("Creating single Azure IdP for non-gateway realm: {}", realm);
+            createAzureIdp(realmResource, dto, dto.getAlias(), dto.getDisplayName(), true);
 
-            // 4. TENANT ID (Matches "Tenant ID: common" in image_f4eb47.png)
-            // CRITICAL: The internal key Keycloak expects is "tenant", NOT "tenantId".
-            config.put("tenant", "common");
-
-            // 5. SCOPES (Matches "Scopes: openid email profile" in image_f4eb47.png)
-            config.put("defaultScope", "openid email profile");
-
-            // 6. SYNC MODE (Matches "Sync mode: Force" in image_f4eb5e.png)
-            config.put("syncMode", "FORCE");
-
-            // 7. CLIENT AUTH (Hidden in screenshot, but required for Azure success)
-            // Even though the screenshot doesn't show it, the built-in provider
-            // might default to Basic. It is safer to force POST to avoid 401 errors.
-            config.put("clientAuthMethod", "client_secret_post");
-
-            idpRep.setConfig(config);
-
-            // Create
-            resp = rr.identityProviders().create(idpRep);
-
-            if (resp.getStatus() != 201 && resp.getStatus() != 409) {
-                throw new RuntimeException("Failed to create IdP: " + resp.getStatusInfo());
-            }
-
-            // Configure Mappers
-            configureOidcMappers(rr, realm, dto.getAlias());
-
-            // The Redirect URI will be standard for the Microsoft provider:
-            // .../realms/{realm}/broker/microsoft/endpoint
             return buildAzureRedirectUrl(realm, dto.getAlias());
-
-        } catch (Exception e) {
-            throw new RuntimeException("Microsoft IdP creation failed", e);
-        } finally {
-            if (resp != null) resp.close();
         }
+    }
+
+    /**
+     * Helper method to create an Azure IdP with configurable user creation behavior
+     */
+    private void createAzureIdp(
+            RealmResource realmResource,
+            CreateIdentityProviderRequest dto,
+            String alias,
+            String displayName,
+            boolean createUsers
+    ) {
+        log.info("Creating Azure IdP '{}' (createUsers={})", alias, createUsers);
+
+        IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
+        idpRep.setAlias(alias);
+        idpRep.setDisplayName(displayName);
+        idpRep.setProviderId("microsoft"); // TODO: Use dto.getProviderId() for flexibility
+        idpRep.setEnabled(true);
+        idpRep.setStoreToken(true);
+        idpRep.setTrustEmail(true);
+
+        if (!createUsers) {
+            // Use custom flow without user creation
+            idpRep.setFirstBrokerLoginFlowAlias("broker-no-user-creation");
+            // Note: azure-broker is not set as default, so it won't appear in auto-redirect
+            // Users accessing MSSP realm directly will use the "azure" IdP instead
+        }
+
+        Map<String, String> config = new HashMap<>();
+        config.put("clientId", dto.getClientId());
+        config.put("clientSecret", dto.getClientSecret());
+        config.put("tenant", "common"); // TODO: Use dto.getTenantId() instead of hardcoded "common"
+        config.put("defaultScope", "openid email profile");
+        config.put("syncMode", "FORCE");
+        config.put("clientAuthMethod", "client_secret_post");
+
+        idpRep.setConfig(config);
+
+        try (Response response = realmResource.identityProviders().create(idpRep)) {
+            if (response.getStatus() != 201 && response.getStatus() != 409) {
+                throw new RuntimeException("Failed to create Azure IdP '" + alias + "': " + response.getStatusInfo());
+            }
+        }
+
+        // Configure attribute mappers
+        configureOidcMappers(realmResource, realmResource.toRepresentation().getRealm(), alias);
+
+        log.info("Successfully created Azure IdP: {}", alias);
+    }
+
+    /**
+     * Creates a custom First Broker Login flow without user creation
+     * Used for brokered authentication where users should not be created in the gateway realm
+     */
+    private void createBrokerNoUserCreationFlow(RealmResource realmResource) {
+        String flowAlias = "broker-no-user-creation";
+
+        // Check if flow already exists
+        boolean flowExists = realmResource.flows().getFlows().stream()
+            .anyMatch(f -> flowAlias.equals(f.getAlias()));
+
+        if (flowExists) {
+            log.info("Flow '{}' already exists, skipping creation", flowAlias);
+            return;
+        }
+
+        log.info("Creating custom First Broker Login flow: {}", flowAlias);
+
+        // Create empty authentication flow (no executions = no user creation)
+        AuthenticationFlowRepresentation flow = new AuthenticationFlowRepresentation();
+        flow.setAlias(flowAlias);
+        flow.setDescription("First broker login without user creation (for gateway brokering)");
+        flow.setProviderId("basic-flow");
+        flow.setTopLevel(true);
+        flow.setBuiltIn(false);
+
+        try (Response response = realmResource.flows().createFlow(flow)) {
+            if (response.getStatus() != 201) {
+                throw new RuntimeException("Failed to create broker flow: " + response.getStatusInfo());
+            }
+        }
+
+        log.info("Successfully created flow: {}", flowAlias);
     }
 
     /**
@@ -431,7 +480,20 @@ public class KeycloakAdminUtil {
             config.put("clientSecret", clientSecret);
 
             String gatewayBase = keycloakServerUrl + "/realms/" + gatewayRealmName;
-            config.put("authorizationUrl", gatewayBase + "/protocol/openid-connect/auth");
+
+            // Check if gateway realm has azure-broker IdP
+            boolean hasAzureBroker = checkIfIdpExists(gatewayRealmRes, "azure-broker");
+
+            if (hasAzureBroker) {
+                // Use azure-broker to prevent user creation in gateway realm
+                config.put("authorizationUrl", gatewayBase + "/protocol/openid-connect/auth?kc_idp_hint=azure-broker");
+                log.info("Gateway realm '{}' has azure-broker, using kc_idp_hint", gatewayRealmName);
+            } else {
+                // Fallback to default (backward compatibility for pre-existing setups)
+                config.put("authorizationUrl", gatewayBase + "/protocol/openid-connect/auth");
+                log.warn("Gateway realm '{}' does NOT have azure-broker IdP yet", gatewayRealmName);
+            }
+
             config.put("tokenUrl", gatewayBase + "/protocol/openid-connect/token");
             config.put("userInfoUrl", gatewayBase + "/protocol/openid-connect/userinfo");
             config.put("jwksUrl", gatewayBase + "/protocol/openid-connect/certs");
@@ -749,6 +811,24 @@ public class KeycloakAdminUtil {
             log.error("Failed to delete Identity Provider '{}' from realm '{}'",
                     alias, realm, e);
             throw e; // let service decide whether to continue
+        }
+    }
+
+    /**
+     * Checks if an Identity Provider exists in a realm
+     * @param realm The RealmResource to check
+     * @param alias The IdP alias to check for
+     * @return true if the IdP exists, false otherwise
+     */
+    private boolean checkIfIdpExists(RealmResource realm, String alias) {
+        try {
+            realm.identityProviders().get(alias).toRepresentation();
+            return true;
+        } catch (NotFoundException e) {
+            return false;
+        } catch (Exception e) {
+            log.error("Error checking if IdP '{}' exists: {}", alias, e.getMessage());
+            return false;
         }
     }
 
