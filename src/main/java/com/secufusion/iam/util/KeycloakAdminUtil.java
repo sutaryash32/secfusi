@@ -227,7 +227,7 @@ public class KeycloakAdminUtil {
                     dto,
                     "azure",
                     "Azure AD",
-                    true
+                    false
             );
 
             return buildAzureRedirectUrl(realm, "azure");
@@ -299,8 +299,6 @@ public class KeycloakAdminUtil {
 
         log.info("🔧 Configuring OIDC mappers | realm={} | idp={}", realmName, idpAlias);
         try {
-            String targetClientId = realmName;
-
             IdentityProviderResource idp = realm.identityProviders().get(idpAlias);
 
             // ───── Import from Azure ─────
@@ -368,7 +366,7 @@ public class KeycloakAdminUtil {
 
             mapper.setName(name);
             mapper.setIdentityProviderAlias(idpAlias);
-            mapper.setIdentityProviderMapper("oidc-user-attribute-idp-mapper");
+            mapper.setIdentityProviderMapper("microsoft-user-attribute-mapper");
             mapper.setConfig(Map.of(
                     "claim", claimName,
                     "user.attribute", userAttribute,
@@ -485,7 +483,7 @@ public class KeycloakAdminUtil {
             gatewayClient.setBearerOnly(false);
             gatewayClient.setServiceAccountsEnabled(false);
             gatewayClient.setStandardFlowEnabled(true);
-            gatewayClient.setDirectAccessGrantsEnabled(true);
+            gatewayClient.setDirectAccessGrantsEnabled(false);
             gatewayClient.setRedirectUris(List.of(tenantRedirectUri));
             gatewayClient.setEnabled(true);
 
@@ -495,7 +493,7 @@ public class KeycloakAdminUtil {
                 }
             }
             // Add mapper to pass the 'azure_tenant_id' from Parent -> Child
-            addGatewayClientMapper(gatewayRealmRes, brokerClientId);
+            addGatewayClientMappers(gatewayRealmRes, brokerClientId);
         }
 
         // 2. Fetch Secret
@@ -539,61 +537,169 @@ public class KeycloakAdminUtil {
             tenantRealmRes.identityProviders().create(idp);
 
             // Add IdP Mapper to Child to receive the tenant ID
-            addTenantIdpMapper(tenantRealmRes, idpAlias);
+            addTenantIdpMappers(tenantRealmRes, idpAlias);
+            addChildClientMappers(tenantRealmRes, tenant.getRealmName());
+
 
             log.info("Successfully linked tenant '{}' to gateway '{}'", tenant.getTenantName(), gatewayRealmName);
         }
     }
 
-    /**
-     * IMPLEMENTED: Helper to add a mapper to the Child's IdP.
-     * It reads 'azure_tenant_id' from the Parent's token and saves it to the Child's user attribute.
-     */
-    private void addTenantIdpMapper(RealmResource realmRes, String idpAlias) {
-        try {
-            IdentityProviderResource idpRes = realmRes.identityProviders().get(idpAlias);
+    private void addTenantIdpMappers(
+            RealmResource realmRes,
+            String idpAlias
+    ) {
+        IdentityProviderResource idp =
+                realmRes.identityProviders().get(idpAlias);
 
-            IdentityProviderMapperRepresentation mapper = new IdentityProviderMapperRepresentation();
-            mapper.setName("Import Parent Tenant ID");
-            mapper.setIdentityProviderAlias(idpAlias);
-            mapper.setIdentityProviderMapper("oidc-user-attribute-idp-mapper");
+        upsertChildIdpMapper(idp, idpAlias,
+                "Import Azure Tenant ID",
+                "azure_tenant_id",
+                "azure_tenant_id");
 
-            mapper.setConfig(Map.of(
-                    "claim", "azure_tenant_id",       // The claim coming from the Parent Gateway
-                    "user.attribute", "azure_tenant_id", // Where to store it in the Child User
-                    "syncMode", "FORCE"
-            ));
+        upsertChildIdpMapper(idp, idpAlias,
+                "Import Azure Groups",
+                "groups",
+                "azure_groups");
 
-            idpRes.addMapper(mapper);
-        } catch (Exception e) {
-            log.error("Failed to add Tenant ID mapper to child IdP: {}", e.getMessage());
+        upsertChildIdpMapper(idp, idpAlias,
+                "Import Azure Roles",
+                "roles",
+                "azure_roles");
+    }
+
+    private void addChildClientMappers(
+            RealmResource realm,
+            String realmName
+    ) {
+        ClientResource client =
+                resolveClientByClientId(realm, realmName);
+
+        upsertClientProtocolMapper(client,
+                "Pass Azure Tenant ID",
+                "azure_tenant_id",
+                "azure_tenant_id",
+                "String",
+                false);
+
+        upsertClientProtocolMapper(client,
+                "Pass Azure Groups",
+                "azure_groups",
+                "groups",
+                "String",
+                true);
+
+        upsertClientProtocolMapper(client,
+                "Pass Azure Roles",
+                "azure_roles",
+                "roles",
+                "String",
+                true);
+    }
+
+
+    private void upsertChildIdpMapper(
+            IdentityProviderResource idp,
+            String alias,
+            String name,
+            String claim,
+            String userAttr
+    ) {
+        List<IdentityProviderMapperRepresentation> mappers =
+                idp.getMappers();
+
+        Optional<IdentityProviderMapperRepresentation> existing =
+                mappers.stream()
+                        .filter(m -> name.equals(m.getName()))
+                        .findFirst();
+
+        IdentityProviderMapperRepresentation mapper =
+                existing.orElseGet(IdentityProviderMapperRepresentation::new);
+
+        mapper.setName(name);
+        mapper.setIdentityProviderAlias(alias);
+        mapper.setIdentityProviderMapper("oidc-user-attribute-idp-mapper");
+        mapper.setConfig(Map.of(
+                "claim", claim,
+                "user.attribute", userAttr,
+                "syncMode", "FORCE"
+        ));
+
+        if (existing.isPresent()) {
+            idp.update(mapper.getId(), mapper);
+            log.info("🔁 Updated child IdP mapper {}", name);
+        } else {
+            idp.addMapper(mapper);
+            log.info("➕ Created child IdP mapper {}", name);
         }
     }
 
-    /**
-     * Adds a mapper to the PARENT Client to export 'azure_tenant_id' into the token sent to the child.
-     */
-    private void addGatewayClientMapper(RealmResource gatewayRes, String clientId) {
-        try {
-            String internalId = gatewayRes.clients().findByClientId(clientId).get(0).getId();
-            ClientResource clientRes = gatewayRes.clients().get(internalId);
+    private void addGatewayClientMappers(
+            RealmResource gatewayRes,
+            String clientId
+    ) {
+        String internalId = gatewayRes.clients()
+                .findByClientId(clientId)
+                .get(0)
+                .getId();
 
-            ProtocolMapperRepresentation mapper = new ProtocolMapperRepresentation();
-            mapper.setName("Pass Tenant ID");
-            mapper.setProtocol("openid-connect");
-            mapper.setProtocolMapper("oidc-usermodel-attribute-mapper");
+        ClientResource clientRes = gatewayRes.clients().get(internalId);
 
-            Map<String, String> config = new HashMap<>();
-            config.put("user.attribute", "azure_tenant_id");
-            config.put("claim.name", "azure_tenant_id");
-            config.put("jsonType.label", "String");
-            config.put("id.token.claim", "true");
-            config.put("access.token.claim", "true");
+        upsertGatewayMapper(clientRes,
+                "Pass Azure Tenant ID",
+                "azure_tenant_id",
+                "azure_tenant_id",
+                false);
 
-            mapper.setConfig(config);
-            clientRes.getProtocolMappers().createMapper(mapper);
-        } catch (Exception e) {
-            log.error("Failed to add gateway client mapper", e);
+        upsertGatewayMapper(clientRes,
+                "Pass Azure Groups",
+                "azure_groups",
+                "groups",
+                true);
+
+        upsertGatewayMapper(clientRes,
+                "Pass Azure Roles",
+                "azure_roles",
+                "roles",
+                true);
+    }
+
+    private void upsertGatewayMapper(
+            ClientResource client,
+            String name,
+            String userAttribute,
+            String claim,
+            boolean multivalued
+    ) {
+        List<ProtocolMapperRepresentation> mappers =
+                client.getProtocolMappers().getMappers();
+
+        Optional<ProtocolMapperRepresentation> existing =
+                mappers.stream()
+                        .filter(m -> name.equals(m.getName()))
+                        .findFirst();
+
+        ProtocolMapperRepresentation mapper =
+                existing.orElseGet(ProtocolMapperRepresentation::new);
+
+        mapper.setName(name);
+        mapper.setProtocol("openid-connect");
+        mapper.setProtocolMapper("oidc-usermodel-attribute-mapper");
+        mapper.setConfig(Map.of(
+                "user.attribute", userAttribute,
+                "claim.name", claim,
+                "jsonType.label", "String",
+                "multivalued", String.valueOf(multivalued),
+                "id.token.claim", "true",
+                "access.token.claim", "true"
+        ));
+
+        if (existing.isPresent()) {
+            client.getProtocolMappers().update(mapper.getId(), mapper);
+            log.info("🔁 Updated gateway mapper {}", name);
+        } else {
+            client.getProtocolMappers().createMapper(mapper);
+            log.info("➕ Created gateway mapper {}", name);
         }
     }
 
