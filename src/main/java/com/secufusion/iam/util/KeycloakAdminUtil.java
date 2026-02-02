@@ -215,33 +215,30 @@ public class KeycloakAdminUtil {
 // -------------------------------------------------------------------------
 
     public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto, boolean isGatewayRealm) {
-        log.info("Adding Azure IdP to realm {} (isGateway={})", realm, isGatewayRealm);
 
         RealmResource realmResource = keycloak.realm(realm);
 
         if (isGatewayRealm && "microsoft".equalsIgnoreCase(dto.getProviderId())) {
-            // GATEWAY REALM: Create dual IdPs for user isolation
-            log.info("Creating dual Azure IdPs for gateway realm: {}", realm);
 
-            // 1. Create custom broker flow (no user creation)
-            createBrokerNoUserCreationFlow(realmResource);
+            log.info("Creating Azure AD IdP for MSSP Gateway Realm: {}", realm);
 
-            // 2. Create "azure" - Direct login (creates users)
-            createAzureIdp(realmResource, dto, "azure", "Azure AD", true);
-
-            // 3. Create "azure-broker" - Broker login (no user creation)
-            createAzureIdp(realmResource, dto, "azure-broker", "Azure AD (Broker)", false);
+            // SINGLE Azure IdP – users WILL be created (expected)
+            createAzureIdp(
+                    realmResource,
+                    dto,
+                    "azure",
+                    "Azure AD",
+                    true
+            );
 
             return buildAzureRedirectUrl(realm, "azure");
-
-        } else {
-            // NON-GATEWAY REALM: Single IdP
-            log.info("Creating single Azure IdP for non-gateway realm: {}", realm);
-            createAzureIdp(realmResource, dto, dto.getAlias(), dto.getDisplayName(), true);
-
-            return buildAzureRedirectUrl(realm, dto.getAlias());
         }
+
+        // Non-gateway (enterprise-local IdPs if ever needed)
+        createAzureIdp(realmResource, dto, dto.getAlias(), dto.getDisplayName(), true);
+        return buildAzureRedirectUrl(realm, dto.getAlias());
     }
+
 
     /**
      * Helper method to create an Azure IdP with configurable user creation behavior
@@ -296,36 +293,36 @@ public class KeycloakAdminUtil {
      * Creates a custom First Broker Login flow without user creation
      * Used for brokered authentication where users should not be created in the gateway realm
      */
-    private void createBrokerNoUserCreationFlow(RealmResource realmResource) {
-        String flowAlias = "broker-no-user-creation";
-
-        // Check if flow already exists
-        boolean flowExists = realmResource.flows().getFlows().stream()
-            .anyMatch(f -> flowAlias.equals(f.getAlias()));
-
-        if (flowExists) {
-            log.info("Flow '{}' already exists, skipping creation", flowAlias);
-            return;
-        }
-
-        log.info("Creating custom First Broker Login flow: {}", flowAlias);
-
-        // Create empty authentication flow (no executions = no user creation)
-        AuthenticationFlowRepresentation flow = new AuthenticationFlowRepresentation();
-        flow.setAlias(flowAlias);
-        flow.setDescription("First broker login without user creation (for gateway brokering)");
-        flow.setProviderId("basic-flow");
-        flow.setTopLevel(true);
-        flow.setBuiltIn(false);
-
-        try (Response response = realmResource.flows().createFlow(flow)) {
-            if (response.getStatus() != 201) {
-                throw new RuntimeException("Failed to create broker flow: " + response.getStatusInfo());
-            }
-        }
-
-        log.info("Successfully created flow: {}", flowAlias);
-    }
+//    private void createBrokerNoUserCreationFlow(RealmResource realmResource) {
+//        String flowAlias = "broker-no-user-creation";
+//
+//        // Check if flow already exists
+//        boolean flowExists = realmResource.flows().getFlows().stream()
+//            .anyMatch(f -> flowAlias.equals(f.getAlias()));
+//
+//        if (flowExists) {
+//            log.info("Flow '{}' already exists, skipping creation", flowAlias);
+//            return;
+//        }
+//
+//        log.info("Creating custom First Broker Login flow: {}", flowAlias);
+//
+//        // Create empty authentication flow (no executions = no user creation)
+//        AuthenticationFlowRepresentation flow = new AuthenticationFlowRepresentation();
+//        flow.setAlias(flowAlias);
+//        flow.setDescription("First broker login without user creation (for gateway brokering)");
+//        flow.setProviderId("basic-flow");
+//        flow.setTopLevel(true);
+//        flow.setBuiltIn(false);
+//
+//        try (Response response = realmResource.flows().createFlow(flow)) {
+//            if (response.getStatus() != 201) {
+//                throw new RuntimeException("Failed to create broker flow: " + response.getStatusInfo());
+//            }
+//        }
+//
+//        log.info("Successfully created flow: {}", flowAlias);
+//    }
 
     /**
      * Maps external IdP attributes to Keycloak attributes, and then to the Client Token.
@@ -482,17 +479,13 @@ public class KeycloakAdminUtil {
             String gatewayBase = keycloakServerUrl + "/realms/" + gatewayRealmName;
 
             // Check if gateway realm has azure-broker IdP
-            boolean hasAzureBroker = checkIfIdpExists(gatewayRealmRes, "azure-broker");
+//            boolean hasAzureBroker = checkIfIdpExists(gatewayRealmRes, "azure-broker");
 
-            if (hasAzureBroker) {
-                // Use azure-broker to prevent user creation in gateway realm
-                config.put("authorizationUrl", gatewayBase + "/protocol/openid-connect/auth?kc_idp_hint=azure-broker");
-                log.info("Gateway realm '{}' has azure-broker, using kc_idp_hint", gatewayRealmName);
-            } else {
-                // Fallback to default (backward compatibility for pre-existing setups)
-                config.put("authorizationUrl", gatewayBase + "/protocol/openid-connect/auth");
-                log.warn("Gateway realm '{}' does NOT have azure-broker IdP yet", gatewayRealmName);
-            }
+            config.put(
+                    "authorizationUrl",
+                    gatewayBase + "/protocol/openid-connect/auth?kc_idp_hint=azure"
+            );
+
 
             config.put("tokenUrl", gatewayBase + "/protocol/openid-connect/token");
             config.put("userInfoUrl", gatewayBase + "/protocol/openid-connect/userinfo");
