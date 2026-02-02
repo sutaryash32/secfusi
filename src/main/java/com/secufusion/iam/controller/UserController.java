@@ -3,6 +3,7 @@ package com.secufusion.iam.controller;
 import com.secufusion.iam.dto.ResponseDto;
 import com.secufusion.iam.dto.UsersDto;
 import com.secufusion.iam.entity.Tenant;
+import com.secufusion.iam.entity.User;
 import com.secufusion.iam.service.UserService;
 import com.secufusion.iam.util.JwtUtl;
 import jakarta.servlet.http.HttpServletRequest;
@@ -51,11 +52,14 @@ public class UserController {
     })
     @PostMapping("/{tenantId}")
     public ResponseEntity<ResponseDto<UsersDto>> createUser(
+            HttpServletRequest request,
             @Parameter(description = "Tenant identifier", required = true) @PathVariable String tenantId,
             @RequestBody UsersDto usersDto) {
 
         log.info("API: Create user under tenant {}", tenantId);
         log.debug("Request payload for createUser under tenant {}: {}", tenantId, usersDto);
+        User userFromRequest = jwtUtl.getUserFromRequest(request);
+        usersDto.setCreatedBy(userFromRequest.getUserName());
         UsersDto created = userService.createUser(tenantId, usersDto);
         log.info("User created with id={} under tenant={}", created != null ? created.getPkUserId() : null, tenantId);
         return ResponseEntity.ok(new ResponseDto<>(created,String.valueOf(HttpStatus.CREATED.value()),"User created successfully"));
@@ -192,11 +196,14 @@ public class UserController {
     })
     @PutMapping("/{userId}")
     public ResponseEntity<ResponseDto<UsersDto>> updateUser(
+            HttpServletRequest request,
             @Parameter(description = "Global user identifier", required = true) @PathVariable String userId,
             @RequestBody UsersDto usersDto) {
 
         log.info("API: Update user {}", userId);
         log.debug("Update payload for user {}: {}", userId, usersDto);
+        User userFromRequest = jwtUtl.getUserFromRequest(request);
+        usersDto.setLastUpdatedBy(userFromRequest.getUserName());
         UsersDto updated = userService.updateUser(userId, usersDto);
         log.info("User updated id={}", userId);
         return ResponseEntity.ok(new ResponseDto<>(updated,String.valueOf(HttpStatus.OK.value()),updated != null ? "User updated successfully" : "User update failed"));
