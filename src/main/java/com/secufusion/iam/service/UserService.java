@@ -438,8 +438,6 @@ public class UserService {
         user.setEmail(dto.getEmail());
         user.setUserName(dto.getEmail()); // Assuming Email = Username
         user.setPhoneNo(dto.getPhoneNumber());
-        user.setUpdatedAt(LocalDateTime.now());
-        user.setLastUpdatedBy(dto.getLastUpdatedBy());
 
         if (dto.getStatus() != null && !dto.getStatus().isBlank()) {
             user.setStatus(dto.getStatus().trim().toUpperCase());
