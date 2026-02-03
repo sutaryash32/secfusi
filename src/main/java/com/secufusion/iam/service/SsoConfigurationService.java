@@ -63,8 +63,7 @@ public class SsoConfigurationService {
         String redirectUrl = null;
 
         try {
-            boolean isGateway = isGateway(tenant);
-            redirectUrl = kcUtil.addIdentityProvider(realm, dto, isGateway);
+            redirectUrl = kcUtil.addIdentityProvider(realm, dto);
             kcSuccess = true;
         } catch (Exception e) {
             log.error("Keycloak IdP creation failed", e);
@@ -158,8 +157,7 @@ public class SsoConfigurationService {
             if (aliasChanged) {
                 kcUtil.deleteIdentityProvider(realm, oldAlias);
             }
-            boolean isGateway = isGateway(tenant);
-            kcUtil.addIdentityProvider(realm, dto, isGateway);
+            kcUtil.addIdentityProvider(realm, dto);
         }
 
         if (Boolean.TRUE.equals(dto.getSetAsDefaultLogin())) {
@@ -248,8 +246,7 @@ public class SsoConfigurationService {
             kcUtil.linkTenantToGatewayRealm(child, gatewayRealmName);
 
             if (setAsDefault) {
-                kcUtil.setAsDefaultIdentityProvider(child.getRealmName(), "parent-gateway");
-                kcUtil.configureBrowserFlowForAutoRedirect(
+                kcUtil.setAsDefaultIdentityProvider(
                         child.getRealmName(),
                         "parent-gateway"
                 );
@@ -271,7 +268,6 @@ public class SsoConfigurationService {
         List<Tenant> children = tenantRepository.findByParentTenantId(parentTenantId);
         for (Tenant child : children) {
             kcUtil.removeIdentityProvider(child.getRealmName(), "parent-gateway");
-            kcUtil.restoreBrowserFlowToLocalLogin(child.getRealmName());
             unlinkDescendantsRecursive(child.getTenantID());
         }
     }
@@ -323,12 +319,8 @@ public class SsoConfigurationService {
      * ------------------------------------------------------------------ */
 
     private boolean isGateway(Tenant tenant) {
-        String tenantType = tenant.getTenantType();
-        if (tenantType == null) {
-            return false;
-        }
-        return switch (tenantType.toUpperCase()) {
-            case "MSSP", "MASTER_MSSP", "MASTER MSSP" -> true;
+        return switch (tenant.getTenantType()) {
+            case "MSSP", "MASTER_MSSP", "MAIN_MASTER_MSSP" -> true;
             default -> false;
         };
     }
