@@ -249,64 +249,55 @@ public class KeycloakAdminUtil {
 // -------------------------------------------------------------------------
 
     public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
-        log.info("Adding built-in Microsoft provider '{}' to realm {}", dto.getAlias(), realm);
-
+        log.info("Adding identity provider '{}' to realm {} with providerId={}", dto.getAlias(), realm, dto.getProviderId());
         Response resp = null;
         try {
             RealmResource rr = keycloak.realm(realm);
 
+            // --- 1. Create IDP Object ---
             IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
-
-            // 1. PROVIDER ID (Matches "Microsoft" title in image_f4eb47.png)
-            idpRep.setProviderId("microsoft");
-
             idpRep.setAlias(dto.getAlias());
-            idpRep.setDisplayName(dto.getDisplayName());
-            idpRep.setEnabled(true);
-
-            // 2. STORE TOKENS (Matches "Store tokens: On" in image_f4eb47.png)
-            idpRep.setStoreToken(true);
-
-            // 3. TRUST EMAIL (Matches "Trust Email: On" in image_f4eb5e.png)
+            idpRep.setProviderId("oidc"); // Enforce OIDC
+            idpRep.setEnabled(Boolean.TRUE.equals(dto.getEnabled()));
+            idpRep.setStoreToken(Boolean.TRUE.equals(dto.getStoreToken()));
+            idpRep.setLinkOnly(Boolean.FALSE);
             idpRep.setTrustEmail(true);
+            idpRep.setDisplayName(dto.getDisplayName());
 
             Map<String, String> config = new HashMap<>();
             config.put("clientId", dto.getClientId());
             config.put("clientSecret", dto.getClientSecret());
+            config.put("authorizationUrl", dto.getAuthorizationUrl());
+            config.put("tokenUrl", dto.getTokenUrl());
+            config.put("logoutUrl", dto.getLogoutUrl());
+            config.put("userInfoUrl", dto.getUserInfoUrl());
+            config.put("jwksUrl", dto.getJwksUrl());
+            config.put("issuer", dto.getIssuer());
+            config.put("scopes", dto.getScopes());
 
-            // 4. TENANT ID (Matches "Tenant ID: common" in image_f4eb47.png)
-            // CRITICAL: The internal key Keycloak expects is "tenant", NOT "tenantId".
-            config.put("tenant", "common");
-
-            // 5. SCOPES (Matches "Scopes: openid email profile" in image_f4eb47.png)
-            config.put("defaultScope", "openid email profile");
-
-            // 6. SYNC MODE (Matches "Sync mode: Force" in image_f4eb5e.png)
-            config.put("syncMode", "FORCE");
-
-            // 7. CLIENT AUTH (Hidden in screenshot, but required for Azure success)
-            // Even though the screenshot doesn't show it, the built-in provider
-            // might default to Basic. It is safer to force POST to avoid 401 errors.
+            // Critical for Azure AD
+            config.put("validateSignature", "true");
+            config.put("useJwksUrl", "true");
+            // Ensure we send client secret as POST for Azure
             config.put("clientAuthMethod", "client_secret_post");
 
             idpRep.setConfig(config);
 
-            // Create
+            // --- 2. Create in Keycloak ---
             resp = rr.identityProviders().create(idpRep);
-
             if (resp.getStatus() != 201 && resp.getStatus() != 409) {
                 throw new RuntimeException("Failed to create IdP: " + resp.getStatusInfo());
             }
 
-            // Configure Mappers
+            // --- 3. Configure Mappers ---
+            // Maps Azure Attributes -> Keycloak Attributes -> Client Token
             configureOidcMappers(rr, realm, dto.getAlias());
 
-            // The Redirect URI will be standard for the Microsoft provider:
-            // .../realms/{realm}/broker/microsoft/endpoint
             return buildAzureRedirectUrl(realm, dto.getAlias());
 
         } catch (Exception e) {
-            throw new RuntimeException("Microsoft IdP creation failed", e);
+            log.error("Error creating IdP: {}", e.getMessage(), e);
+            throw new RuntimeException("IdP creation failed", e);
         } finally {
             if (resp != null) resp.close();
         }
