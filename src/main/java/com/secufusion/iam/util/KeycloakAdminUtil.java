@@ -209,6 +209,7 @@ public class KeycloakAdminUtil {
     }
 
 
+
 // -------------------------------------------------------------------------
 // KEYCLOAK UTIL METHODS (Refined)
 // -------------------------------------------------------------------------
@@ -289,176 +290,133 @@ public class KeycloakAdminUtil {
     }
 
     /**
+     * Creates a custom First Broker Login flow without user creation
+     * Used for brokered authentication where users should not be created in the gateway realm
+     */
+//    private void createBrokerNoUserCreationFlow(RealmResource realmResource) {
+//        String flowAlias = "broker-no-user-creation";
+//
+//        // Check if flow already exists
+//        boolean flowExists = realmResource.flows().getFlows().stream()
+//            .anyMatch(f -> flowAlias.equals(f.getAlias()));
+//
+//        if (flowExists) {
+//            log.info("Flow '{}' already exists, skipping creation", flowAlias);
+//            return;
+//        }
+//
+//        log.info("Creating custom First Broker Login flow: {}", flowAlias);
+//
+//        // Create empty authentication flow (no executions = no user creation)
+//        AuthenticationFlowRepresentation flow = new AuthenticationFlowRepresentation();
+//        flow.setAlias(flowAlias);
+//        flow.setDescription("First broker login without user creation (for gateway brokering)");
+//        flow.setProviderId("basic-flow");
+//        flow.setTopLevel(true);
+//        flow.setBuiltIn(false);
+//
+//        try (Response response = realmResource.flows().createFlow(flow)) {
+//            if (response.getStatus() != 201) {
+//                throw new RuntimeException("Failed to create broker flow: " + response.getStatusInfo());
+//            }
+//        }
+//
+//        log.info("Successfully created flow: {}", flowAlias);
+//    }
+
+    /**
      * Maps external IdP attributes to Keycloak attributes, and then to the Client Token.
      */
-    private void configureOidcMappers(
-            RealmResource realm,
-            String realmName,
-            String idpAlias
-    ) {
+    private void configureOidcMappers(RealmResource rr, String realmName, String idpAlias) {
+        // Assumption: The frontend client ID matches the realm name (e.g., 'magellanic')
+        // If your frontend client ID is different (e.g., 'secufusion-web'), change this variable.
+        String targetClientId = realmName;
 
-        log.info("🔧 Configuring OIDC mappers | realm={} | idp={}", realmName, idpAlias);
+        log.info("Configuring Mappers. Realm: {}, IdP: {}, TargetClient: {}", realmName, idpAlias, targetClientId);
+
         try {
-            String targetClientId = realmName;
+            IdentityProviderResource idpRes = rr.identityProviders().get(idpAlias);
 
-            IdentityProviderResource idp = realm.identityProviders().get(idpAlias);
+            // A. Import from Azure Token (IdP Mappers)
+            createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Tenant ID", "tid", "azure_tenant_id");
+            createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Roles", "roles", "azure_roles");
+            createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Groups", "groups", "azure_groups");
 
-            // ───── Import from Azure ─────
-            upsertIdpAttributeMapper(idp, idpAlias,
-                    "Import Azure Tenant ID", "tid", "azure_tenant_id");
+            // B. Export to App Token (Client Mappers)
+            ClientsResource clientsRes = rr.clients();
+            List<ClientRepresentation> foundClients = clientsRes.findByClientId(targetClientId);
 
-            upsertIdpAttributeMapper(idp, idpAlias,
-                    "Import Azure Groups", "groups", "azure_groups");
+            if (foundClients == null || foundClients.isEmpty()) {
+                log.warn("Client '{}' not found. Skipping client mappers.", targetClientId);
+                return;
+            }
 
-            upsertIdpAttributeMapper(idp, idpAlias,
-                    "Import Azure Roles", "roles", "azure_roles");
+            String internalId = foundClients.get(0).getId();
+            ClientResource clientResource = clientsRes.get(internalId);
 
-            // ───── Export to Token ─────
-            ClientResource client = resolveClientByClientId(realm, realmName);
+            // Check for existence before adding
+            List<ProtocolMapperRepresentation> currentMappers = clientResource.getProtocolMappers().getMappers();
+            Predicate<String> exists = name -> currentMappers.stream().anyMatch(m -> m.getName().equals(name));
 
-            upsertClientProtocolMapper(client,
-                    "Pass Azure Tenant ID",
-                    "azure_tenant_id",
-                    "azure_tenant_id",
-                    "String",
-                    false
-            );
-
-            upsertClientProtocolMapper(client,
-                    "Pass Azure Groups",
-                    "azure_groups",
-                    "groups",
-                    "String",
-                    true
-            );
-
-            upsertClientProtocolMapper(client,
-                    "Pass Azure Roles",
-                    "azure_roles",
-                    "roles",
-                    "String",
-                    true
-            );
-            log.info("✅ OIDC mapper configuration completed | realm={} | idp={}", realmName, idpAlias);
+            if (!exists.test("Pass Tenant ID")) {
+                createClientProtocolMapper(clientResource, "Pass Tenant ID", "azure_tenant_id", "azure_tenant_id", "String", false);
+            }
+            if (!exists.test("Pass Roles")) {
+                createClientProtocolMapper(clientResource, "Pass Roles", "azure_roles", "roles", "String", true);
+            }
+            if (!exists.test("Pass Groups")) {
+                createClientProtocolMapper(clientResource, "Pass Groups", "azure_groups", "groups", "String", true);
+            }
 
         } catch (Exception e) {
-            log.error("❌ Failed configuring OIDC mappers | realm={} | idp={}", realmName, idpAlias, e);
-            throw new IllegalStateException("OIDC mapper configuration failed for IdP: " + idpAlias, e);
+            log.error("Failed to configure mappers for {}: {}", idpAlias, e.getMessage());
         }
     }
 
-    private void upsertIdpAttributeMapper(
-            IdentityProviderResource idp,
-            String idpAlias,
-            String name,
-            String claimName,
-            String userAttribute
-    ) {
+    // --- HELPER 1: Create IdP Mapper (Import from Azure) ---
+    private void createIdpAttributeMapper(IdentityProviderResource idpRes, String alias, String name, String claimName, String userAttribute) {
         try {
-            List<IdentityProviderMapperRepresentation> existing =
-                    idp.getMappers();
-
-            Optional<IdentityProviderMapperRepresentation> found =
-                    existing.stream()
-                            .filter(m -> name.equals(m.getName()))
-                            .findFirst();
-
-            IdentityProviderMapperRepresentation mapper =
-                    found.orElseGet(IdentityProviderMapperRepresentation::new);
-
+            IdentityProviderMapperRepresentation mapper = new IdentityProviderMapperRepresentation();
             mapper.setName(name);
-            mapper.setIdentityProviderAlias(idpAlias);
+            mapper.setIdentityProviderAlias(alias);
             mapper.setIdentityProviderMapper("oidc-user-attribute-idp-mapper");
             mapper.setConfig(Map.of(
                     "claim", claimName,
                     "user.attribute", userAttribute,
                     "syncMode", "FORCE"
             ));
-
-            if (found.isPresent()) {
-                idp.update(mapper.getId(), mapper);
-                log.info("🔁 Updated IdP mapper | name={} | claim={}", name, claimName);
-            } else {
-                idp.addMapper(mapper);
-                log.info("➕ Created IdP mapper | name={} | claim={}", name, claimName);
-            }
-
+            idpRes.addMapper(mapper);
+            log.info("IdP Mapper created: {}", name);
         } catch (Exception e) {
-            log.error("❌ Failed upserting IdP mapper | name={}", name, e);
-            throw new IllegalStateException("IdP mapper upsert failed: " + name, e);
+            // Safe to ignore if exists
         }
     }
 
-
-    private void upsertClientProtocolMapper(
-            ClientResource client,
-            String name,
-            String userAttribute,
-            String tokenClaim,
-            String jsonType,
-            boolean multivalued
-    ) {
+    // --- HELPER 2: Create Client Protocol Mapper (Export to Token) ---
+// UPDATED: Accepts ClientResource instead of ClientScopeResource
+    private void createClientProtocolMapper(ClientResource clientRes, String name, String userAttribute, String tokenClaimName, String jsonType, boolean multivalued) {
         try {
-            List<ProtocolMapperRepresentation> mappers =
-                    client.getProtocolMappers().getMappers();
-
-            Optional<ProtocolMapperRepresentation> found =
-                    mappers.stream()
-                            .filter(m -> name.equals(m.getName()))
-                            .findFirst();
-
-            ProtocolMapperRepresentation mapper =
-                    found.orElseGet(ProtocolMapperRepresentation::new);
-
+            ProtocolMapperRepresentation mapper = new ProtocolMapperRepresentation();
             mapper.setName(name);
             mapper.setProtocol("openid-connect");
             mapper.setProtocolMapper("oidc-usermodel-attribute-mapper");
+
             mapper.setConfig(Map.of(
-                    "user.attribute", userAttribute,
-                    "claim.name", tokenClaim,
+                    "user.attribute", userAttribute,      // Read from Keycloak DB
+                    "claim.name", tokenClaimName,         // Write to Backend Token
                     "jsonType.label", jsonType,
                     "multivalued", String.valueOf(multivalued),
                     "id.token.claim", "true",
-                    "access.token.claim", "true",
-                    "userinfo.token.claim", "true",
-                    "introspection.token.claim", "true"
+                    "access.token.claim", "true"
             ));
 
-            if (found.isPresent()) {
-                client.getProtocolMappers()
-                        .update(mapper.getId(), mapper);
-
-                log.info("🔁 Updated client mapper | name={} | claim={}", name, tokenClaim);
-            } else {
-                client.getProtocolMappers()
-                        .createMapper(mapper);
-
-                log.info("➕ Created client mapper | name={} | claim={}", name, tokenClaim);
-            }
+            // Add mapper directly to the client
+            clientRes.getProtocolMappers().createMapper(mapper);
+            log.info("Created Dedicated Client Mapper: {}", name);
 
         } catch (Exception e) {
-            log.error("❌ Failed upserting client mapper | name={}", name, e);
-            throw new IllegalStateException("Client mapper upsert failed: " + name, e);
+            log.error("Failed to create client mapper '{}': {}", name, e.getMessage());
         }
-    }
-
-
-    private ClientResource resolveClientByClientId(
-            RealmResource realm,
-            String clientId
-    ) {
-        return realm.clients()
-                .findByClientId(clientId)
-                .stream()
-                .findFirst()
-                .map(c -> {
-                    log.debug("✔ Resolved client | clientId={} | internalId={}", clientId, c.getId());
-                    return realm.clients().get(c.getId());
-                })
-                .orElseThrow(() -> {
-                    log.error("❌ Client not found | clientId={}", clientId);
-                    return new IllegalStateException("OIDC client not found: " + clientId);
-                });
     }
 
     public void linkTenantToGatewayRealm(Tenant tenant, String gatewayRealmName) {
@@ -633,7 +591,6 @@ public class KeycloakAdminUtil {
             throw new RuntimeException("Failed to remove IdP", e);
         }
     }
-
     /**
      * Create a user. Returns created Keycloak user id or null if already exists.
      */
@@ -852,7 +809,6 @@ public class KeycloakAdminUtil {
 
     /**
      * Checks if an Identity Provider exists in a realm
-     *
      * @param realm The RealmResource to check
      * @param alias The IdP alias to check for
      * @return true if the IdP exists, false otherwise
