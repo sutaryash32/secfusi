@@ -247,7 +247,7 @@ public class KeycloakAdminUtil {
 // -------------------------------------------------------------------------
 
     public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
-        log.info("Adding identity provider '{}' to realm {} with providerId={}", dto.getAlias(), realm, dto.getProviderId());
+        log.info("Adding identity provider '{}' to realm {}", dto.getAlias(), realm);
         Response resp = null;
         try {
             RealmResource rr = keycloak.realm(realm);
@@ -266,17 +266,20 @@ public class KeycloakAdminUtil {
             config.put("clientId", dto.getClientId());
             config.put("clientSecret", dto.getClientSecret());
 
-            // --- Use URLs from DTO (populated by SsoConfigurationService) ---
-            put(config, "authorizationUrl", dto.getAuthorizationUrl());
-            put(config, "tokenUrl", dto.getTokenUrl());
-            put(config, "logoutUrl", dto.getLogoutUrl());
-            put(config, "userInfoUrl", dto.getUserInfoUrl());
-            put(config, "jwksUrl", dto.getJwksUrl());
-            put(config, "issuer", dto.getIssuer());
-            put(config, "scopes", dto.getScopes());
+            // Multi-tenant Azure configs
+            config.put("authorizationUrl", "https://login.microsoftonline.com/common/oauth2/v2.0/authorize");
+            config.put("tokenUrl", "https://login.microsoftonline.com/common/oauth2/v2.0/token");
+            config.put("logoutUrl", "https://login.microsoftonline.com/common/oauth2/v2.0/logout");
+            config.put("userInfoUrl", "https://graph.microsoft.com/oidc/userinfo");
+            config.put("jwksUrl", "https://login.microsoftonline.com/common/discovery/v2.0/keys");
 
+            // CRITICAL: Empty Issuer for Multi-tenant to avoid validation errors
+            config.put("issuer", "");
             config.put("validateSignature", "true");
             config.put("useJwksUrl", "true");
+
+            // Scopes: Ensure we ask for what we need
+            config.put("scopes", "openid email profile offline_access");
 
             idpRep.setConfig(config);
 
