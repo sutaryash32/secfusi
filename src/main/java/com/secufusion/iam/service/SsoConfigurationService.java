@@ -3,11 +3,9 @@ package com.secufusion.iam.service;
 import com.secufusion.iam.dto.CreateIdentityProviderRequest;
 import com.secufusion.iam.dto.SsoConfigurationResponse;
 import com.secufusion.iam.entity.SsoConfiguration;
-import com.secufusion.iam.entity.SsoProviderUrlConfig;
 import com.secufusion.iam.entity.Tenant;
 import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.SsoConfigurationRepository;
-import com.secufusion.iam.repository.SsoProviderUrlConfigRepository;
 import com.secufusion.iam.util.JwtUtl;
 import com.secufusion.iam.util.KeycloakAdminUtil;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,10 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 /**
  * Service responsible for managing SSO configurations for tenants.
@@ -42,7 +37,6 @@ public class SsoConfigurationService {
     private final JwtUtl jwtUtl;
     private final KeycloakAdminUtil kcUtil;
     private final SsoConfigurationRepository repository;
-    private final SsoProviderUrlConfigRepository providerUrlConfigRepository;
 
     /* ---------------- CREATE ---------------- */
     /**
@@ -61,10 +55,7 @@ public class SsoConfigurationService {
 
         log.info("Creating IdP for tenant={} alias={} providerId={}", tenantId, providerRequest.getAlias(), providerRequest.getProviderId());
 
-        // 1. Populate DTO with provider URLs from database based on providerId
-        enrichRequestWithProviderUrls(providerRequest);
-
-        // 2. Deactivate existing active configs for this tenant
+        // 1. Deactivate existing active configs for this tenant
         List<SsoConfiguration> activeConfigs = repository.findByFkTenantId(tenantId).stream().filter(c -> "ACTIVE".equalsIgnoreCase(c.getActive())).toList();
 
         if (!activeConfigs.isEmpty()) {
@@ -80,7 +71,7 @@ public class SsoConfigurationService {
             repository.saveAll(activeConfigs);
         }
 
-        // 3. Create the new Identity Provider in Keycloak
+        // 2. Create the new Identity Provider in Keycloak
         boolean kcSuccess = false;
         String redirectUrl = null;
 
@@ -92,13 +83,14 @@ public class SsoConfigurationService {
             log.error("Keycloak provider creation failed for realm={} alias={}, proceeding to persist INACTIVE record", realm, providerRequest.getAlias(), e);
         }
 
-        // 4. Persist to DB (includes the URLs from provider config)
+        // 3. Persist to DB
         SsoConfiguration cfg = mapToEntity(providerRequest, tenantId);
         cfg.setRedirectUri(redirectUrl != null ? redirectUrl : providerRequest.getRedirectUri());
         cfg.setActive(kcSuccess ? "ACTIVE" : "INACTIVE");
         SsoConfiguration saved = repository.save(cfg);
 
-        // 5. (Optional) Set as default login ONLY if requested
+        // 4. (Optional) Set as default login ONLY if requested
+        // "Don't use default IdPs" interpretation: We only force this if specifically asked.
         if (kcSuccess && Boolean.TRUE.equals(providerRequest.getSetAsDefaultLogin())) {
             try {
                 kcUtil.setAsDefaultIdentityProvider(realm, providerRequest.getAlias());
@@ -108,61 +100,6 @@ public class SsoConfigurationService {
         }
 
         return SsoConfigurationResponse.from(saved);
-    }
-
-    /**
-     * Enriches the provider request with URLs from the database based on providerId.
-     * Fetches configuration from sso_provider_url_config table and populates the DTO.
-     *
-     * @param providerRequest the request to enrich
-     */
-    private void enrichRequestWithProviderUrls(CreateIdentityProviderRequest providerRequest) {
-        String providerId = providerRequest.getProviderId();
-        if (providerId == null || providerId.isBlank()) {
-            providerId = "azure"; // Default to Azure
-        }
-
-        log.debug("Fetching URL configuration for providerId={}", providerId);
-
-        Optional<SsoProviderUrlConfig> configOpt = providerUrlConfigRepository
-                .findByProviderIdAndEnabled(providerId.toLowerCase(), true);
-
-        if (configOpt.isPresent()) {
-            SsoProviderUrlConfig config = configOpt.get();
-            log.info("Enriching request with URLs from provider config: {}", config.getDisplayName());
-
-            // Only set if not already provided in the request
-            if (providerRequest.getAuthorizationUrl() == null || providerRequest.getAuthorizationUrl().isBlank()) {
-                providerRequest.setAuthorizationUrl(config.getAuthorizationUrl());
-            }
-            if (providerRequest.getTokenUrl() == null || providerRequest.getTokenUrl().isBlank()) {
-                providerRequest.setTokenUrl(config.getTokenUrl());
-            }
-            if (providerRequest.getLogoutUrl() == null || providerRequest.getLogoutUrl().isBlank()) {
-                providerRequest.setLogoutUrl(config.getLogoutUrl());
-            }
-            if (providerRequest.getUserInfoUrl() == null || providerRequest.getUserInfoUrl().isBlank()) {
-                providerRequest.setUserInfoUrl(config.getUserInfoUrl());
-            }
-            if (providerRequest.getJwksUrl() == null || providerRequest.getJwksUrl().isBlank()) {
-                providerRequest.setJwksUrl(config.getJwksUrl());
-            }
-            if (providerRequest.getIssuer() == null) {
-                providerRequest.setIssuer(config.getIssuer() != null ? config.getIssuer() : "");
-            }
-            if (providerRequest.getScopes() == null || providerRequest.getScopes().isBlank()) {
-                providerRequest.setScopes(config.getDefaultScopes() != null ? config.getDefaultScopes() : "openid email profile");
-            }
-        } else {
-            log.warn("No provider URL config found for providerId={}, using request values or defaults", providerId);
-            // Set defaults if not provided
-            if (providerRequest.getScopes() == null || providerRequest.getScopes().isBlank()) {
-                providerRequest.setScopes("openid email profile");
-            }
-            if (providerRequest.getIssuer() == null) {
-                providerRequest.setIssuer("");
-            }
-        }
     }
 
 
@@ -381,9 +318,6 @@ public class SsoConfigurationService {
         cfg.setTokenUrl(dto.getTokenUrl());
         cfg.setUserInfoUrl(dto.getUserInfoUrl());
         cfg.setIssuer(dto.getIssuer());
-        cfg.setLogoutUrl(dto.getLogoutUrl());
-        cfg.setJwksUrl(dto.getJwksUrl());
-        cfg.setScopes(dto.getScopes());
         cfg.setFkTenantId(tenantId);
         cfg.setSetAsDefaultLogin(Boolean.TRUE.equals(dto.getSetAsDefaultLogin()));
         return cfg;

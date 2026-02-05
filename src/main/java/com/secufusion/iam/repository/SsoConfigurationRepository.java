@@ -21,4 +21,6 @@ public interface SsoConfigurationRepository extends JpaRepository<SsoConfigurati
 
     Optional<SsoConfiguration> findByFkTenantId(
             String fkTenantId);
+
+    boolean existsByFkTenantIdAndActive(String tenantID, String active);
 }

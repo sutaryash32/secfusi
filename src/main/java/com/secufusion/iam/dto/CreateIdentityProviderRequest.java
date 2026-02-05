@@ -28,5 +28,5 @@ public class CreateIdentityProviderRequest {
 
     // Optional redirects
     private String redirectUri;
-    private Boolean setAsDefaultLogin = false;
+    private Boolean setAsDefaultLogin = true;
 }
