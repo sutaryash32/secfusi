@@ -1,26 +1,21 @@
 package com.secufusion.iam.service;
 
-import com.azure.core.exception.AzureException;
 import com.azure.identity.ClientSecretCredential;
 import com.azure.identity.ClientSecretCredentialBuilder;
 import com.microsoft.graph.core.tasks.PageIterator;
 import com.microsoft.graph.models.Group;
+import com.microsoft.graph.models.GroupCollectionResponse;
 import com.microsoft.graph.models.ServicePrincipal;
 import com.microsoft.graph.models.ServicePrincipalCollectionResponse;
-import com.microsoft.graph.models.GroupCollectionResponse;
 import com.microsoft.graph.serviceclient.GraphServiceClient;
 import com.secufusion.iam.dto.AzureResourceDto;
 import com.secufusion.iam.entity.SsoConfiguration;
 import com.secufusion.iam.entity.Tenant;
-import com.secufusion.iam.exception.BadRequestException;
-import com.secufusion.iam.exception.ExternalServiceException;
-import com.secufusion.iam.exception.ResourceNotFoundException;
-import com.secufusion.iam.exception.ValidationException;
+import com.secufusion.iam.exception.*;
 import com.secufusion.iam.repository.SsoConfigurationRepository;
-import com.secufusion.iam.util.ResponseCodes;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataAccessException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -35,122 +30,47 @@ public class AzureGraphService {
 
     private final SsoConfigurationRepository ssoRepository;
 
-    /**
-     * Helper to get authenticated Graph Client using Tenant's stored config.
-     */
-    private GraphServiceClient getGraphClientForTenant(Tenant tenant) {
-        // Validate tenant input
-        if (tenant == null || tenant.getTenantID() == null) {
-            log.error("Tenant or Tenant ID is null");
-            throw new BadRequestException("Tenant cannot be null");
-        }
-
-        try {
-            log.debug("Fetching Azure SSO configuration for tenant: {}", tenant.getTenantID());
-
-            // 1. Fetch the ACTIVE Azure configuration for this tenant
-            SsoConfiguration config = ssoRepository.findByFkTenantId(tenant.getTenantID())
-                    .stream()
-                    .filter(c -> "ACTIVE".equalsIgnoreCase(c.getActive()))
-                    .findFirst()
-                    .orElseThrow(() -> new ResourceNotFoundException(
-                            "No active Azure SSO configuration found for tenant: " + tenant.getTenantID(),
-                            ResponseCodes.AUTH_PROVIDER_CONFIG_MISSING));
-
-            // 2. Validate credentials
-            if (config.getClientId() == null || config.getClientId().isBlank()) {
-                log.error("ClientID is missing in SSO configuration for tenant: {}", tenant.getTenantID());
-                throw new ValidationException("Azure SSO ClientID is required but missing");
-            }
-            if (config.getClientSecret() == null || config.getClientSecret().isBlank()) {
-                log.error("ClientSecret is missing in SSO configuration for tenant: {}", tenant.getTenantID());
-                throw new ValidationException("Azure SSO ClientSecret is required but missing");
-            }
-            if (config.getTenantId() == null || config.getTenantId().isBlank()) {
-                log.error("Azure TenantId is missing in SSO configuration for tenant: {}", tenant.getTenantID());
-                throw new ValidationException("Azure TenantId is required but missing");
-            }
-
-            log.debug("Building Azure credentials for tenant: {} with clientId: {}", tenant.getTenantID(), config.getClientId());
-
-            // 3. Build Azure Credential
-            ClientSecretCredential credential = new ClientSecretCredentialBuilder()
-                    .clientId(config.getClientId())
-                    .clientSecret(config.getClientSecret())
-                    .tenantId(config.getTenantId())
-                    .build();
-
-            // 4. Return Graph Client (SDK v6)
-            return new GraphServiceClient(credential, "https://graph.microsoft.com/.default");
-
-        } catch (ResourceNotFoundException | ValidationException | BadRequestException e) {
-            // Re-throw our custom exceptions
-            throw e;
-        } catch (DataAccessException e) {
-            log.error("Database error while fetching SSO configuration for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
-            throw new ExternalServiceException("Failed to retrieve SSO configuration from database", e);
-        } catch (AzureException e) {
-            log.error("Azure authentication error for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
-            throw new ExternalServiceException("Failed to authenticate with Azure AD: " + e.getMessage(), e);
-        } catch (Exception e) {
-            log.error("Unexpected error creating Graph Client for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
-            throw new ExternalServiceException("Failed to initialize Azure Graph Client: " + e.getMessage(), e);
-        }
-    }
-
+    @Value("${secufusion.azure.client-id}")
+    private String configClientId;
+    @Value("${secufusion.azure.client-secret}")
+    private String configClientSecret;
     /**
      * Fetch App Roles defined in the Azure App Registration
      */
-    public List<AzureResourceDto> getApplicationRoles(Tenant tenant) {
+    public List<AzureResourceDto> getApplicationRoles(String azureTenantId, Tenant tenant) {
         // Validate tenant input
         if (tenant == null || tenant.getTenantID() == null) {
             log.error("Tenant or Tenant ID is null");
             throw new BadRequestException("Tenant cannot be null");
         }
+        validateAzureAccess(tenant, azureTenantId);
 
         try {
-            log.info("Fetching Azure App Roles for tenant: {}", tenant.getTenantID());
+            GraphServiceClient graphClient = getGraphClientByAzureTenantId(azureTenantId);
 
-            GraphServiceClient graphClient = getGraphClientForTenant(tenant);
-
-            // Fetch config again to get the Client ID
             SsoConfiguration config = ssoRepository.findByFkTenantId(tenant.getTenantID())
                     .stream()
                     .filter(c -> "ACTIVE".equalsIgnoreCase(c.getActive()))
                     .findFirst()
-                    .orElseThrow(() -> new ResourceNotFoundException(
-                            "No active SSO configuration found for tenant: " + tenant.getTenantID(),
-                            ResponseCodes.AUTH_PROVIDER_CONFIG_MISSING));
+                    .orElseThrow(() -> new ResourceNotFoundException("No active Azure config"));
 
-            if (config.getClientId() == null || config.getClientId().isBlank()) {
-                log.error("Client ID is missing in SSO configuration");
-                throw new ValidationException("Client ID is missing in SSO configuration");
-            }
-
-            log.debug("Querying service principal for Client ID: {}", config.getClientId());
-
-            // Query for service principal by appId
+            // v6 Syntax: requestConfiguration lambda
             ServicePrincipalCollectionResponse response = graphClient.servicePrincipals().get(requestConfiguration -> {
                 requestConfiguration.queryParameters.filter = "appId eq '" + config.getClientId() + "'";
                 requestConfiguration.queryParameters.select = new String[]{"id", "appRoles"};
             });
 
             if (response == null || response.getValue() == null || response.getValue().isEmpty()) {
-                log.warn("Service Principal not found for Client ID: {}. Please ensure the app is registered in Azure AD.",
-                        config.getClientId());
                 return Collections.emptyList();
             }
 
             ServicePrincipal sp = response.getValue().get(0);
 
-            if (sp.getAppRoles() == null || sp.getAppRoles().isEmpty()) {
-                log.info("No app roles defined for Service Principal with Client ID: {}", config.getClientId());
-                return Collections.emptyList();
-            }
+            // v6 uses Getters instead of direct field access
+            if (sp.getAppRoles() == null) return Collections.emptyList();
 
-            List<AzureResourceDto> roles = sp.getAppRoles().stream()
+            return sp.getAppRoles().stream()
                     .filter(role -> role != null && Boolean.TRUE.equals(role.getIsEnabled()))
-                    .filter(role -> role.getId() != null && role.getDisplayName() != null)
                     .map(role -> new AzureResourceDto(
                             role.getId().toString(),
                             role.getDisplayName(),
@@ -159,93 +79,108 @@ public class AzureGraphService {
                     ))
                     .collect(Collectors.toList());
 
-            log.info("Successfully fetched {} app roles for tenant: {}", roles.size(), tenant.getTenantID());
-            return roles;
-
-        } catch (ResourceNotFoundException | ValidationException | BadRequestException e) {
-            // Re-throw our custom exceptions
-            throw e;
-        } catch (DataAccessException e) {
-            log.error("Database error while fetching app roles for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
-            throw new ExternalServiceException("Failed to retrieve SSO configuration from database", e);
-        } catch (AzureException e) {
-            log.error("Azure AD error while fetching app roles for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
-            throw new ExternalServiceException("Failed to communicate with Azure AD: " + e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error fetching App Roles for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
-            throw new ExternalServiceException("Error communicating with Azure AD: " + e.getMessage(), e);
+            log.error("v6 fetch roles failed: {}", e.getMessage());
+            throw new ExternalServiceException("Azure AD Error", e);
         }
     }
 
     /**
      * Fetch Security Groups from the Azure Tenant (Searchable)
      */
-    public List<AzureResourceDto> searchTenantGroups(Tenant tenant, String searchTerm) {
+    public List<AzureResourceDto> searchTenantGroups(
+            Tenant tenant,
+            String searchTerm,
+            String azureTenantId) {
+
         if (tenant == null || tenant.getTenantID() == null) {
-            log.error("Tenant or Tenant ID is null");
             throw new BadRequestException("Tenant cannot be null");
         }
 
+        validateAzureAccess(tenant, azureTenantId);
+
         try {
-            log.info("Searching Azure security groups for tenant: {} with search term: '{}'",
-                    tenant.getTenantID(), searchTerm != null ? searchTerm : "ALL");
+            GraphServiceClient graphClient = getGraphClientByAzureTenantId(azureTenantId);
 
-            GraphServiceClient graphClient = getGraphClientForTenant(tenant);
-            GroupCollectionResponse response;
+            GroupCollectionResponse response = graphClient.groups().get(requestConfiguration -> {
+                requestConfiguration.queryParameters.select = new String[]{"id", "displayName"};
+                requestConfiguration.queryParameters.top = 999;
 
-            if (searchTerm != null && !searchTerm.isBlank()) {
-                String sanitizedSearchTerm = searchTerm.replace("'", "''");
-
-                response = graphClient.groups().get(requestConfiguration -> {
-                    requestConfiguration.queryParameters.filter = "startswith(displayName, '" + sanitizedSearchTerm + "')";
-                    requestConfiguration.queryParameters.select = new String[]{"id", "displayName"};
-                    requestConfiguration.queryParameters.top = 999;
+                if (searchTerm != null && !searchTerm.isBlank()) {
+                    String safe = searchTerm.replace("'", "''");
+                    requestConfiguration.queryParameters.filter = "startswith(displayName,'" + safe + "')";
+                    // Advanced search requires ConsistencyLevel: eventual
                     requestConfiguration.headers.add("ConsistencyLevel", "eventual");
-                });
-            } else {
-                response = graphClient.groups().get(requestConfiguration -> {
-                    requestConfiguration.queryParameters.select = new String[]{"id", "displayName"};
-                    requestConfiguration.queryParameters.top = 999;
-                });
-            }
+                }
+            });
 
-            if (response == null || response.getValue() == null) {
-                log.info("No groups found for tenant: {} (Response value was null)", tenant.getTenantID());
-                return Collections.emptyList();
-            }
-
-            List<AzureResourceDto> allGroups = new ArrayList<>();
+            List<AzureResourceDto> groups = new ArrayList<>();
 
             PageIterator<Group, GroupCollectionResponse> iterator = new PageIterator.Builder<Group, GroupCollectionResponse>()
                     .client(graphClient)
                     .collectionPage(response)
                     .collectionPageFactory(GroupCollectionResponse::createFromDiscriminatorValue)
                     .processPageItemCallback(group -> {
-                        if (group.getId() != null && group.getDisplayName() != null) {
-                            allGroups.add(new AzureResourceDto(
-                                    group.getId(),
-                                    group.getDisplayName(),
-                                    group.getId(),
-                                    "GROUP"
-                            ));
-                        }
+                        groups.add(new AzureResourceDto(group.getId(), group.getDisplayName(), group.getId(), "GROUP"));
                         return true;
                     })
                     .build();
 
             iterator.iterate();
+            return groups;
 
-            log.info("Successfully fetched {} groups for tenant: {}", allGroups.size(), tenant.getTenantID());
-            return allGroups;
-
-        } catch (BadRequestException e) {
-            throw e;
-        } catch (DataAccessException e) {
-            log.error("Database error while searching groups for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
-            throw new ExternalServiceException("Failed to retrieve SSO configuration", e);
         } catch (Exception e) {
-            log.error("Azure AD error searching Groups for tenant {}: {}", tenant.getTenantID(), e.getMessage(), e);
-            throw new ExternalServiceException("Error communicating with Azure AD: " + e.getMessage(), e);
+            throw new ExternalServiceException("Failed to fetch groups", e);
         }
     }
+
+
+    private GraphServiceClient getGraphClientByAzureTenantId(String azureTenantId) {
+
+        // TODO: idp specific config lookup needed here
+//        SsoConfiguration config = ssoRepository.findActiveAzureConfig()
+//                .orElseThrow(() -> new ResourceNotFoundException("SSO config missing", "404"));
+
+        ClientSecretCredential credential = new ClientSecretCredentialBuilder()
+                .tenantId(azureTenantId)
+                .clientId(configClientId)
+                .clientSecret(configClientSecret)
+                .build();
+
+        return new GraphServiceClient(credential, "https://graph.microsoft.com/.default");
+    }
+
+    private void validateAzureAccess(Tenant tenant, String azureTenantId) {
+
+        if (tenant == null || tenant.getTenantID() == null) {
+            log.info("Tenant or Tenant ID is null during Azure access validation for accessing groups/roles");
+            throw new BadRequestException("Tenant cannot be null");
+        }
+
+        // Tenant not Azure-enabled → no Graph calls
+        if (tenant.getAzureTenantId() == null || tenant.getAzureTenantId().isBlank()) {
+            log.info("Tenant '{}' is not Azure-enabled", tenant.getTenantName());
+            throw new AccessDeniedException("Tenant is not Azure-enabled");
+        }
+
+        // Token missing Azure tenant
+        if (azureTenantId == null || azureTenantId.isBlank()) {
+            log.info("Tenant '{}' is not Azure-enabled", tenant.getTenantName());
+            throw new AccessDeniedException("Azure tenant ID missing in token");
+        }
+
+        // Token ↔ DB mismatch
+        if (!tenant.getAzureTenantId().equalsIgnoreCase(azureTenantId)) {
+            log.error(
+                    "Azure tenant mismatch. DB='{}' TOKEN='{}' tenant='{}'",
+                    tenant.getAzureTenantId(),
+                    azureTenantId,
+                    tenant.getTenantName()
+            );
+            throw new AccessDeniedException("Azure tenant mismatch");
+        }
+    }
+
+
+
 }

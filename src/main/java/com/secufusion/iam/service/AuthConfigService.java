@@ -5,6 +5,7 @@ import com.secufusion.iam.dto.DeviceInfoRequest;
 import com.secufusion.iam.dto.LoginResponseDto;
 import com.secufusion.iam.dto.SsoLoginResponseDto;
 import com.secufusion.iam.entity.*;
+import com.secufusion.iam.exception.AccessDeniedException;
 import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.AuthProviderConfigRepository;
 import com.secufusion.iam.repository.SsoConfigurationRepository;
@@ -226,6 +227,55 @@ public class AuthConfigService {
                         userFromRequest.getTenant().getTenantName(),
                         userFromRequest.getPkUserId());
                 throw new ResourceNotFoundException("Tenant mismatch between request and token");
+            }
+            String azureTenantId = jwtUtil.getAzureTenantIdFromToken(token);
+
+            if (azureTenantId != null && !azureTenantId.isBlank()) {
+
+                if (!userFromRequest.isDefaultUser() && tenantFromRequest.getAzureTenantId() == null) {
+
+                    log.warn(
+                            "Normal user '{}' attempted login before tenant '{}' was initialized by default user",
+                            userFromRequest.getUserName(),
+                            tenantFromRequest.getTenantID()
+                    );
+
+                    throw new AccessDeniedException(
+                            "Tenant is not initialized. Please ask the tenant administrator to log in first."
+                    );
+                }
+
+                // ✅ FIRST LOGIN — default user bootstraps tenant
+                if (userFromRequest.isDefaultUser() && tenantFromRequest.getAzureTenantId() == null) {
+
+                    log.info(
+                            "Binding Azure tenantId '{}' to tenant '{}' (default user bootstrap login)",
+                            azureTenantId,
+                            tenantFromRequest.getTenantID()
+                    );
+
+                    tenantFromRequest.setAzureTenantId(azureTenantId);
+                    tenantRepository.save(tenantFromRequest);
+                } else if (tenantFromRequest.getAzureTenantId() != null &&
+                        !tenantFromRequest.getAzureTenantId().equalsIgnoreCase(azureTenantId)) {
+
+                    log.error(
+                            "Azure tenant mismatch. DB='{}' TOKEN='{}' tenant='{}'",
+                            tenantFromRequest.getAzureTenantId(),
+                            azureTenantId,
+                            tenantFromRequest.getTenantID()
+                    );
+
+                    throw new AccessDeniedException(
+                            "IDP mismatch – access denied"
+                    );
+                }
+            }else {
+                // Non-Azure / other IDP login
+                log.debug(
+                        "Login without Azure tenantId for tenant '{}'. Skipping Azure validation.",
+                        tenantFromRequest.getTenantID()
+                );
             }
 
             // Map user to response DTO
@@ -509,112 +559,102 @@ public class AuthConfigService {
      * @throws ResourceNotFoundException when SSO configuration is not found or disabled
      */
     public SsoLoginResponseDto ssoLogin(HttpServletRequest request, String token) {
+
         log.info("ssoLogin - start");
 
         try {
             if (request == null) {
                 log.error("ssoLogin: HttpServletRequest is null");
-                throw new ResourceNotFoundException("Invalid request");
+                return unauthorized("Invalid request");
             }
 
             // Validate token against request header
-            log.debug("ssoLogin: Validating request token");
             if (!jwtUtil.validateRequestToken(request, token)) {
-                log.warn("ssoLogin: Token validation failed for request from {}", request.getRemoteAddr());
-                throw new ResourceNotFoundException("Invalid or missing token");
+                log.warn("ssoLogin: Token validation failed");
+                return unauthorized("Invalid or missing token");
             }
-            log.info("ssoLogin: Token validated successfully");
 
             // Extract Azure tenant ID from token
             String azureTenantId = jwtUtil.getAzureTenantIdFromToken(token);
             if (azureTenantId == null || azureTenantId.isBlank()) {
-                log.warn("ssoLogin: azure_tenant_id claim is missing or empty in token");
-                return SsoLoginResponseDto.builder()
-                        .authorized(false)
-                        .message("Unauthorized - Azure tenant ID not found in token")
-                        .build();
+                log.warn("ssoLogin: azure_tenant_id missing in token");
+                return unauthorized("Unauthorized - Azure tenant ID missing");
             }
-            log.info("ssoLogin: Extracted azure_tenant_id={}", azureTenantId);
 
-            // Look up Tenant by azureTenantId
-            Optional<Tenant> tenantOpt = tenantRepository.findByAzureTenantId(azureTenantId);
+            // Resolve tenant strictly by azureTenantId
+            Optional<Tenant> tenantOpt =
+                    tenantRepository.findByAzureTenantId(azureTenantId);
+
             if (tenantOpt.isEmpty()) {
-                log.warn("ssoLogin: No tenant found for azure_tenant_id={}", azureTenantId);
-                return SsoLoginResponseDto.builder()
-                        .authorized(false)
-                        .message("Unauthorized - Tenant not registered")
-                        .build();
+                log.warn("ssoLogin: No tenant mapped to azureTenantId={}", azureTenantId);
+                return unauthorized("Unauthorized - Tenant not registered");
             }
 
             Tenant tenant = tenantOpt.get();
-            log.debug("ssoLogin: Found tenant id={} name={}", tenant.getTenantID(), tenant.getTenantName());
+
+            // 🔐 FINAL tenant mismatch guard (defensive)
+            if (tenant.getAzureTenantId() == null ||
+                    !tenant.getAzureTenantId().equalsIgnoreCase(azureTenantId)) {
+
+                log.error(
+                        "ssoLogin: Azure tenant mismatch. DB='{}' TOKEN='{}'",
+                        tenant.getAzureTenantId(),
+                        azureTenantId
+                );
+
+                return unauthorized("Unauthorized - Tenant mismatch");
+            }
 
             // Extract claims for response
             String username = jwtUtil.getUsername(request);
             String preferredUsername = jwtUtil.getPreferredUsernameFromRequest(request);
-            String tenantName = tenant.getTenantName();
+
             String alias = null;
 
-            // Check if tenant has azureTenantId set directly - if so, SSO config is optional
-            if (tenant.getAzureTenantId() != null && !tenant.getAzureTenantId().isBlank()) {
-                log.info("ssoLogin: Tenant has azureTenantId set directly, SSO configuration check is optional");
+            // SSO config OPTIONAL if tenant is Azure-bound
+            Optional<SsoConfiguration> ssoConfigOpt =
+                    ssoConfigurationRepository.findByFkTenantIdAndActive(
+                            tenant.getTenantID(), "ACTIVE");
 
-                // Try to get SSO config for alias if available, but don't require it
-                Optional<SsoConfiguration> ssoConfigOpt = ssoConfigurationRepository.findByFkTenantIdAndActive(tenant.getTenantID(), "ACTIVE");
-                if (ssoConfigOpt.isPresent() && Boolean.TRUE.equals(ssoConfigOpt.get().getEnabled())) {
-                    alias = ssoConfigOpt.get().getAlias();
-                    log.debug("ssoLogin: Found optional SSO configuration with alias={}", alias);
-                }
-            } else {
-                // Tenant doesn't have azureTenantId set directly, SSO configuration is required
-                log.debug("ssoLogin: Tenant does not have azureTenantId set, checking SSO configuration");
-
-                Optional<SsoConfiguration> ssoConfigOpt = ssoConfigurationRepository.findByFkTenantIdAndActive(tenant.getTenantID(), "ACTIVE");
-                if (ssoConfigOpt.isEmpty()) {
-                    log.warn("ssoLogin: No active SSO configuration found for tenant_id={}", tenant.getTenantID());
-                    return SsoLoginResponseDto.builder()
-                            .authorized(false)
-                            .message("Unauthorized - SSO not configured for this tenant")
-                            .build();
-                }
-
+            if (ssoConfigOpt.isPresent()) {
                 SsoConfiguration ssoConfig = ssoConfigOpt.get();
-                log.debug("ssoLogin: Found SSO configuration id={} alias={}", ssoConfig.getId(), ssoConfig.getAlias());
 
-                // Check if SSO is enabled
-                if (ssoConfig.getEnabled() == null || !ssoConfig.getEnabled()) {
-                    log.warn("ssoLogin: SSO is disabled for configuration id={}", ssoConfig.getId());
-                    return SsoLoginResponseDto.builder()
-                            .authorized(false)
-                            .message("Unauthorized - SSO is not enabled for this tenant")
-                            .build();
+                if (Boolean.TRUE.equals(ssoConfig.getEnabled())) {
+                    alias = ssoConfig.getAlias();
+                } else {
+                    log.warn("ssoLogin: SSO disabled for tenant={}", tenant.getTenantID());
+                    return unauthorized("Unauthorized - SSO disabled for tenant");
                 }
-
-                alias = ssoConfig.getAlias();
             }
 
-            // Build successful response
-            SsoLoginResponseDto response = SsoLoginResponseDto.builder()
+            // ✅ SUCCESS
+            log.info(
+                    "ssoLogin: Success for tenant='{}' user='{}'",
+                    tenant.getTenantName(),
+                    preferredUsername
+            );
+
+            return SsoLoginResponseDto.builder()
                     .authorized(true)
                     .message("SSO authentication successful")
                     .username(username)
                     .preferredUsername(preferredUsername)
-                    .tenantName(tenantName)
+                    .tenantName(tenant.getTenantName())
                     .alias(alias)
                     .build();
 
-            log.info("ssoLogin: Completed successfully for azure_tenant_id={}, user={}",
-                    azureTenantId, preferredUsername);
-
-            return response;
-
-        } catch (ResourceNotFoundException rnfe) {
-            log.warn("ssoLogin: Resource not found - {}", rnfe.getMessage());
-            throw rnfe;
         } catch (Exception e) {
-            log.error("ssoLogin: Unexpected error - {}", e.getMessage(), e);
-            throw e;
+            log.error("ssoLogin: Unexpected error", e);
+            return unauthorized("Unauthorized");
         }
     }
+
+    private SsoLoginResponseDto unauthorized(String message) {
+        return SsoLoginResponseDto.builder()
+                .authorized(false)
+                .message(message)
+                .build();
+    }
+
 
 }

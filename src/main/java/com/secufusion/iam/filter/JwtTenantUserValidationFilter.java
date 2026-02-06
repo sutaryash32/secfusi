@@ -160,7 +160,7 @@ public class JwtTenantUserValidationFilter extends OncePerRequestFilter {
             // ============================================================
             log.debug("Building LoggedInUserDetailsBean for user '{}' tenant '{}'", email, tenantId);
             LoggedInUserDetailsBean loggedInUser =
-                    LoggedInUserDetailsBean.from(user, tenant, effectiveScopes, rawScopes);
+                    LoggedInUserDetailsBean.from(user, tenant, effectiveScopes, rawScopes, authHeader.substring(7));
 
             // set attribute for downstream handlers/controllers
             request.setAttribute("loggedInUser", loggedInUser);
