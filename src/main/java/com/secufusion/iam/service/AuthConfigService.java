@@ -15,6 +15,7 @@ import com.secufusion.iam.util.JwtUtl;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,9 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 public class AuthConfigService {
+
+    @Value("${azure.mismatch.validation:FALSE}")
+    private Boolean azureMismatchValidationMode;
 
     @Autowired
     private TenantRepository tenantRepository;
@@ -278,6 +282,10 @@ public class AuthConfigService {
                 );
             }
 
+            if (azureMismatchValidationMode){
+                applyAzureTenantToggleValidation(tenantFromRequest, userFromRequest, azureTenantId);
+            }
+
             // Map user to response DTO
             LoginResponseDto response = new LoginResponseDto();
             response.setUserId(userFromRequest.getPkUserId());
@@ -412,6 +420,35 @@ public class AuthConfigService {
             logLoginFailureEvent(request, null, e.getMessage(), "UNEXPECTED_ERROR");
             log.error("Unexpected error in login: {}", e.getMessage(), e);
             throw e;
+        }
+    }
+
+    private void applyAzureTenantToggleValidation(
+            Tenant tenant,
+            User user,
+            String tokenAzureTenantId) {
+
+        // No Azure in token → nothing to validate
+        if (tokenAzureTenantId == null || tokenAzureTenantId.isBlank()) {
+            return;
+        }
+
+        // Tenant not Azure-enabled → skip
+        if (tenant.getAzureTenantId() == null || tenant.getAzureTenantId().isBlank()) {
+            return;
+        }
+
+        // 🔒 STRICT MODE ENFORCEMENT
+        if (!tenant.getAzureTenantId().equalsIgnoreCase(tokenAzureTenantId)) {
+
+            log.error(
+                    "Strict Azure tenant validation failed. user='{}' dbTenant='{}' tokenTenant='{}'",
+                    user.getUserName(),
+                    tenant.getAzureTenantId(),
+                    tokenAzureTenantId
+            );
+
+            throw new AccessDeniedException("Azure tenant mismatch");
         }
     }
 
