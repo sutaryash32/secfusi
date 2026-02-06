@@ -30,12 +30,14 @@ public class LoggedInUserDetailsBean {
     private Set<String> scopes;       // allowed scopes
     private Set<String> unfilteredScopes;
     private Map<String, Map<String, Set<String>>> permissionMatrix;
+    private String authToken;
 
     public static LoggedInUserDetailsBean from(
             User user,
             Tenant tenant,
             Set<String> finalScopes,
-            Set<String> rawScopes
+            Set<String> rawScopes,
+            String authToken
     ) {
 
         LoggedInUserDetailsBean bean = new LoggedInUserDetailsBean();
@@ -111,6 +113,7 @@ public class LoggedInUserDetailsBean {
                         ));
 
         bean.setPermissionMatrix(permissionMatrix);
+        bean.setAuthToken(authToken);
 
         return bean;
     }

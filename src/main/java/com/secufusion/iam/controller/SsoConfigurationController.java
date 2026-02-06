@@ -1,8 +1,6 @@
 package com.secufusion.iam.controller;
 
-import com.secufusion.iam.dto.AzureResourceDto;
-import com.secufusion.iam.dto.CreateIdentityProviderRequest;
-import com.secufusion.iam.dto.SsoConfigurationResponse;
+import com.secufusion.iam.dto.*;
 import com.secufusion.iam.entity.SsoConfiguration;
 import com.secufusion.iam.entity.Tenant;
 import com.secufusion.iam.service.AzureGraphService;
@@ -24,7 +22,7 @@ import java.util.List;
  * REST controller that manages SSO configurations (identity providers) for a tenant.
  *
  * <p>Exposes CRUD operations and activation for SSO provider configurations.</p>
- *
+ * <p>
  * Note: methods include logging to help trace requests and simple OpenAPI/Swagger
  * annotations for generated API documentation.
  */
@@ -41,6 +39,7 @@ public class SsoConfigurationController {
     private final JwtUtl jwtUtl;
 
     // CREATE
+
     /**
      * Create a new identity provider configuration for the current tenant.
      *
@@ -69,6 +68,7 @@ public class SsoConfigurationController {
     }
 
     // READ - All
+
     /**
      * Retrieve all SSO configurations for the current tenant.
      *
@@ -85,6 +85,7 @@ public class SsoConfigurationController {
     }
 
     // READ - By ID
+
     /**
      * Retrieve a single SSO configuration by id.
      *
@@ -105,6 +106,7 @@ public class SsoConfigurationController {
     }
 
     // UPDATE
+
     /**
      * Update an existing SSO configuration.
      *
@@ -127,6 +129,7 @@ public class SsoConfigurationController {
     }
 
     // DELETE
+
     /**
      * Delete an SSO configuration.
      *
@@ -147,6 +150,7 @@ public class SsoConfigurationController {
     }
 
     // ACTIVATE / DEACTIVATE
+
     /**
      * Activate an SSO configuration (mark as active).
      *
@@ -172,17 +176,41 @@ public class SsoConfigurationController {
      * * URL: GET /api/v1/sso/azure/roles
      */
     @GetMapping("/roles")
-    public ResponseEntity<List<AzureResourceDto>> getAvailableAppRoles(HttpServletRequest request) {
-        // 1. Identify the Tenant from the JWT token
-        Tenant tenant = jwtUtl.getTenantFromRequest(request);
+    public ResponseEntity<ResponseDto<List<AzureResourceDto>>> getAvailableAppRoles(
+            HttpServletRequest request) {
 
-        log.info("Request to fetch Azure App Roles for Tenant ID: {}", tenant.getTenantID());
+        ResponseDto<List<AzureResourceDto>> response = new ResponseDto<>();
 
-        // 2. Call the service to get roles for this tenant's configured Azure App
-        List<AzureResourceDto> roles = azureGraphService.getApplicationRoles(tenant);
+        try {
+            LoggedInUserDetailsBean user =
+                    (LoggedInUserDetailsBean) request.getAttribute("loggedInUser");
 
-        return ResponseEntity.ok(roles);
+            String authToken = user.getAuthToken();
+            Tenant tenant = jwtUtl.getTenantFromRequest(request);
+            String azureTenantId = jwtUtl.getAzureTenantIdFromToken(authToken);
+
+            log.info("Request to fetch Azure App Roles for Tenant ID: {}",
+                    tenant.getTenantID());
+
+            List<AzureResourceDto> roles =
+                    azureGraphService.getApplicationRoles(
+                            azureTenantId, tenant);
+
+            response.setResults(roles);
+            response.setErrorMessage(null);
+            response.setErrorCode(null);
+
+        } catch (Exception ex) {
+            log.error("Error while fetching Azure roles", ex);
+
+            response.setResults(null);
+            response.setErrorMessage(ex.getMessage());
+            response.setErrorCode(null);
+        }
+
+        return ResponseEntity.ok(response);
     }
+
 
     /**
      * Endpoint to search "Security Groups" in the Azure Tenant.
@@ -190,19 +218,40 @@ public class SsoConfigurationController {
      * * URL: GET /api/v1/sso/azure/groups?search=HR
      */
     @GetMapping("/groups")
-    public ResponseEntity<List<AzureResourceDto>> searchGroups(
+    public ResponseEntity<ResponseDto<List<AzureResourceDto>>> searchGroups(
             HttpServletRequest request,
             @RequestParam(required = false) String search) {
 
-        // 1. Identify the Tenant from the JWT token
-        Tenant tenant = jwtUtl.getTenantFromRequest(request);
+        ResponseDto<List<AzureResourceDto>> response = new ResponseDto<>();
 
-        log.info("Request to search Azure Groups for Tenant ID: {} with term: '{}'",
-                tenant.getTenantID(), search);
+        try {
+            LoggedInUserDetailsBean user =
+                    (LoggedInUserDetailsBean) request.getAttribute("loggedInUser");
 
-        // 2. Call the service to search groups in this tenant's Azure AD
-        List<AzureResourceDto> groups = azureGraphService.searchTenantGroups(tenant, search);
+            String authToken = user.getAuthToken();
+            Tenant tenant = jwtUtl.getTenantFromRequest(request);
+            String azureTenantId = jwtUtl.getAzureTenantIdFromToken(authToken);
 
-        return ResponseEntity.ok(groups);
+            log.info("Request to search Azure Groups for Tenant ID: {} with term: '{}'",
+                    tenant.getTenantID(), search);
+
+            List<AzureResourceDto> groups =
+                    azureGraphService.searchTenantGroups(
+                            tenant, search, azureTenantId);
+
+            response.setResults(groups);
+            response.setErrorMessage(null);
+            response.setErrorCode(null);
+
+        } catch (Exception ex) {
+            log.error("Error while fetching Azure groups", ex);
+
+            response.setResults(null);
+            response.setErrorMessage(ex.getMessage());
+            response.setErrorCode(null);
+        }
+
+        return ResponseEntity.ok(response);
     }
+
 }
