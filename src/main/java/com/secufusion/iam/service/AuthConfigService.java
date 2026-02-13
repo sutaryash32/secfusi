@@ -234,52 +234,54 @@ public class AuthConfigService {
             }
             String azureTenantId = jwtUtil.getAzureTenantIdFromToken(token);
 
-            if (azureTenantId != null && !azureTenantId.isBlank()) {
+            if(azureMismatchValidationMode) {
+                if (azureTenantId != null && !azureTenantId.isBlank()) {
 
-                if (!userFromRequest.isDefaultUser() && tenantFromRequest.getAzureTenantId() == null) {
+                    if (!userFromRequest.isDefaultUser() && tenantFromRequest.getAzureTenantId() == null) {
 
-                    log.warn(
-                            "Normal user '{}' attempted login before tenant '{}' was initialized by default user",
-                            userFromRequest.getUserName(),
+                        log.warn(
+                                "Normal user '{}' attempted login before tenant '{}' was initialized by default user",
+                                userFromRequest.getUserName(),
+                                tenantFromRequest.getTenantID()
+                        );
+
+                        throw new AccessDeniedException(
+                                "Tenant is not initialized. Please ask the tenant administrator to log in first."
+                        );
+                    }
+
+                    // ✅ FIRST LOGIN — default user bootstraps tenant
+                    if (userFromRequest.isDefaultUser() && tenantFromRequest.getAzureTenantId() == null) {
+
+                        log.info(
+                                "Binding Azure tenantId '{}' to tenant '{}' (default user bootstrap login)",
+                                azureTenantId,
+                                tenantFromRequest.getTenantID()
+                        );
+
+                        tenantFromRequest.setAzureTenantId(azureTenantId);
+                        tenantRepository.save(tenantFromRequest);
+                    } else if (tenantFromRequest.getAzureTenantId() != null &&
+                            !tenantFromRequest.getAzureTenantId().equalsIgnoreCase(azureTenantId)) {
+
+                        log.error(
+                                "Azure tenant mismatch. DB='{}' TOKEN='{}' tenant='{}'",
+                                tenantFromRequest.getAzureTenantId(),
+                                azureTenantId,
+                                tenantFromRequest.getTenantID()
+                        );
+
+                        throw new AccessDeniedException(
+                                "IDP mismatch – access denied"
+                        );
+                    }
+                } else {
+                    // Non-Azure / other IDP login
+                    log.debug(
+                            "Login without Azure tenantId for tenant '{}'. Skipping Azure validation.",
                             tenantFromRequest.getTenantID()
-                    );
-
-                    throw new AccessDeniedException(
-                            "Tenant is not initialized. Please ask the tenant administrator to log in first."
                     );
                 }
-
-                // ✅ FIRST LOGIN — default user bootstraps tenant
-                if (userFromRequest.isDefaultUser() && tenantFromRequest.getAzureTenantId() == null) {
-
-                    log.info(
-                            "Binding Azure tenantId '{}' to tenant '{}' (default user bootstrap login)",
-                            azureTenantId,
-                            tenantFromRequest.getTenantID()
-                    );
-
-                    tenantFromRequest.setAzureTenantId(azureTenantId);
-                    tenantRepository.save(tenantFromRequest);
-                } else if (tenantFromRequest.getAzureTenantId() != null &&
-                        !tenantFromRequest.getAzureTenantId().equalsIgnoreCase(azureTenantId)) {
-
-                    log.error(
-                            "Azure tenant mismatch. DB='{}' TOKEN='{}' tenant='{}'",
-                            tenantFromRequest.getAzureTenantId(),
-                            azureTenantId,
-                            tenantFromRequest.getTenantID()
-                    );
-
-                    throw new AccessDeniedException(
-                            "IDP mismatch – access denied"
-                    );
-                }
-            }else {
-                // Non-Azure / other IDP login
-                log.debug(
-                        "Login without Azure tenantId for tenant '{}'. Skipping Azure validation.",
-                        tenantFromRequest.getTenantID()
-                );
             }
 
             if (azureMismatchValidationMode){
