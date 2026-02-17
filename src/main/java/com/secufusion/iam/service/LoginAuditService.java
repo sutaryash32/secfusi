@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.CompletableFuture;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -1009,11 +1010,18 @@ public class LoginAuditService {
                     .loginType(loginType != null ? loginType : "WEBSITE")
                     .build();
 
-            deviceRegistrationProducer.publishDeviceRegistration(event);
-            log.debug("Published device registration event: fingerprint={} tenant={}",
-                    deviceLogin.getDeviceFingerprint(), deviceLogin.getTenantId());
+            CompletableFuture.runAsync(() -> {
+                try {
+                    deviceRegistrationProducer.publishDeviceRegistration(event);
+                    log.debug("Published device registration event: fingerprint={} tenant={}",
+                            deviceLogin.getDeviceFingerprint(), deviceLogin.getTenantId());
+                } catch (Exception ex) {
+                    log.error("Failed to publish device registration event: fingerprint={} tenant={}",
+                            deviceLogin.getDeviceFingerprint(), deviceLogin.getTenantId(), ex);
+                }
+            });
         } catch (Exception e) {
-            log.error("Failed to publish device registration event: fingerprint={} tenant={}",
+            log.error("Failed to build device registration event: fingerprint={} tenant={}",
                     deviceLogin.getDeviceFingerprint(), deviceLogin.getTenantId(), e);
             // Don't throw - device sync failure shouldn't break login flow
         }
