@@ -3,7 +3,9 @@ package com.secufusion.iam.controller;
 import com.secufusion.iam.dto.*;
 import com.secufusion.iam.entity.EventsGroup;
 import com.secufusion.iam.entity.EventsGroupDeviceUserMapping;
+import com.secufusion.iam.entity.PolicyAssignment;
 import com.secufusion.iam.entity.Tenant;
+import com.secufusion.iam.repository.PolicyAssignmentRepository;
 import com.secufusion.iam.service.AzureGroupSyncService;
 import com.secufusion.iam.service.DeviceUserGroupMappingService;
 import com.secufusion.iam.service.EventsGroupService;
@@ -35,6 +37,7 @@ public class EventsGroupController {
     private final EventsGroupService eventsGroupService;
     private final AzureGroupSyncService azureGroupSyncService;
     private final DeviceUserGroupMappingService mappingService;
+    private final PolicyAssignmentRepository policyAssignmentRepository;
     private final JwtUtl jwtUtil;
 
     // ================== Group Management ==================
@@ -42,24 +45,25 @@ public class EventsGroupController {
     /**
      * Get all events groups for tenant
      * Query params:
-     * - ssoType: Filter by SSO type (APIKEY, AZURE, KEYCLOAK)
      * - authorizedOnly: Show only authorized groups
-     * - groupType: Filter by group type (APIKEY_GROUP, AZURE_GROUP)
+     * - includePolicies: Include full policy assignment details (default: false, only count returned)
      */
     @GetMapping
     @Operation(summary = "Get all events groups for tenant")
-    public ResponseEntity<List<EventsGroupDto>> getAllGroups(
+    public ResponseEntity<List<Map<String, Object>>> getAllGroups(
             HttpServletRequest request,
             @Parameter(description = "Show only authorized groups")
-            @RequestParam(required = false) Boolean authorizedOnly
+            @RequestParam(required = false) Boolean authorizedOnly,
+            @Parameter(description = "Include full policy details")
+            @RequestParam(required = false, defaultValue = "false") Boolean includePolicies
     ) {
 
         Tenant tenant = jwtUtil.getTenantFromRequest(request);
         String tenantId = tenant.getTenantID();
         String ssoType = tenant.getAuthProviderConfig().getSsoType();
 
-        log.info("Fetching events groups for tenant: {} (ssoType={}, authorizedOnly={})",
-                tenantId, ssoType, authorizedOnly);
+        log.info("Fetching events groups for tenant: {} (ssoType={}, authorizedOnly={}, includePolicies={})",
+                tenantId, ssoType, authorizedOnly, includePolicies);
 
         // KEYCLOAK tenants don't use event groups
         if ("KEYCLOAK".equalsIgnoreCase(ssoType)) {
@@ -76,11 +80,83 @@ public class EventsGroupController {
                     .toList();
         }
 
-        List<EventsGroupDto> dtos = groups.stream()
-                .map(this::convertToDto)
+        // Fetch all policy assignments for all groups in a single batch query
+        List<String> groupIds = groups.stream()
+                .map(EventsGroup::getPkEventsGroupId)
+                .collect(Collectors.toList());
+
+        Map<String, List<PolicyAssignment>> policyAssignmentsByGroup = new HashMap<>();
+        if (!groupIds.isEmpty()) {
+            List<PolicyAssignment> allAssignments = policyAssignmentRepository.findByEventsGroupIdsAndTenantId(
+                    groupIds,
+                    tenantId
+            );
+
+            // Group assignments by group ID
+            policyAssignmentsByGroup = allAssignments.stream()
+                    .collect(Collectors.groupingBy(PolicyAssignment::getAzureResourceId));
+        }
+
+        // Build response with policy information
+        Map<String, List<PolicyAssignment>> finalPolicyMap = policyAssignmentsByGroup;
+        boolean isApiKeyTenant = "APIKEY".equalsIgnoreCase(ssoType);
+
+        List<Map<String, Object>> response = groups.stream()
+                .map(group -> {
+                    Map<String, Object> groupData = new HashMap<>();
+
+                    // Add basic group info
+                    EventsGroupDto dto = convertToDto(group);
+                    groupData.put("pkEventsGroupId", dto.getPkEventsGroupId());
+                    groupData.put("tenantId", dto.getTenantId());
+                    groupData.put("name", dto.getName());
+                    groupData.put("description", dto.getDescription());
+                    groupData.put("groupType", dto.getGroupType());
+                    groupData.put("authorized", dto.getAuthorized());
+
+                    // Only include Azure fields if tenant is Azure SSO
+                    if (!isApiKeyTenant) {
+                        groupData.put("azureGroupId", dto.getAzureGroupId());
+                        groupData.put("azureGroupDisplayName", dto.getAzureGroupDisplayName());
+                        groupData.put("syncedAt", dto.getSyncedAt());
+                    }
+
+                    groupData.put("isDefault", dto.getIsDefault());
+                    groupData.put("isActive", dto.getIsActive());
+                    groupData.put("createdAt", dto.getCreatedAt());
+                    groupData.put("updatedAt", dto.getUpdatedAt());
+                    groupData.put("createdBy", dto.getCreatedBy());
+                    groupData.put("updatedBy", dto.getUpdatedBy());
+
+                    // Get policy assignments for this group
+                    List<PolicyAssignment> assignments = finalPolicyMap.getOrDefault(
+                            group.getPkEventsGroupId(),
+                            List.of()
+                    );
+
+                    // Add distinct policy names (resource names)
+                    List<String> distinctPolicyNames = assignments.stream()
+                            .map(PolicyAssignment::getAzureResourceName)
+                            .filter(name -> name != null && !name.isBlank())
+                            .distinct()
+                            .collect(Collectors.toList());
+
+                    groupData.put("policyCount", distinctPolicyNames.size());
+                    groupData.put("policies", distinctPolicyNames);
+
+                    // Add full policy details if requested
+                    if (Boolean.TRUE.equals(includePolicies) && !assignments.isEmpty()) {
+                        List<PolicyAssignmentDto> policyDtos = assignments.stream()
+                                .map(this::convertPolicyAssignmentToDto)
+                                .collect(Collectors.toList());
+                        groupData.put("policyDetails", policyDtos);
+                    }
+
+                    return groupData;
+                })
                 .toList();
 
-        return ResponseEntity.ok(dtos);
+        return ResponseEntity.ok(response);
     }
 
 
@@ -89,15 +165,45 @@ public class EventsGroupController {
      */
     @GetMapping("/{groupId}")
     @Operation(summary = "Get events group by ID")
-    public ResponseEntity<EventsGroupDto> getGroupById(
+    public ResponseEntity<Map<String, Object>> getGroupById(
             HttpServletRequest request,
             @PathVariable String groupId
     ) {
-        String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        String tenantId = tenant.getTenantID();
+        String ssoType = tenant.getAuthProviderConfig().getSsoType();
+
         log.info("Fetching events group: {} for tenant: {}", groupId, tenantId);
 
         EventsGroup group = eventsGroupService.getGroupById(tenantId, groupId);
-        return ResponseEntity.ok(convertToDto(group));
+        EventsGroupDto dto = convertToDto(group);
+
+        // Build response conditionally based on SSO type
+        Map<String, Object> response = new HashMap<>();
+        boolean isApiKeyTenant = "APIKEY".equalsIgnoreCase(ssoType);
+
+        response.put("pkEventsGroupId", dto.getPkEventsGroupId());
+        response.put("tenantId", dto.getTenantId());
+        response.put("name", dto.getName());
+        response.put("description", dto.getDescription());
+        response.put("groupType", dto.getGroupType());
+        response.put("authorized", dto.getAuthorized());
+
+        // Only include Azure fields if tenant is not APIKEY
+        if (!isApiKeyTenant) {
+            response.put("azureGroupId", dto.getAzureGroupId());
+            response.put("azureGroupDisplayName", dto.getAzureGroupDisplayName());
+            response.put("syncedAt", dto.getSyncedAt());
+        }
+
+        response.put("isDefault", dto.getIsDefault());
+        response.put("isActive", dto.getIsActive());
+        response.put("createdAt", dto.getCreatedAt());
+        response.put("updatedAt", dto.getUpdatedAt());
+        response.put("createdBy", dto.getCreatedBy());
+        response.put("updatedBy", dto.getUpdatedBy());
+
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -423,6 +529,48 @@ public class EventsGroupController {
         return ResponseEntity.ok(dtos);
     }
 
+    // ================== Policy Assignments ==================
+
+    /**
+     * Get all policy assignments for an events group
+     */
+    @GetMapping("/{groupId}/policies")
+    @Operation(summary = "Get all policy assignments for events group")
+    public ResponseEntity<Map<String, Object>> getGroupPolicies(
+            HttpServletRequest request,
+            @PathVariable String groupId
+    ) {
+        String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
+        log.info("Fetching policy assignments for group: {} in tenant: {}", groupId, tenantId);
+
+        // Validate group exists and belongs to tenant
+        EventsGroup group = eventsGroupService.getGroupById(tenantId, groupId);
+
+        // Get all policy assignments for this group
+        List<PolicyAssignment> assignments = policyAssignmentRepository.findByEventsGroupIdAndTenantId(
+                groupId,
+                tenantId
+        );
+
+        // Convert to DTOs
+        List<PolicyAssignmentDto> assignmentDtos = assignments.stream()
+                .map(this::convertPolicyAssignmentToDto)
+                .collect(Collectors.toList());
+
+        // Build response with group info and assignments
+        Map<String, Object> response = new HashMap<>();
+        response.put("groupId", group.getPkEventsGroupId());
+        response.put("groupName", group.getName());
+        response.put("groupType", group.getGroupType().name());
+        response.put("authorized", group.getAuthorized());
+        response.put("policyCount", assignmentDtos.size());
+        response.put("policies", assignmentDtos);
+
+        return ResponseEntity.ok(response);
+    }
+
+    // ================== Helper Methods ==================
+
     private EventsGroupDto convertToDto(EventsGroup group) {
         return EventsGroupDto.builder()
                 .pkEventsGroupId(group.getPkEventsGroupId())
@@ -457,6 +605,18 @@ public class EventsGroupController {
         }
 
         return dto;
+    }
+
+    private PolicyAssignmentDto convertPolicyAssignmentToDto(PolicyAssignment assignment) {
+        return PolicyAssignmentDto.builder()
+                .assignmentId(assignment.getId())
+                .tenantId(assignment.getTenantId())
+                .groupId(assignment.getAzureResourceId())
+                .assignmentType(assignment.getAssignmentType())
+                .resourceId(assignment.getAzureResourceId())
+                .resourceName(assignment.getAzureResourceName())
+                .assignedAt(assignment.getAssignedAt())
+                .build();
     }
 
     private List<EventsGroup> resolveGroupsBySsoType(String tenantId, String ssoType) {
