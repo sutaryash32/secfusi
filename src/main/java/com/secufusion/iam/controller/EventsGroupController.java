@@ -5,6 +5,7 @@ import com.secufusion.iam.entity.EventsGroup;
 import com.secufusion.iam.entity.EventsGroupDeviceUserMapping;
 import com.secufusion.iam.entity.PolicyAssignment;
 import com.secufusion.iam.entity.Tenant;
+import com.secufusion.iam.repository.EventsGroupRepository;
 import com.secufusion.iam.repository.PolicyAssignmentRepository;
 import com.secufusion.iam.service.AzureGroupSyncService;
 import com.secufusion.iam.service.DeviceUserGroupMappingService;
@@ -38,6 +39,7 @@ public class EventsGroupController {
     private final AzureGroupSyncService azureGroupSyncService;
     private final DeviceUserGroupMappingService mappingService;
     private final PolicyAssignmentRepository policyAssignmentRepository;
+    private final EventsGroupRepository eventsGroupRepository;
     private final JwtUtl jwtUtil;
 
     // ================== Group Management ==================
@@ -300,27 +302,125 @@ public class EventsGroupController {
     // ================== Azure Group Sync ==================
 
     /**
+     * Get Azure sync status and last sync information
+     * Only available for Azure SSO tenants
+     */
+    @GetMapping("/azure-sync-status")
+    @Operation(summary = "Get Azure sync status and last sync time (Azure tenants only)")
+    public ResponseEntity<Map<String, Object>> getAzureSyncStatus(
+            HttpServletRequest request
+    ) {
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        String tenantId = tenant.getTenantID();
+        String ssoType = tenant.getAuthProviderConfig() != null ?
+                         tenant.getAuthProviderConfig().getSsoType() : null;
+
+        log.info("Fetching Azure sync status for tenant: {} (ssoType={})", tenantId, ssoType);
+
+        // Strict validation: Only Azure SSO tenants allowed
+        if (!"AZURE".equalsIgnoreCase(ssoType)) {
+            log.warn("Access denied to Azure sync status. Tenant {} has SSO type: {}", tenantId, ssoType);
+            return ResponseEntity
+                    .status(HttpStatus.FORBIDDEN)
+                    .body(Map.of(
+                            "status", "error",
+                            "message", "Azure sync features are only available for tenants with Azure SSO configured. Your tenant SSO type: " +
+                                      (ssoType != null ? ssoType : "NONE")
+                    ));
+        }
+
+        Map<String, Object> response = new HashMap<>();
+
+        // Get current sync status from cache
+        AzureSyncStatus syncStatus = azureGroupSyncService.getSyncStatus(tenantId);
+
+        if (syncStatus != null) {
+            response.put("currentSyncStatus", syncStatus.getStatus().name());
+            response.put("currentSyncMessage", syncStatus.getMessage());
+
+            if (syncStatus.getStartedAt() != null) {
+                response.put("currentSyncStartedAt", syncStatus.getStartedAt());
+            }
+
+            if (syncStatus.getStatus() == AzureSyncStatus.Status.COMPLETED) {
+                response.put("lastSyncCompletedAt", syncStatus.getCompletedAt());
+                response.put("lastSyncTotalFetched", syncStatus.getTotalFetched());
+                response.put("lastSyncNewGroups", syncStatus.getNewGroups());
+                response.put("lastSyncUpdatedGroups", syncStatus.getUpdatedGroups());
+
+                long remainingSeconds = azureGroupSyncService.getRemainingCooldownSeconds(tenantId);
+                response.put("canSyncAgain", remainingSeconds == 0);
+                response.put("cooldownRemainingSeconds", remainingSeconds);
+
+                if (remainingSeconds > 0) {
+                    long minutes = remainingSeconds / 60;
+                    long seconds = remainingSeconds % 60;
+                    response.put("cooldownRemainingMinutes", minutes);
+                    response.put("cooldownMessage", String.format("Can sync again in %d minute(s) and %d second(s)", minutes, seconds));
+                }
+            } else if (syncStatus.getStatus() == AzureSyncStatus.Status.FAILED) {
+                response.put("lastSyncFailedAt", syncStatus.getCompletedAt());
+                response.put("lastSyncError", syncStatus.getErrorMessage());
+                response.put("canSyncAgain", true);
+            } else if (syncStatus.getStatus() == AzureSyncStatus.Status.IN_PROGRESS) {
+                response.put("canSyncAgain", false);
+            }
+        } else {
+            response.put("currentSyncStatus", "NEVER_SYNCED");
+            response.put("canSyncAgain", true);
+        }
+
+        // Get last successful sync time from database
+        java.time.Instant lastDbSyncTime = eventsGroupRepository.findLastSyncTimeByTenantIdAndGroupType(
+                tenantId,
+                EventsGroup.GroupType.AZURE_GROUP
+        );
+
+        if (lastDbSyncTime != null) {
+            response.put("lastDatabaseSyncTime", lastDbSyncTime);
+        }
+
+        // Count Azure groups
+        List<EventsGroup> azureGroups = eventsGroupService.getGroupsByType(
+                tenantId,
+                EventsGroup.GroupType.AZURE_GROUP
+        );
+        long totalAzureGroups = azureGroups.size();
+        long authorizedAzureGroups = azureGroups.stream().filter(EventsGroup::getAuthorized).count();
+
+        response.put("totalAzureGroups", totalAzureGroups);
+        response.put("authorizedAzureGroups", authorizedAzureGroups);
+        response.put("unauthorizedAzureGroups", totalAzureGroups - authorizedAzureGroups);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * Initiate Azure AD group sync for tenant (async)
      * Returns immediately with status "in progress"
+     * Only available for Azure SSO tenants
      */
     @PostMapping("/sync-azure")
-    @Operation(summary = "Initiate Azure AD group sync (async)")
+    @Operation(summary = "Initiate Azure AD group sync (async, Azure tenants only)")
     public ResponseEntity<Map<String, Object>> syncAzureGroups(
             HttpServletRequest request
     ) {
         Tenant tenant = jwtUtil.getTenantFromRequest(request);
         String tenantId = tenant.getTenantID();
+        String ssoType = tenant.getAuthProviderConfig() != null ?
+                         tenant.getAuthProviderConfig().getSsoType() : null;
 
-        log.info("Received Azure group sync request for tenant: {}", tenantId);
+        log.info("Received Azure group sync request for tenant: {} (ssoType={})", tenantId, ssoType);
 
-        // Validate tenant has Azure SSO
-        if (tenant.getAuthProviderConfig() == null ||
-            !"AZURE".equalsIgnoreCase(tenant.getAuthProviderConfig().getSsoType())) {
+        // Strict validation: Only Azure SSO tenants allowed
+        if (!"AZURE".equalsIgnoreCase(ssoType)) {
+            log.warn("Access denied to Azure sync. Tenant {} has SSO type: {}", tenantId, ssoType);
             return ResponseEntity
-                    .badRequest()
+                    .status(HttpStatus.FORBIDDEN)
                     .body(Map.of(
                             "status", "error",
-                            "message", "Azure group sync is only available for tenants with Azure SSO configured"
+                            "message", "Azure group sync is only available for tenants with Azure SSO configured. Your tenant SSO type: " +
+                                      (ssoType != null ? ssoType : "NONE")
                     ));
         }
 
