@@ -33,7 +33,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/iam/events-groups")
+@RequestMapping("/events-groups")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Events Groups", description = "Manage events groups for API key and Azure AD users")

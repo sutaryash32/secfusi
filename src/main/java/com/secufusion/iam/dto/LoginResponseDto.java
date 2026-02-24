@@ -28,4 +28,5 @@ public class LoginResponseDto {
     String username;
     String mobilePhone;
     TenantLean mappedTenant;
+    private String ssoType; // "AZURE_AD", "OKTA", "GOOGLE", etc.
 }
