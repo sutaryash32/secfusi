@@ -175,7 +175,7 @@ public class EventsGroupController {
     @Operation(
         summary = "Get single events group by ID",
         description = "Retrieves a specific events group by its ID. " +
-                     "Returns full group details. " +
+                     "Returns full group details including list of mapped device users. " +
                      "Azure-specific fields are excluded for APIKEY tenants."
     )
     @ApiResponses(value = {
@@ -222,6 +222,15 @@ public class EventsGroupController {
         response.put("updatedAt", dto.getUpdatedAt());
         response.put("createdBy", dto.getCreatedBy());
         response.put("updatedBy", dto.getUpdatedBy());
+
+        // Get mapped device users
+        List<EventsGroupDeviceUserMapping> mappings = mappingService.getDeviceUsersInGroup(tenantId, groupId);
+        List<DeviceUserGroupMappingDto> deviceUserMappings = mappings.stream()
+                .map(this::convertMappingToDto)
+                .collect(Collectors.toList());
+
+        response.put("deviceUserCount", deviceUserMappings.size());
+        response.put("deviceUsers", deviceUserMappings);
 
         return ResponseEntity.ok(response);
     }
