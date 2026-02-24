@@ -53,7 +53,8 @@ public class EventsGroupController {
         summary = "Get all events groups for tenant",
         description = "Retrieves all events groups for the authenticated tenant. " +
                      "Returns APIKEY_GROUP for APIKEY tenants, AZURE_GROUP for AZURE tenants. " +
-                     "Includes policy assignments count and list of distinct policy names for each group. " +
+                     "Includes policy assignment counts by type (browser, network, extension policies) for each group. " +
+                     "Optionally returns full policy details with includePolicies=true. " +
                      "Azure-specific fields (azureGroupId, azureGroupDisplayName, syncedAt) are excluded for APIKEY tenants."
     )
     @ApiResponses(value = {
@@ -145,15 +146,25 @@ public class EventsGroupController {
                             List.of()
                     );
 
-                    // Add distinct policy names (resource names)
-                    List<String> distinctPolicyNames = assignments.stream()
-                            .map(PolicyAssignment::getAzureResourceName)
-                            .filter(name -> name != null && !name.isBlank())
-                            .distinct()
-                            .collect(Collectors.toList());
+                    // Count policies by type
+                    long browserPolicyCount = assignments.stream()
+                            .filter(a -> a.getBrowserPolicy() != null)
+                            .count();
+                    long networkPolicyCount = assignments.stream()
+                            .filter(a -> a.getNetworkPolicy() != null)
+                            .count();
+                    long extensionPolicyCount = assignments.stream()
+                            .filter(a -> a.getExtensionPolicy() != null)
+                            .count();
 
-                    groupData.put("policyCount", distinctPolicyNames.size());
-                    groupData.put("policies", distinctPolicyNames);
+                    Map<String, Object> policyCountsByType = new HashMap<>();
+                    policyCountsByType.put("browserPolicies", browserPolicyCount);
+                    policyCountsByType.put("networkPolicies", networkPolicyCount);
+                    policyCountsByType.put("extensionPolicies", extensionPolicyCount);
+                    policyCountsByType.put("total", assignments.size());
+
+                    groupData.put("policyCount", assignments.size());
+                    groupData.put("policyCountsByType", policyCountsByType);
 
                     // Add full policy details if requested
                     if (Boolean.TRUE.equals(includePolicies) && !assignments.isEmpty()) {
@@ -175,7 +186,10 @@ public class EventsGroupController {
     @Operation(
         summary = "Get single events group by ID",
         description = "Retrieves a specific events group by its ID. " +
-                     "Returns full group details including list of mapped device users. " +
+                     "Returns full group details including: " +
+                     "- List of mapped device users with assignment details " +
+                     "- Policy assignment counts by type (browser, network, extension) " +
+                     "- Full policy assignment details with policy information " +
                      "Azure-specific fields are excluded for APIKEY tenants."
     )
     @ApiResponses(value = {
@@ -231,6 +245,38 @@ public class EventsGroupController {
 
         response.put("deviceUserCount", deviceUserMappings.size());
         response.put("deviceUsers", deviceUserMappings);
+
+        // Get policy assignments for this group
+        List<PolicyAssignment> policyAssignments = policyAssignmentRepository.findByEventsGroupIdAndTenantId(
+                groupId,
+                tenantId
+        );
+
+        // Count policies by type
+        long browserPolicyCount = policyAssignments.stream()
+                .filter(a -> a.getBrowserPolicy() != null)
+                .count();
+        long networkPolicyCount = policyAssignments.stream()
+                .filter(a -> a.getNetworkPolicy() != null)
+                .count();
+        long extensionPolicyCount = policyAssignments.stream()
+                .filter(a -> a.getExtensionPolicy() != null)
+                .count();
+
+        Map<String, Object> policyCountsByType = new HashMap<>();
+        policyCountsByType.put("browserPolicies", browserPolicyCount);
+        policyCountsByType.put("networkPolicies", networkPolicyCount);
+        policyCountsByType.put("extensionPolicies", extensionPolicyCount);
+        policyCountsByType.put("total", policyAssignments.size());
+
+        response.put("policyCount", policyAssignments.size());
+        response.put("policyCountsByType", policyCountsByType);
+
+        // Add policy assignment details
+        List<PolicyAssignmentDto> policyDtos = policyAssignments.stream()
+                .map(this::convertPolicyAssignmentToDto)
+                .collect(Collectors.toList());
+        response.put("policyAssignments", policyDtos);
 
         return ResponseEntity.ok(response);
     }
@@ -800,19 +846,37 @@ public class EventsGroupController {
                 tenantId
         );
 
-        // Convert to DTOs
+        // Count policies by type
+        long browserPolicyCount = assignments.stream()
+                .filter(a -> a.getBrowserPolicy() != null)
+                .count();
+        long networkPolicyCount = assignments.stream()
+                .filter(a -> a.getNetworkPolicy() != null)
+                .count();
+        long extensionPolicyCount = assignments.stream()
+                .filter(a -> a.getExtensionPolicy() != null)
+                .count();
+
+        Map<String, Object> policyCountsByType = new HashMap<>();
+        policyCountsByType.put("browserPolicies", browserPolicyCount);
+        policyCountsByType.put("networkPolicies", networkPolicyCount);
+        policyCountsByType.put("extensionPolicies", extensionPolicyCount);
+        policyCountsByType.put("total", assignments.size());
+
+        // Convert to DTOs with full policy details
         List<PolicyAssignmentDto> assignmentDtos = assignments.stream()
                 .map(this::convertPolicyAssignmentToDto)
                 .collect(Collectors.toList());
 
-        // Build response with group info and assignments
+        // Build response with group info, policy counts, and full assignment details
         Map<String, Object> response = new HashMap<>();
         response.put("groupId", group.getPkEventsGroupId());
         response.put("groupName", group.getName());
         response.put("groupType", group.getGroupType().name());
         response.put("authorized", group.getAuthorized());
-        response.put("policyCount", assignmentDtos.size());
-        response.put("policies", assignmentDtos);
+        response.put("policyCount", assignments.size());
+        response.put("policyCountsByType", policyCountsByType);
+        response.put("policyAssignments", assignmentDtos);
 
         return ResponseEntity.ok(response);
     }
@@ -856,15 +920,59 @@ public class EventsGroupController {
     }
 
     private PolicyAssignmentDto convertPolicyAssignmentToDto(PolicyAssignment assignment) {
-        return PolicyAssignmentDto.builder()
+        PolicyAssignmentDto.PolicyAssignmentDtoBuilder builder = PolicyAssignmentDto.builder()
                 .assignmentId(assignment.getId())
                 .tenantId(assignment.getTenantId())
                 .groupId(assignment.getAzureResourceId())
                 .assignmentType(assignment.getAssignmentType())
                 .resourceId(assignment.getAzureResourceId())
                 .resourceName(assignment.getAzureResourceName())
-                .assignedAt(assignment.getAssignedAt())
-                .build();
+                .assignedAt(assignment.getAssignedAt());
+
+        // Add BrowserPolicy details if present
+        if (assignment.getBrowserPolicy() != null) {
+            builder.browserPolicy(PolicyAssignmentDto.PolicyDetailsDto.builder()
+                    .policyId(assignment.getBrowserPolicy().getPkBrowserPolicyId())
+                    .name(assignment.getBrowserPolicy().getName())
+                    .description(assignment.getBrowserPolicy().getDescription())
+                    .policyType(assignment.getBrowserPolicy().getPolicyType())
+                    .policyKey(assignment.getBrowserPolicy().getPolicyKey())
+                    .version(assignment.getBrowserPolicy().getVersion())
+                    .isActive(assignment.getBrowserPolicy().isActive())
+                    .createdAt(assignment.getBrowserPolicy().getCreatedAt())
+                    .updatedAt(assignment.getBrowserPolicy().getUpdatedAt())
+                    .build());
+        }
+
+        // Add NetworkPolicy details if present
+        if (assignment.getNetworkPolicy() != null) {
+            builder.networkPolicy(PolicyAssignmentDto.PolicyDetailsDto.builder()
+                    .policyId(assignment.getNetworkPolicy().getPkNetworkPolicyId())
+                    .name(assignment.getNetworkPolicy().getName())
+                    .description(assignment.getNetworkPolicy().getDescription())
+                    .policyKey(assignment.getNetworkPolicy().getPolicyKey())
+                    .version(assignment.getNetworkPolicy().getVersion())
+                    .isActive(assignment.getNetworkPolicy().isActive())
+                    .createdAt(assignment.getNetworkPolicy().getCreatedAt())
+                    .updatedAt(assignment.getNetworkPolicy().getUpdatedAt())
+                    .build());
+        }
+
+        // Add ExtensionPolicy details if present
+        if (assignment.getExtensionPolicy() != null) {
+            builder.extensionPolicy(PolicyAssignmentDto.PolicyDetailsDto.builder()
+                    .policyId(assignment.getExtensionPolicy().getPkExtensionPolicyId())
+                    .name(assignment.getExtensionPolicy().getName())
+                    .description(assignment.getExtensionPolicy().getDescription())
+                    .policyKey(assignment.getExtensionPolicy().getPolicyKey())
+                    .version(assignment.getExtensionPolicy().getVersion())
+                    .isActive(assignment.getExtensionPolicy().getIsActive())
+                    .createdAt(assignment.getExtensionPolicy().getCreatedAt())
+                    .updatedAt(assignment.getExtensionPolicy().getUpdatedAt())
+                    .build());
+        }
+
+        return builder.build();
     }
 
     private List<EventsGroup> resolveGroupsBySsoType(String tenantId, String ssoType) {
