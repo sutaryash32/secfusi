@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * DTO for PolicyAssignment entity
+ * DTO for PolicyAssignment entity with policy details
  */
 @Data
 @NoArgsConstructor
@@ -24,4 +24,25 @@ public class PolicyAssignmentDto {
     private String resourceId;
     private String resourceName;
     private LocalDateTime assignedAt;
+
+    // Policy details
+    private PolicyDetailsDto browserPolicy;
+    private PolicyDetailsDto networkPolicy;
+    private PolicyDetailsDto extensionPolicy;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class PolicyDetailsDto {
+        private String policyId;
+        private String name;
+        private String description;
+        private String policyType;
+        private String policyKey;
+        private String version;
+        private Boolean isActive;
+        private LocalDateTime createdAt;
+        private LocalDateTime updatedAt;
+    }
 }

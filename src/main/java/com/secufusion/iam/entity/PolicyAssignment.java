@@ -38,6 +38,20 @@ public class PolicyAssignment {
     @Column(name = "assigned_at")
     private LocalDateTime assignedAt;
 
+    /* ================= Policy Relationships ================= */
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "fk_policy_id")
+    private BrowserPolicy browserPolicy;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "fk_network_policy_id")
+    private NetworkPolicy networkPolicy;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "fk_extension_policy_id")
+    private ExtensionPolicy extensionPolicy;
+
     @PrePersist
     void onCreate() {
         this.assignedAt = LocalDateTime.now();
