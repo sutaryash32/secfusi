@@ -13,6 +13,10 @@ import com.secufusion.iam.service.EventsGroupService;
 import com.secufusion.iam.util.JwtUtl;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -44,19 +48,24 @@ public class EventsGroupController {
 
     // ================== Group Management ==================
 
-    /**
-     * Get all events groups for tenant
-     * Query params:
-     * - authorizedOnly: Show only authorized groups
-     * - includePolicies: Include full policy assignment details (default: false, only count returned)
-     */
     @GetMapping
-    @Operation(summary = "Get all events groups for tenant")
+    @Operation(
+        summary = "Get all events groups for tenant",
+        description = "Retrieves all events groups for the authenticated tenant. " +
+                     "Returns APIKEY_GROUP for APIKEY tenants, AZURE_GROUP for AZURE tenants. " +
+                     "Includes policy assignments count and list of distinct policy names for each group. " +
+                     "Azure-specific fields (azureGroupId, azureGroupDisplayName, syncedAt) are excluded for APIKEY tenants."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved groups"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have access to this tenant")
+    })
     public ResponseEntity<List<Map<String, Object>>> getAllGroups(
             HttpServletRequest request,
-            @Parameter(description = "Show only authorized groups")
+            @Parameter(description = "Filter to show only authorized groups (default: false, shows all)")
             @RequestParam(required = false) Boolean authorizedOnly,
-            @Parameter(description = "Include full policy details")
+            @Parameter(description = "Include full policy assignment details in response (default: false, only returns count and policy names)")
             @RequestParam(required = false, defaultValue = "false") Boolean includePolicies
     ) {
 
@@ -162,13 +171,22 @@ public class EventsGroupController {
     }
 
 
-    /**
-     * Get single events group by ID
-     */
     @GetMapping("/{groupId}")
-    @Operation(summary = "Get events group by ID")
+    @Operation(
+        summary = "Get single events group by ID",
+        description = "Retrieves a specific events group by its ID. " +
+                     "Returns full group details. " +
+                     "Azure-specific fields are excluded for APIKEY tenants."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved group"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have access to this tenant"),
+        @ApiResponse(responseCode = "404", description = "Group not found")
+    })
     public ResponseEntity<Map<String, Object>> getGroupById(
             HttpServletRequest request,
+            @Parameter(description = "Events group ID (UUID)", required = true)
             @PathVariable String groupId
     ) {
         Tenant tenant = jwtUtil.getTenantFromRequest(request);
@@ -208,13 +226,26 @@ public class EventsGroupController {
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * Create new API key group
-     */
     @PostMapping
-    @Operation(summary = "Create new API key group")
+    @Operation(
+        summary = "Create new API key group",
+        description = "Creates a new APIKEY_GROUP for the tenant. " +
+                     "API key groups are manually created by admins and default to authorized=true. " +
+                     "Group name must be unique within the tenant."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "201", description = "Group created successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request - validation errors or duplicate name"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have permission"),
+        @ApiResponse(responseCode = "409", description = "Conflict - Group name already exists")
+    })
     public ResponseEntity<EventsGroupDto> createGroup(
             HttpServletRequest request,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                description = "Group creation details (name and description)",
+                required = true
+            )
             @Valid @RequestBody CreateEventsGroupRequest dto
     ) {
         String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
@@ -231,14 +262,28 @@ public class EventsGroupController {
         return ResponseEntity.status(HttpStatus.CREATED).body(convertToDto(created));
     }
 
-    /**
-     * Update events group
-     */
     @PutMapping("/{groupId}")
-    @Operation(summary = "Update events group")
+    @Operation(
+        summary = "Update events group",
+        description = "Updates name and/or description of an existing events group. " +
+                     "Can update both APIKEY_GROUP and AZURE_GROUP types."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Group updated successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request - validation errors"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have permission"),
+        @ApiResponse(responseCode = "404", description = "Group not found"),
+        @ApiResponse(responseCode = "409", description = "Conflict - New name already exists")
+    })
     public ResponseEntity<EventsGroupDto> updateGroup(
             HttpServletRequest request,
+            @Parameter(description = "Events group ID to update", required = true)
             @PathVariable String groupId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                description = "Updated group details (name and/or description)",
+                required = true
+            )
             @Valid @RequestBody UpdateEventsGroupRequest dto
     ) {
         String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
@@ -256,14 +301,26 @@ public class EventsGroupController {
         return ResponseEntity.ok(convertToDto(updated));
     }
 
-    /**
-     * Set authorization status for a group (admin operation)
-     */
     @PutMapping("/groups/{groupId}/{action}")
-    @Operation(summary = "Authorize or unauthorize a group")
+    @Operation(
+        summary = "Authorize or unauthorize a group (admin operation)",
+        description = "Changes the authorization status of a group. " +
+                     "Authorized groups can be used for policy assignments. " +
+                     "Azure groups default to unauthorized and require admin approval. " +
+                     "Action must be either 'authorize' or 'unauthorize'."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Authorization status updated successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid action - must be 'authorize' or 'unauthorize'"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have admin permission"),
+        @ApiResponse(responseCode = "404", description = "Group not found")
+    })
     public ResponseEntity<EventsGroupDto> setAuthorization(
             HttpServletRequest request,
+            @Parameter(description = "Events group ID", required = true)
             @PathVariable String groupId,
+            @Parameter(description = "Action to perform: 'authorize' or 'unauthorize'", required = true, example = "authorize")
             @PathVariable String action
     ) {
 
@@ -282,13 +339,23 @@ public class EventsGroupController {
         return ResponseEntity.ok(convertToDto(updated));
     }
 
-    /**
-     * Delete events group (soft delete)
-     */
     @DeleteMapping("/{groupId}")
-    @Operation(summary = "Delete events group")
+    @Operation(
+        summary = "Delete events group (soft delete)",
+        description = "Soft deletes an events group by setting isActive=false. " +
+                     "Also removes all device user mappings and policy assignments for this group. " +
+                     "Default groups cannot be deleted."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "204", description = "Group deleted successfully (No Content)"),
+        @ApiResponse(responseCode = "400", description = "Cannot delete default group"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have permission"),
+        @ApiResponse(responseCode = "404", description = "Group not found")
+    })
     public ResponseEntity<Void> deleteGroup(
             HttpServletRequest request,
+            @Parameter(description = "Events group ID to delete", required = true)
             @PathVariable String groupId
     ) {
         String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
@@ -301,12 +368,20 @@ public class EventsGroupController {
 
     // ================== Azure Group Sync ==================
 
-    /**
-     * Get Azure sync status and last sync information
-     * Only available for Azure SSO tenants
-     */
     @GetMapping("/azure-sync-status")
-    @Operation(summary = "Get Azure sync status and last sync time (Azure tenants only)")
+    @Operation(
+        summary = "Get Azure sync status and last sync information (Azure tenants only)",
+        description = "Returns comprehensive Azure group sync status including: " +
+                     "current sync state (IN_PROGRESS, COMPLETED, FAILED, NEVER_SYNCED), " +
+                     "last sync time from database, last sync statistics, cooldown information, " +
+                     "and group counts (total, authorized, unauthorized). " +
+                     "Only available for tenants with Azure SSO configured."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved sync status"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - Tenant does not have Azure SSO configured")
+    })
     public ResponseEntity<Map<String, Object>> getAzureSyncStatus(
             HttpServletRequest request
     ) {
@@ -395,13 +470,24 @@ public class EventsGroupController {
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * Initiate Azure AD group sync for tenant (async)
-     * Returns immediately with status "in progress"
-     * Only available for Azure SSO tenants
-     */
     @PostMapping("/sync-azure")
-    @Operation(summary = "Initiate Azure AD group sync (async, Azure tenants only)")
+    @Operation(
+        summary = "Initiate Azure AD group sync (async, Azure tenants only)",
+        description = "Initiates asynchronous Azure AD group synchronization from Microsoft Graph API. " +
+                     "Creates or updates AZURE_GROUP records in the database. " +
+                     "Returns immediately with 202 Accepted status while sync runs in background. " +
+                     "Enforces 10-minute cooldown period between successful syncs. " +
+                     "Failed syncs can be retried immediately. " +
+                     "Returns 409 Conflict if sync already in progress, 429 Too Many Requests if in cooldown period. " +
+                     "Only available for tenants with Azure SSO configured."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "202", description = "Sync initiated successfully (Accepted)"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - Tenant does not have Azure SSO configured"),
+        @ApiResponse(responseCode = "409", description = "Conflict - Sync already in progress"),
+        @ApiResponse(responseCode = "429", description = "Too Many Requests - Cooldown period active, wait before syncing again")
+    })
     public ResponseEntity<Map<String, Object>> syncAzureGroups(
             HttpServletRequest request
     ) {
@@ -503,15 +589,33 @@ public class EventsGroupController {
 
     // ================== Device User Assignment ==================
 
-    /**
-     * Assign device users to group (handles both single and bulk)
-     * Accepts either a single deviceUserId or a list of deviceUserIds
-     */
     @PostMapping("/{groupId}/device-users")
-    @Operation(summary = "Assign device users to events group (single or bulk)")
+    @Operation(
+        summary = "Assign device users to events group (single or bulk)",
+        description = "Assigns one or more device users to an events group. " +
+                     "Supports both single and bulk assignment in one endpoint. " +
+                     "Request body must contain either 'deviceUserId' (string) for single assignment " +
+                     "or 'deviceUserIds' (array) for bulk assignment. " +
+                     "Skips users already assigned to the group. " +
+                     "Returns count of newly assigned users and list of mapping details."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "201", description = "Users assigned successfully (Created)"),
+        @ApiResponse(responseCode = "400", description = "Invalid request - missing or invalid deviceUserId/deviceUserIds"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have permission"),
+        @ApiResponse(responseCode = "404", description = "Group or device user not found")
+    })
     public ResponseEntity<Map<String, Object>> assignDeviceUsers(
             HttpServletRequest request,
+            @Parameter(description = "Events group ID", required = true)
             @PathVariable String groupId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                description = "Device user assignment payload. " +
+                             "For single: {\"deviceUserId\": \"user-id\"}, " +
+                             "For bulk: {\"deviceUserIds\": [\"user-id-1\", \"user-id-2\"]}",
+                required = true
+            )
             @RequestBody Map<String, Object> body
     ) {
         String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
@@ -570,14 +674,23 @@ public class EventsGroupController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    /**
-     * Remove device user from group
-     */
     @DeleteMapping("/{groupId}/device-users/{deviceUserId}")
-    @Operation(summary = "Remove device user from events group")
+    @Operation(
+        summary = "Remove device user from events group",
+        description = "Removes the mapping between a device user and an events group. " +
+                     "The device user itself is not deleted, only the group membership."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "204", description = "User removed from group successfully (No Content)"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have permission"),
+        @ApiResponse(responseCode = "404", description = "Group, device user, or mapping not found")
+    })
     public ResponseEntity<Void> removeDeviceUser(
             HttpServletRequest request,
+            @Parameter(description = "Events group ID", required = true)
             @PathVariable String groupId,
+            @Parameter(description = "Device user ID to remove", required = true)
             @PathVariable String deviceUserId
     ) {
         String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
@@ -587,13 +700,21 @@ public class EventsGroupController {
         return ResponseEntity.noContent().build();
     }
 
-    /**
-     * Get all device users in a group
-     */
     @GetMapping("/{groupId}/device-users")
-    @Operation(summary = "Get all device users in events group")
+    @Operation(
+        summary = "Get all device users in events group",
+        description = "Retrieves all device users (API key or Azure AD users) assigned to a specific events group. " +
+                     "Returns mapping details including assignment timestamp and assigned by user."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved device users"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have access to this tenant"),
+        @ApiResponse(responseCode = "404", description = "Group not found")
+    })
     public ResponseEntity<List<DeviceUserGroupMappingDto>> getDeviceUsersInGroup(
             HttpServletRequest request,
+            @Parameter(description = "Events group ID", required = true)
             @PathVariable String groupId
     ) {
         String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
@@ -608,13 +729,22 @@ public class EventsGroupController {
         return ResponseEntity.ok(dtos);
     }
 
-    /**
-     * Get all groups for a device user
-     */
     @GetMapping("/device-users/{deviceUserId}/groups")
-    @Operation(summary = "Get all groups for a device user")
+    @Operation(
+        summary = "Get all groups for a device user",
+        description = "Retrieves all events groups that a specific device user is assigned to. " +
+                     "Returns full group details for each assignment. " +
+                     "Useful for checking which groups a user belongs to."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved groups"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have access to this tenant"),
+        @ApiResponse(responseCode = "404", description = "Device user not found")
+    })
     public ResponseEntity<List<EventsGroupDto>> getGroupsForDeviceUser(
             HttpServletRequest request,
+            @Parameter(description = "Device user ID", required = true)
             @PathVariable String deviceUserId
     ) {
         String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
@@ -631,13 +761,22 @@ public class EventsGroupController {
 
     // ================== Policy Assignments ==================
 
-    /**
-     * Get all policy assignments for an events group
-     */
     @GetMapping("/{groupId}/policies")
-    @Operation(summary = "Get all policy assignments for events group")
+    @Operation(
+        summary = "Get all policy assignments for events group",
+        description = "Retrieves all policy assignments for a specific events group. " +
+                     "Returns group details along with count and list of all assigned policies. " +
+                     "Policies are assigned externally and tracked in the policy_assignments table."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved policy assignments"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have access to this tenant"),
+        @ApiResponse(responseCode = "404", description = "Group not found")
+    })
     public ResponseEntity<Map<String, Object>> getGroupPolicies(
             HttpServletRequest request,
+            @Parameter(description = "Events group ID", required = true)
             @PathVariable String groupId
     ) {
         String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
