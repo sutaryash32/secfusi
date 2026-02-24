@@ -304,6 +304,7 @@ public class AuthConfigService {
                                     new ResourceNotFoundException("User tenant type is missing"));
 
             response.setUserType(userTenantType);
+            response.setSsoType(authProviderConfigRepository.findByTenant(tenantFromRequest).get().getSsoType());
 
             // Convert mapped groups → Set<GroupsLean>
             log.debug("Mapping user groups and roles");
