@@ -170,4 +170,21 @@ public interface EventsGroupRepository extends JpaRepository<EventsGroup, String
      * @return Count of authorized groups
      */
     long countByTenantIdAndAuthorized(String tenantId, Boolean authorized);
+
+    /**
+     * Get the last sync time for Azure groups in a tenant
+     * Returns the most recent syncedAt timestamp
+     *
+     * @param tenantId Tenant ID
+     * @param groupType Group type (AZURE_GROUP)
+     * @return Last sync timestamp or null if never synced
+     */
+    @Query("SELECT MAX(g.syncedAt) FROM EventsGroup g " +
+           "WHERE g.tenantId = :tenantId " +
+           "AND g.groupType = :groupType " +
+           "AND g.syncedAt IS NOT NULL")
+    java.time.Instant findLastSyncTimeByTenantIdAndGroupType(
+        @Param("tenantId") String tenantId,
+        @Param("groupType") EventsGroup.GroupType groupType
+    );
 }
