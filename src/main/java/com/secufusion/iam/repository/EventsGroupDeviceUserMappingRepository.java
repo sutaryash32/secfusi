@@ -201,4 +201,6 @@ public interface EventsGroupDeviceUserMappingRepository extends JpaRepository<Ev
            "AND (g.authorized = true OR g.authorized IS NULL) " +
            "GROUP BY du.pkDeviceUserId, du.email, du.displayName, du.userName, du.source")
     List<UserGroupMembershipStats> getUserGroupMembershipStatsByTenant(@Param("tenantId") String tenantId);
+
+    List<EventsGroupDeviceUserMapping> findByFkEventsGroupIdIn(List<String> groupIds);
 }
