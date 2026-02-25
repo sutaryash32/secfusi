@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -340,4 +341,128 @@ public class EventsGroupService {
     public boolean exists(String tenantId, String groupId) {
         return groupRepository.existsByIdAndTenantId(groupId, tenantId);
     }
+
+    /**
+     * Authorize an Azure AD group and persist it to database
+     * This is the ONLY way Azure groups enter the database
+     *
+     * @param tenantId Tenant ID
+     * @param azureGroupId Azure AD group OID
+     * @param azureGroupDisplayName Display name from Azure AD
+     * @param authorizedBy Admin who authorized the group
+     * @return Persisted EventsGroup entity
+     */
+    @Transactional
+    public EventsGroup authorizeAndPersistAzureGroup(
+            String tenantId,
+            String azureGroupId,
+            String azureGroupDisplayName,
+            String authorizedBy) {
+
+        log.info("Authorizing and persisting Azure group: {} for tenant: {}", azureGroupId, tenantId);
+
+        // Check if already exists (prevent duplicates)
+        Optional<EventsGroup> existingGroup = groupRepository
+                .findByTenantIdAndAzureGroupId(tenantId, azureGroupId);
+
+        if (existingGroup.isPresent()) {
+            EventsGroup group = existingGroup.get();
+            if (!group.getAuthorized()) {
+                // Update to authorized
+                group.setAuthorized(true);
+                group.setUpdatedBy(authorizedBy);
+                group.setUpdatedAt(Instant.now());
+                group.setSyncedAt(Instant.now());
+                log.info("Updated existing Azure group {} to authorized", azureGroupId);
+                return groupRepository.save(group);
+            }
+            log.info("Azure group {} already authorized", azureGroupId);
+            return group; // Already authorized
+        }
+
+        // Create new authorized group
+        EventsGroup newGroup = new EventsGroup();
+        newGroup.setPkEventsGroupId(UUID.randomUUID().toString());
+        newGroup.setTenantId(tenantId);
+        newGroup.setName(azureGroupDisplayName);
+        newGroup.setDescription("Authorized Azure AD group");
+        newGroup.setGroupType(EventsGroup.GroupType.AZURE_GROUP);
+        newGroup.setAuthorized(true);  // ALWAYS true when created via this method
+        newGroup.setAzureGroupId(azureGroupId);
+        newGroup.setAzureGroupDisplayName(azureGroupDisplayName);
+        newGroup.setSyncedAt(Instant.now());
+        newGroup.setIsDefault(false);
+        newGroup.setIsActive(true);
+        newGroup.setCreatedBy(authorizedBy);
+        newGroup.setUpdatedBy(authorizedBy);
+
+        log.info("Created new authorized Azure group: {}", azureGroupId);
+        return groupRepository.save(newGroup);
+    }
+
+    /**
+     * Unauthorize and REMOVE Azure group from database
+     * Since unauthorized groups are not stored, unauthorizing means deletion
+     *
+     * @param tenantId Tenant ID
+     * @param groupId Events group ID (database ID)
+     * @param unauthorizedBy Admin who unauthorized the group
+     */
+    @Transactional
+    public void unauthorizeAndRemoveAzureGroup(
+            String tenantId,
+            String groupId,
+            String unauthorizedBy) {
+
+        EventsGroup group = groupRepository.findByIdAndTenantId(groupId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Group not found"));
+
+        if (group.getGroupType() != EventsGroup.GroupType.AZURE_GROUP) {
+            throw new IllegalArgumentException("Only Azure groups can be unauthorized via this method");
+        }
+
+        // Check if group has assigned users or policies
+        long userCount = mappingRepository.countByFkEventsGroupId(groupId);
+        long policyCount = policyAssignmentRepository.countByEventsGroupIdAndTenantId(groupId, tenantId);
+
+        if (userCount > 0 || policyCount > 0) {
+            throw new IllegalStateException(
+                    String.format("Cannot unauthorize group with %d users and %d policies. " +
+                            "Remove assignments first.", userCount, policyCount)
+            );
+        }
+
+        // Hard delete from database (no soft delete for unauthorized Azure groups)
+        groupRepository.delete(group);
+
+        log.info("Azure group {} unauthorized and removed from database by {}",
+                group.getAzureGroupId(), unauthorizedBy);
+    }
+
+    /**
+     * Handle unauthorization for groups
+     * For Azure groups: removes from database (hard delete)
+     * For APIKEY groups: just updates authorized flag
+     *
+     * @param tenantId Tenant ID
+     * @param groupId Group ID (database ID)
+     * @param userEmail User email
+     * @param isAzureTenant Whether tenant is Azure tenant
+     * @return Unauthorized group (before deletion for Azure groups)
+     */
+    @Transactional
+    public EventsGroup handleGroupUnauthorization(String tenantId, String groupId, String userEmail, boolean isAzureTenant) {
+        EventsGroup group = getGroupById(tenantId, groupId);
+
+        if (isAzureTenant && group.getGroupType() == EventsGroup.GroupType.AZURE_GROUP) {
+            // For Azure groups, unauthorize means delete from database
+            unauthorizeAndRemoveAzureGroup(tenantId, groupId, userEmail);
+            // Return the group object before deletion for response
+            return group;
+        } else {
+            // For APIKEY groups or non-Azure groups, just update authorization flag
+            return unauthorizeGroup(tenantId, groupId, userEmail);
+        }
+    }
+
 }

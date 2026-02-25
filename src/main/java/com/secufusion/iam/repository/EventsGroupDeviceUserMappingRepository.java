@@ -1,6 +1,8 @@
 package com.secufusion.iam.repository;
 
 import com.secufusion.iam.entity.EventsGroupDeviceUserMapping;
+import com.secufusion.iam.repository.projection.GroupMembershipStats;
+import com.secufusion.iam.repository.projection.UserGroupMembershipStats;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -159,4 +161,43 @@ public interface EventsGroupDeviceUserMappingRepository extends JpaRepository<Ev
         @Param("groupId") String groupId,
         @Param("tenantId") String tenantId
     );
+    /**
+     * Get group membership statistics by tenant
+     * Returns aggregated data: group_id, group_name, group_type, user_count
+     *
+     * @param tenantId Tenant ID
+     * @return List of GroupMembershipStats projections
+     */
+    @Query("SELECT g.pkEventsGroupId as groupId, " +
+           "g.name as groupName, " +
+           "g.groupType as groupType, " +
+           "COUNT(m.pkMappingId) as userCount " +
+           "FROM EventsGroup g " +
+           "LEFT JOIN EventsGroupDeviceUserMapping m ON g.pkEventsGroupId = m.fkEventsGroupId " +
+           "WHERE g.tenantId = :tenantId " +
+           "AND g.isActive = true " +
+           "GROUP BY g.pkEventsGroupId, g.name, g.groupType")
+    List<GroupMembershipStats> getGroupMembershipStatsByTenant(@Param("tenantId") String tenantId);
+
+    /**
+     * Get user group membership statistics by tenant
+     * Returns aggregated data: device_user_id, email, display_name, source, group_count
+     * Only counts authorized groups
+     *
+     * @param tenantId Tenant ID
+     * @return List of UserGroupMembershipStats projections
+     */
+    @Query("SELECT du.pkDeviceUserId as deviceUserId, " +
+           "du.email as email, " +
+           "du.displayName as displayName, " +
+           "du.source as source, " +
+           "COUNT(m.pkMappingId) as groupCount " +
+           "FROM DeviceUser du " +
+           "LEFT JOIN EventsGroupDeviceUserMapping m ON du.pkDeviceUserId = m.fkDeviceUserId " +
+           "LEFT JOIN EventsGroup g ON m.fkEventsGroupId = g.pkEventsGroupId " +
+           "WHERE du.tenantId = :tenantId " +
+           "AND du.isActive = true " +
+           "AND (g.authorized = true OR g.authorized IS NULL) " +
+           "GROUP BY du.pkDeviceUserId, du.email, du.displayName, du.source")
+    List<UserGroupMembershipStats> getUserGroupMembershipStatsByTenant(@Param("tenantId") String tenantId);
 }

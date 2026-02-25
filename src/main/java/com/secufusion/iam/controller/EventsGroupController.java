@@ -1,11 +1,13 @@
 package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.*;
+import com.secufusion.iam.entity.DeviceUser;
 import com.secufusion.iam.entity.EventsGroup;
 import com.secufusion.iam.entity.EventsGroupDeviceUserMapping;
 import com.secufusion.iam.entity.PolicyAssignment;
 import com.secufusion.iam.entity.Tenant;
-import com.secufusion.iam.repository.EventsGroupRepository;
+import com.secufusion.iam.exception.ResourceNotFoundException;
+import com.secufusion.iam.repository.DeviceUserRepository;
 import com.secufusion.iam.repository.PolicyAssignmentRepository;
 import com.secufusion.iam.service.AzureGroupSyncService;
 import com.secufusion.iam.service.DeviceUserGroupMappingService;
@@ -13,8 +15,6 @@ import com.secufusion.iam.service.EventsGroupService;
 import com.secufusion.iam.util.JwtUtl;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -43,19 +43,29 @@ public class EventsGroupController {
     private final AzureGroupSyncService azureGroupSyncService;
     private final DeviceUserGroupMappingService mappingService;
     private final PolicyAssignmentRepository policyAssignmentRepository;
-    private final EventsGroupRepository eventsGroupRepository;
+    private final DeviceUserRepository deviceUserRepository;
     private final JwtUtl jwtUtil;
-
-    // ================== Group Management ==================
 
     @GetMapping
     @Operation(
         summary = "Get all events groups for tenant",
-        description = "Retrieves all events groups for the authenticated tenant. " +
-                     "Returns APIKEY_GROUP for APIKEY tenants, AZURE_GROUP for AZURE tenants. " +
-                     "Includes policy assignment counts by type (browser, network, extension policies) for each group. " +
-                     "Optionally returns full policy details with includePolicies=true. " +
-                     "Azure-specific fields (azureGroupId, azureGroupDisplayName, syncedAt) are excluded for APIKEY tenants."
+        description = "Retrieves all events groups for the authenticated tenant with different behavior based on tenant type.\n\n" +
+                     "**For APIKEY Tenants:**\n" +
+                     "- Returns all APIKEY_GROUP groups from database\n" +
+                     "- All groups are authorized by default\n" +
+                     "- Includes: group details, policy counts, device user assignments\n" +
+                     "- Azure-specific fields are excluded\n\n" +
+                     "**For AZURE Tenants:**\n" +
+                     "- **authorizedOnly=false** (default): Fetches ALL groups directly from Azure AD API (Microsoft Graph)\n" +
+                     "  - Shows both authorized (stored in DB) and unauthorized groups (from Azure AD only)\n" +
+                     "  - Unauthorized groups have pkEventsGroupId=null, authorized=false\n" +
+                     "  - Unauthorized groups cannot have policies or device users assigned\n" +
+                     "- **authorizedOnly=true**: Returns only authorized groups from database\n" +
+                     "  - Shows only groups that have been explicitly authorized and persisted\n" +
+                     "  - These groups can have policies and device users assigned\n\n" +
+                     "**Optional Parameters:**\n" +
+                     "- includePolicies=true: Include detailed policy assignment information\n" +
+                     "- Includes policy counts by type (browser, network, extension) for all groups"
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Successfully retrieved groups"),
@@ -64,7 +74,7 @@ public class EventsGroupController {
     })
     public ResponseEntity<List<Map<String, Object>>> getAllGroups(
             HttpServletRequest request,
-            @Parameter(description = "Filter to show only authorized groups (default: false, shows all)")
+            @Parameter(description = "Filter to show only authorized groups. For Azure tenants: true = only authorized from DB, false/null = all groups from Azure AD API (default: false)")
             @RequestParam(required = false) Boolean authorizedOnly,
             @Parameter(description = "Include full policy assignment details in response (default: false, only returns count and policy names)")
             @RequestParam(required = false, defaultValue = "false") Boolean includePolicies
@@ -73,6 +83,7 @@ public class EventsGroupController {
         Tenant tenant = jwtUtil.getTenantFromRequest(request);
         String tenantId = tenant.getTenantID();
         String ssoType = tenant.getAuthProviderConfig().getSsoType();
+        boolean isAzureTenant = "AZURE".equalsIgnoreCase(ssoType);
 
         log.info("Fetching events groups for tenant: {} (ssoType={}, authorizedOnly={}, includePolicies={})",
                 tenantId, ssoType, authorizedOnly, includePolicies);
@@ -82,7 +93,12 @@ public class EventsGroupController {
             return ResponseEntity.ok(List.of());
         }
 
-        // Resolve group type based on SSO
+        // For Azure tenants when authorizedOnly is not explicitly true, fetch from Azure AD API
+        if (isAzureTenant && !Boolean.TRUE.equals(authorizedOnly)) {
+            return handleAzureGroupsWithUnauthorized(tenantId, false, includePolicies);
+        }
+
+        // Standard flow: fetch from database only (for APIKEY tenants or Azure with authorizedOnly=true)
         List<EventsGroup> groups = resolveGroupsBySsoType(tenantId, ssoType);
 
         // Filter authorized if needed
@@ -283,10 +299,18 @@ public class EventsGroupController {
 
     @PostMapping
     @Operation(
-        summary = "Create new API key group",
+        summary = "Create new API key group (APIKEY tenants only)",
         description = "Creates a new APIKEY_GROUP for the tenant. " +
-                     "API key groups are manually created by admins and default to authorized=true. " +
-                     "Group name must be unique within the tenant."
+                     "\n\n**For APIKEY Tenants:**\n" +
+                     "- Groups are manually created by admins\n" +
+                     "- Automatically set to authorized=true upon creation\n" +
+                     "- Group name must be unique within the tenant\n" +
+                     "- Stored in database with groupType=APIKEY_GROUP\n" +
+                     "\n**For AZURE Tenants:**\n" +
+                     "- This endpoint is NOT used\n" +
+                     "- Azure groups are fetched from Azure AD API\n" +
+                     "- Use GET /events-groups to see all Azure groups\n" +
+                     "- Use PUT /events-groups/groups/{azureGroupId}/authorize to authorize and persist"
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "201", description = "Group created successfully"),
@@ -359,10 +383,26 @@ public class EventsGroupController {
     @PutMapping("/groups/{groupId}/{action}")
     @Operation(
         summary = "Authorize or unauthorize a group (admin operation)",
-        description = "Changes the authorization status of a group. " +
-                     "Authorized groups can be used for policy assignments. " +
-                     "Azure groups default to unauthorized and require admin approval. " +
-                     "Action must be either 'authorize' or 'unauthorize'."
+        description = "Changes the authorization status of a group with different behavior based on tenant type and action.\n\n" +
+                     "**For APIKEY Tenants:**\n" +
+                     "- **Authorize**: Sets authorized=true (group already exists in database)\n" +
+                     "- **Unauthorize**: Sets authorized=false (group remains in database)\n" +
+                     "- groupId is always the database ID (pkEventsGroupId)\n\n" +
+                     "**For AZURE Tenants - Authorize:**\n" +
+                     "- groupId can be either:\n" +
+                     "  1. **Azure Group ID** (from Azure AD): Fetches group details from Microsoft Graph API and persists to database\n" +
+                     "  2. **Database ID** (pkEventsGroupId): Updates existing authorized group\n" +
+                     "- Smart detection: automatically determines if groupId is Azure Group ID or database ID\n" +
+                     "- If Azure Group ID: validates group exists in Azure AD, then creates database record with authorized=true\n" +
+                     "- If database ID: updates authorized flag to true\n\n" +
+                     "**For AZURE Tenants - Unauthorize:**\n" +
+                     "- groupId must be database ID (pkEventsGroupId)\n" +
+                     "- **HARD DELETE**: Completely removes group from database\n" +
+                     "- Cannot unauthorize groups with assigned device users or policies\n" +
+                     "- After unauthorization, group still exists in Azure AD but won't be stored locally\n\n" +
+                     "**Actions:**\n" +
+                     "- 'authorize': Make group available for policy assignments and device user mappings\n" +
+                     "- 'unauthorize': Remove group from policy assignments (APIKEY) or delete from database (AZURE)"
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Authorization status updated successfully"),
@@ -373,21 +413,25 @@ public class EventsGroupController {
     })
     public ResponseEntity<EventsGroupDto> setAuthorization(
             HttpServletRequest request,
-            @Parameter(description = "Events group ID", required = true)
+            @Parameter(description = "Events group ID (database ID) or Azure Group ID", required = true)
             @PathVariable String groupId,
             @Parameter(description = "Action to perform: 'authorize' or 'unauthorize'", required = true, example = "authorize")
             @PathVariable String action
     ) {
 
-        String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        String tenantId = tenant.getTenantID();
         String userEmail = jwtUtil.getUserFromRequest(request).getEmail();
+        boolean isAzureTenant = "AZURE".equalsIgnoreCase(tenant.getAuthProviderConfig().getSsoType());
 
         log.info("Setting authorization for group: {} with action: {} for tenant: {} by user: {}",
                 groupId, action, tenantId, userEmail);
 
         EventsGroup updated = switch (action.toLowerCase()) {
-            case "authorize" -> eventsGroupService.authorizeGroup(tenantId, groupId, userEmail);
-            case "unauthorize" -> eventsGroupService.unauthorizeGroup(tenantId, groupId, userEmail);
+            case "authorize" -> isAzureTenant
+                    ? azureGroupSyncService.authorizeAzureGroupById(tenant, groupId, userEmail)
+                    : eventsGroupService.authorizeGroup(tenantId, groupId, userEmail);
+            case "unauthorize" -> eventsGroupService.handleGroupUnauthorization(tenantId, groupId, userEmail, isAzureTenant);
             default -> throw new IllegalArgumentException("Invalid action. Allowed values: authorize, unauthorize");
         };
 
@@ -421,228 +465,7 @@ public class EventsGroupController {
         return ResponseEntity.noContent().build();
     }
 
-    // ================== Azure Group Sync ==================
-
-    @GetMapping("/azure-sync-status")
-    @Operation(
-        summary = "Get Azure sync status and last sync information (Azure tenants only)",
-        description = "Returns comprehensive Azure group sync status including: " +
-                     "current sync state (IN_PROGRESS, COMPLETED, FAILED, NEVER_SYNCED), " +
-                     "last sync time from database, last sync statistics, cooldown information, " +
-                     "and group counts (total, authorized, unauthorized). " +
-                     "Only available for tenants with Azure SSO configured."
-    )
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Successfully retrieved sync status"),
-        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
-        @ApiResponse(responseCode = "403", description = "Forbidden - Tenant does not have Azure SSO configured")
-    })
-    public ResponseEntity<Map<String, Object>> getAzureSyncStatus(
-            HttpServletRequest request
-    ) {
-        Tenant tenant = jwtUtil.getTenantFromRequest(request);
-        String tenantId = tenant.getTenantID();
-        String ssoType = tenant.getAuthProviderConfig() != null ?
-                         tenant.getAuthProviderConfig().getSsoType() : null;
-
-        log.info("Fetching Azure sync status for tenant: {} (ssoType={})", tenantId, ssoType);
-
-        // Strict validation: Only Azure SSO tenants allowed
-        if (!"AZURE".equalsIgnoreCase(ssoType)) {
-            log.warn("Access denied to Azure sync status. Tenant {} has SSO type: {}", tenantId, ssoType);
-            return ResponseEntity
-                    .status(HttpStatus.FORBIDDEN)
-                    .body(Map.of(
-                            "status", "error",
-                            "message", "Azure sync features are only available for tenants with Azure SSO configured. Your tenant SSO type: " +
-                                      (ssoType != null ? ssoType : "NONE")
-                    ));
-        }
-
-        Map<String, Object> response = new HashMap<>();
-
-        // Get current sync status from cache
-        AzureSyncStatus syncStatus = azureGroupSyncService.getSyncStatus(tenantId);
-
-        if (syncStatus != null) {
-            response.put("currentSyncStatus", syncStatus.getStatus().name());
-            response.put("currentSyncMessage", syncStatus.getMessage());
-
-            if (syncStatus.getStartedAt() != null) {
-                response.put("currentSyncStartedAt", syncStatus.getStartedAt());
-            }
-
-            if (syncStatus.getStatus() == AzureSyncStatus.Status.COMPLETED) {
-                response.put("lastSyncCompletedAt", syncStatus.getCompletedAt());
-                response.put("lastSyncTotalFetched", syncStatus.getTotalFetched());
-                response.put("lastSyncNewGroups", syncStatus.getNewGroups());
-                response.put("lastSyncUpdatedGroups", syncStatus.getUpdatedGroups());
-
-                long remainingSeconds = azureGroupSyncService.getRemainingCooldownSeconds(tenantId);
-                response.put("canSyncAgain", remainingSeconds == 0);
-                response.put("cooldownRemainingSeconds", remainingSeconds);
-
-                if (remainingSeconds > 0) {
-                    long minutes = remainingSeconds / 60;
-                    long seconds = remainingSeconds % 60;
-                    response.put("cooldownRemainingMinutes", minutes);
-                    response.put("cooldownMessage", String.format("Can sync again in %d minute(s) and %d second(s)", minutes, seconds));
-                }
-            } else if (syncStatus.getStatus() == AzureSyncStatus.Status.FAILED) {
-                response.put("lastSyncFailedAt", syncStatus.getCompletedAt());
-                response.put("lastSyncError", syncStatus.getErrorMessage());
-                response.put("canSyncAgain", true);
-            } else if (syncStatus.getStatus() == AzureSyncStatus.Status.IN_PROGRESS) {
-                response.put("canSyncAgain", false);
-            }
-        } else {
-            response.put("currentSyncStatus", "NEVER_SYNCED");
-            response.put("canSyncAgain", true);
-        }
-
-        // Get last successful sync time from database
-        java.time.Instant lastDbSyncTime = eventsGroupRepository.findLastSyncTimeByTenantIdAndGroupType(
-                tenantId,
-                EventsGroup.GroupType.AZURE_GROUP
-        );
-
-        if (lastDbSyncTime != null) {
-            response.put("lastDatabaseSyncTime", lastDbSyncTime);
-        }
-
-        // Count Azure groups
-        List<EventsGroup> azureGroups = eventsGroupService.getGroupsByType(
-                tenantId,
-                EventsGroup.GroupType.AZURE_GROUP
-        );
-        long totalAzureGroups = azureGroups.size();
-        long authorizedAzureGroups = azureGroups.stream().filter(EventsGroup::getAuthorized).count();
-
-        response.put("totalAzureGroups", totalAzureGroups);
-        response.put("authorizedAzureGroups", authorizedAzureGroups);
-        response.put("unauthorizedAzureGroups", totalAzureGroups - authorizedAzureGroups);
-
-        return ResponseEntity.ok(response);
-    }
-
-    @PostMapping("/sync-azure")
-    @Operation(
-        summary = "Initiate Azure AD group sync (async, Azure tenants only)",
-        description = "Initiates asynchronous Azure AD group synchronization from Microsoft Graph API. " +
-                     "Creates or updates AZURE_GROUP records in the database. " +
-                     "Returns immediately with 202 Accepted status while sync runs in background. " +
-                     "Enforces 10-minute cooldown period between successful syncs. " +
-                     "Failed syncs can be retried immediately. " +
-                     "Returns 409 Conflict if sync already in progress, 429 Too Many Requests if in cooldown period. " +
-                     "Only available for tenants with Azure SSO configured."
-    )
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "202", description = "Sync initiated successfully (Accepted)"),
-        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
-        @ApiResponse(responseCode = "403", description = "Forbidden - Tenant does not have Azure SSO configured"),
-        @ApiResponse(responseCode = "409", description = "Conflict - Sync already in progress"),
-        @ApiResponse(responseCode = "429", description = "Too Many Requests - Cooldown period active, wait before syncing again")
-    })
-    public ResponseEntity<Map<String, Object>> syncAzureGroups(
-            HttpServletRequest request
-    ) {
-        Tenant tenant = jwtUtil.getTenantFromRequest(request);
-        String tenantId = tenant.getTenantID();
-        String ssoType = tenant.getAuthProviderConfig() != null ?
-                         tenant.getAuthProviderConfig().getSsoType() : null;
-
-        log.info("Received Azure group sync request for tenant: {} (ssoType={})", tenantId, ssoType);
-
-        // Strict validation: Only Azure SSO tenants allowed
-        if (!"AZURE".equalsIgnoreCase(ssoType)) {
-            log.warn("Access denied to Azure sync. Tenant {} has SSO type: {}", tenantId, ssoType);
-            return ResponseEntity
-                    .status(HttpStatus.FORBIDDEN)
-                    .body(Map.of(
-                            "status", "error",
-                            "message", "Azure group sync is only available for tenants with Azure SSO configured. Your tenant SSO type: " +
-                                      (ssoType != null ? ssoType : "NONE")
-                    ));
-        }
-
-        // Check if sync already in progress
-        if (azureGroupSyncService.isSyncInProgress(tenantId)) {
-            log.info("Sync already in progress for tenant: {}", tenantId);
-            return ResponseEntity
-                    .status(HttpStatus.CONFLICT)
-                    .body(Map.of(
-                            "status", "in_progress",
-                            "message", "Azure group sync is already in progress. Please wait for it to complete."
-                    ));
-        }
-
-        // Check if sync was recently completed and show results
-        AzureSyncStatus existingStatus = azureGroupSyncService.getSyncStatus(tenantId);
-        if (existingStatus != null && existingStatus.getStatus() == AzureSyncStatus.Status.COMPLETED) {
-            long remainingSeconds = azureGroupSyncService.getRemainingCooldownSeconds(tenantId);
-
-            if (remainingSeconds > 0) {
-                long minutes = remainingSeconds / 60;
-                long seconds = remainingSeconds % 60;
-
-                log.info("Sync already completed for tenant: {}. Cooldown: {}m {}s", tenantId, minutes, seconds);
-
-                Map<String, Object> response = new HashMap<>();
-                response.put("status", "already_synced");
-                response.put("message", String.format("Azure groups were already synced. Please wait %d minute(s) and %d second(s) before syncing again.", minutes, seconds));
-                response.put("totalFetched", existingStatus.getTotalFetched());
-                response.put("newGroups", existingStatus.getNewGroups());
-                response.put("updatedGroups", existingStatus.getUpdatedGroups());
-                response.put("completedAt", existingStatus.getCompletedAt());
-                response.put("remainingSeconds", remainingSeconds);
-                response.put("remainingMinutes", minutes);
-
-                return ResponseEntity
-                        .status(HttpStatus.TOO_MANY_REQUESTS)
-                        .body(response);
-            }
-        }
-
-        // Check cooldown period (should not reach here if already completed, but as safety)
-        if (!azureGroupSyncService.canSync(tenantId)) {
-            long remainingSeconds = azureGroupSyncService.getRemainingCooldownSeconds(tenantId);
-            long minutes = remainingSeconds / 60;
-            long seconds = remainingSeconds % 60;
-
-            log.info("Sync cooldown active for tenant: {}. Remaining: {}m {}s", tenantId, minutes, seconds);
-            return ResponseEntity
-                    .status(HttpStatus.TOO_MANY_REQUESTS)
-                    .body(Map.of(
-                            "status", "cooldown",
-                            "message", String.format("Please wait %d minute(s) and %d second(s) before syncing again.", minutes, seconds),
-                            "remainingSeconds", remainingSeconds,
-                            "remainingMinutes", minutes
-                    ));
-        }
-
-        // Initiate async sync
-        try {
-            AzureSyncStatus status = azureGroupSyncService.initiateSync(tenantId);
-
-            return ResponseEntity
-                    .accepted()
-                    .body(Map.of(
-                            "status", "accepted",
-                            "message", "Azure group sync has been initiated. It will take some time to complete. Please try again after 10 minutes to check if sync is completed.",
-                            "startedAt", status.getStartedAt()
-                    ));
-        } catch (IllegalStateException e) {
-            log.error("Failed to initiate sync for tenant: {}", tenantId, e);
-            return ResponseEntity
-                    .badRequest()
-                    .body(Map.of(
-                            "status", "error",
-                            "message", e.getMessage()
-                    ));
-        }
-    }
-
-    // ================== Device User Assignment ==================
+    // ================== 2. Device User Assignment (POST, GET, DELETE) ==================
 
     @PostMapping("/{groupId}/device-users")
     @Operation(
@@ -784,37 +607,7 @@ public class EventsGroupController {
         return ResponseEntity.ok(dtos);
     }
 
-    @GetMapping("/device-users/{deviceUserId}/groups")
-    @Operation(
-        summary = "Get all groups for a device user",
-        description = "Retrieves all events groups that a specific device user is assigned to. " +
-                     "Returns full group details for each assignment. " +
-                     "Useful for checking which groups a user belongs to."
-    )
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Successfully retrieved groups"),
-        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
-        @ApiResponse(responseCode = "403", description = "Forbidden - User does not have access to this tenant"),
-        @ApiResponse(responseCode = "404", description = "Device user not found")
-    })
-    public ResponseEntity<List<EventsGroupDto>> getGroupsForDeviceUser(
-            HttpServletRequest request,
-            @Parameter(description = "Device user ID", required = true)
-            @PathVariable String deviceUserId
-    ) {
-        String tenantId = jwtUtil.getTenantFromRequest(request).getTenantID();
-        log.info("Fetching groups for device user: {} in tenant: {}", deviceUserId, tenantId);
-
-        List<EventsGroup> groups = mappingService.getGroupsForDeviceUser(tenantId, deviceUserId);
-
-        List<EventsGroupDto> dtos = groups.stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
-
-        return ResponseEntity.ok(dtos);
-    }
-
-    // ================== Policy Assignments ==================
+    // ================== 3. Policy Assignments (GET) ==================
 
     @GetMapping("/{groupId}/policies")
     @Operation(
@@ -881,7 +674,7 @@ public class EventsGroupController {
         return ResponseEntity.ok(response);
     }
 
-    // ================== Helper Methods ==================
+    // ================== 4. Statistics (GET) ==================
 
     private EventsGroupDto convertToDto(EventsGroup group) {
         return EventsGroupDto.builder()
@@ -975,6 +768,23 @@ public class EventsGroupController {
         return builder.build();
     }
 
+    /**
+     * Handle Azure groups with unauthorized groups from Azure AD API
+     */
+    private ResponseEntity<List<Map<String, Object>>> handleAzureGroupsWithUnauthorized(
+            String tenantId,
+            Boolean authorizedOnly,
+            Boolean includePolicies) {
+
+        List<Map<String, Object>> response = azureGroupSyncService.getAzureGroupsWithPolicyInfo(
+                tenantId,
+                authorizedOnly,
+                includePolicies
+        );
+
+        return ResponseEntity.ok(response);
+    }
+
     private List<EventsGroup> resolveGroupsBySsoType(String tenantId, String ssoType) {
 
         return switch (ssoType.toUpperCase()) {
@@ -987,6 +797,184 @@ public class EventsGroupController {
             default ->
                     eventsGroupService.getAllGroups(tenantId);
         };
+    }
+
+    // ================== 5. Helper Methods ==================
+
+    /**
+     * Get group membership statistics
+     */
+    @GetMapping("/stats/memberships")
+    @Operation(
+            summary = "Get group membership statistics",
+            description = "Returns statistics showing how many users belong to each group"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Successfully retrieved group membership statistics"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden")
+    })
+    public ResponseEntity<List<GroupMembershipStatsDto>> getGroupMembershipStats(
+            HttpServletRequest request) {
+
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        String tenantId = tenant.getTenantID();
+
+        log.info("Fetching group membership statistics for tenant: {}", tenantId);
+
+        List<GroupMembershipStatsDto> stats =
+                mappingService.getGroupMembershipStats(tenantId);
+
+        return ResponseEntity.ok(stats);
+    }
+
+    /**
+     * Get user group membership statistics
+     */
+    @GetMapping("/device-users/stats/memberships")
+    @Operation(
+            summary = "Get device user group membership statistics",
+            description = "Returns statistics showing how many authorized groups each device user belongs to. " +
+                    "Only authorized groups are counted in the statistics. " +
+                    "For APIKEY tenants: All manually created groups are authorized by default. " +
+                    "For AZURE tenants: Only groups that have been explicitly authorized by an admin are counted."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Successfully retrieved user membership statistics"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden")
+    })
+    public ResponseEntity<List<UserGroupMembershipStatsDto>> getUserMembershipStats(
+            HttpServletRequest request) {
+
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        String tenantId = tenant.getTenantID();
+
+        log.info("Fetching user group membership statistics for tenant: {}", tenantId);
+
+        List<UserGroupMembershipStatsDto> stats =
+                mappingService.getUserGroupMembershipStats(tenantId);
+
+        return ResponseEntity.ok(stats);
+    }
+
+    /**
+     * Get all policies mapped to a device user through their group memberships
+     */
+    @GetMapping("/device-users/{deviceUserId}/policies")
+    @Operation(
+            summary = "Get policies for a device user (one per type)",
+            description = "Returns the effective policies for a device user through their group memberships. " +
+                    "IMPORTANT: Returns maximum ONE policy per type (browser, network, extension). " +
+                    "If user belongs to multiple groups with policies of the same type, the first policy found is returned. " +
+                    "For APIKEY tenants: Returns policies from manually assigned groups. " +
+                    "For AZURE tenants: Returns policies from auto-assigned authorized groups based on Azure AD membership."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Successfully retrieved user policies"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden"),
+            @ApiResponse(responseCode = "404", description = "Device user not found")
+    })
+    public ResponseEntity<Map<String, Object>> getPoliciesForDeviceUser(
+            HttpServletRequest request,
+            @PathVariable String deviceUserId) {
+
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        String tenantId = tenant.getTenantID();
+
+        log.info("Fetching policies for device user: {} in tenant: {}", deviceUserId, tenantId);
+
+        // Validate device user exists and belongs to tenant
+        DeviceUser deviceUser = deviceUserRepository.findByIdAndTenantId(deviceUserId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Device user not found"));
+
+        // Get all policy assignments for the user
+        List<PolicyAssignment> policyAssignments = mappingService.resolvePoliciesForDeviceUser(tenantId, deviceUserId);
+
+        // Build response with organized policy information
+        Map<String, Object> response = new HashMap<>();
+        response.put("deviceUserId", deviceUser.getPkDeviceUserId());
+        response.put("email", deviceUser.getEmail());
+        response.put("displayName", deviceUser.getDisplayName());
+        response.put("source", deviceUser.getSource());
+        response.put("totalPolicies", policyAssignments.size());
+
+        // Group policies by type
+        List<Map<String, Object>> browserPolicies = new ArrayList<>();
+        List<Map<String, Object>> networkPolicies = new ArrayList<>();
+        List<Map<String, Object>> extensionPolicies = new ArrayList<>();
+
+        for (PolicyAssignment assignment : policyAssignments) {
+            if (assignment.getBrowserPolicy() != null) {
+                Map<String, Object> policyInfo = new HashMap<>();
+                policyInfo.put("assignmentId", assignment.getId());
+                policyInfo.put("policyId", assignment.getBrowserPolicy().getPkBrowserPolicyId());
+                policyInfo.put("policyName", assignment.getBrowserPolicy().getName());
+                policyInfo.put("assignedTo", assignment.getAzureResourceName());
+                policyInfo.put("assignedAt", assignment.getAssignedAt());
+                browserPolicies.add(policyInfo);
+            }
+
+            if (assignment.getNetworkPolicy() != null) {
+                Map<String, Object> policyInfo = new HashMap<>();
+                policyInfo.put("assignmentId", assignment.getId());
+                policyInfo.put("policyId", assignment.getNetworkPolicy().getPkNetworkPolicyId());
+                policyInfo.put("policyName", assignment.getNetworkPolicy().getName());
+                policyInfo.put("assignedTo", assignment.getAzureResourceName());
+                policyInfo.put("assignedAt", assignment.getAssignedAt());
+                networkPolicies.add(policyInfo);
+            }
+
+            if (assignment.getExtensionPolicy() != null) {
+                Map<String, Object> policyInfo = new HashMap<>();
+                policyInfo.put("assignmentId", assignment.getId());
+                policyInfo.put("policyId", assignment.getExtensionPolicy().getPkExtensionPolicyId());
+                policyInfo.put("policyName", assignment.getExtensionPolicy().getName());
+                policyInfo.put("assignedTo", assignment.getAzureResourceName());
+                policyInfo.put("assignedAt", assignment.getAssignedAt());
+                extensionPolicies.add(policyInfo);
+            }
+        }
+
+        Map<String, Object> policiesByType = new HashMap<>();
+        policiesByType.put("browserPolicies", browserPolicies);
+        policiesByType.put("networkPolicies", networkPolicies);
+        policiesByType.put("extensionPolicies", extensionPolicies);
+
+        response.put("policies", policiesByType);
+
+        log.info("Found {} total policies for device user: {}", policyAssignments.size(), deviceUserId);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Get all groups for a device user with complete details
+     */
+    @GetMapping("/device-users/{deviceUserId}/groups")
+    @Operation(
+            summary = "Get all groups for a device user with details",
+            description = "Returns complete group membership information for a device user including assignment metadata"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Successfully retrieved device user groups"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "404", description = "Device user not found")
+    })
+    public ResponseEntity<DeviceUserWithGroupsDto> getGroupsForDeviceUser(
+            HttpServletRequest request,
+            @PathVariable String deviceUserId) {
+
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        String tenantId = tenant.getTenantID();
+
+        log.info("Fetching groups for device user: {} in tenant: {}", deviceUserId, tenantId);
+
+        DeviceUserWithGroupsDto userWithGroups =
+                mappingService.getDeviceUserWithGroups(tenantId, deviceUserId);
+
+        return ResponseEntity.ok(userWithGroups);
     }
 
 }
