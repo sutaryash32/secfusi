@@ -8,6 +8,7 @@ public interface UserGroupMembershipStats {
     String getDeviceUserId();
     String getEmail();
     String getDisplayName();
+    String getUserName();
     String getSource();
     Long getGroupCount();
 }
