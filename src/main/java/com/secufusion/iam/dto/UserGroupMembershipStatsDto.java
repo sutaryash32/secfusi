@@ -16,6 +16,7 @@ public class UserGroupMembershipStatsDto {
     private String deviceUserId;
     private String email;
     private String displayName;
+    private String userName;
     private String source; // APIKEY, AZURE
     private Long groupCount;
 }

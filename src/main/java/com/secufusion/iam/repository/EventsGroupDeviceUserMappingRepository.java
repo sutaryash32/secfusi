@@ -181,7 +181,7 @@ public interface EventsGroupDeviceUserMappingRepository extends JpaRepository<Ev
 
     /**
      * Get user group membership statistics by tenant
-     * Returns aggregated data: device_user_id, email, display_name, source, group_count
+     * Returns aggregated data: device_user_id, email, display_name, user_name, source, group_count
      * Only counts authorized groups
      *
      * @param tenantId Tenant ID
@@ -190,14 +190,15 @@ public interface EventsGroupDeviceUserMappingRepository extends JpaRepository<Ev
     @Query("SELECT du.pkDeviceUserId as deviceUserId, " +
            "du.email as email, " +
            "du.displayName as displayName, " +
+           "du.userName as userName, " +
            "du.source as source, " +
            "COUNT(m.pkMappingId) as groupCount " +
            "FROM DeviceUser du " +
            "LEFT JOIN EventsGroupDeviceUserMapping m ON du.pkDeviceUserId = m.fkDeviceUserId " +
            "LEFT JOIN EventsGroup g ON m.fkEventsGroupId = g.pkEventsGroupId " +
            "WHERE du.tenantId = :tenantId " +
-           "AND du.isActive = true " +
+           "AND (du.status = 'ACTIVE' OR du.status IS NULL) " +
            "AND (g.authorized = true OR g.authorized IS NULL) " +
-           "GROUP BY du.pkDeviceUserId, du.email, du.displayName, du.source")
+           "GROUP BY du.pkDeviceUserId, du.email, du.displayName, du.userName, du.source")
     List<UserGroupMembershipStats> getUserGroupMembershipStatsByTenant(@Param("tenantId") String tenantId);
 }

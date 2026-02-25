@@ -19,10 +19,11 @@ public class DeviceUserWithGroupsDto {
     private String pkDeviceUserId;
     private String tenantId;
     private String email;
+    private String userName;
     private String displayName;
-    private String source; // APIKEY, AZURE
-    private String azureUserId;
-    private Boolean isActive;
+    private String status; // ACTIVE, INACTIVE
+    private Instant firstSeenAt;
+    private Instant lastSeenAt;
     private Instant createdAt;
     private Instant updatedAt;
 
