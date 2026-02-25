@@ -170,6 +170,7 @@ public class RoleService {
      * @param request HTTP servlet request containing JWT
      * @return list of Roles
      */
+    @Transactional
     public List<Roles> getAllRoles(HttpServletRequest request) {
         Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
         log.info("Fetching all roles for tenantId={}", tenantFromRequest.getTenantID());
@@ -183,6 +184,7 @@ public class RoleService {
      * @param id      role id
      * @return Roles or null if not accessible (caller should handle null)
      */
+    @Transactional
     public Roles getRoleById(HttpServletRequest request, String id) {
         Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
         log.info("Fetching roleId={} for tenantId={}", id, tenantFromRequest.getTenantID());

@@ -51,7 +51,6 @@ public class Roles {
             joinColumns = @JoinColumn(name = "fk_role_id"),
             inverseJoinColumns = @JoinColumn(name = "fk_scope_id")
     )
-    @JsonIgnore
     private Set<Scopes> scopes = new HashSet<>();
 
 }
