@@ -2,9 +2,12 @@ package com.secufusion.iam.service;
 
 import com.secufusion.iam.dto.AzureResourceDto;
 import com.secufusion.iam.dto.AzureSyncStatus;
+import com.secufusion.iam.dto.EventsGroupDto;
 import com.secufusion.iam.entity.EventsGroup;
 import com.secufusion.iam.entity.Tenant;
 import com.secufusion.iam.exception.ResourceNotFoundException;
+import com.secufusion.iam.repository.EventsGroupRepository;
+import com.secufusion.iam.repository.PolicyAssignmentRepository;
 import com.secufusion.iam.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * AzureGroupSyncService
@@ -39,6 +44,8 @@ public class AzureGroupSyncService {
     private final EventsGroupService eventsGroupService;
     private final TenantRepository tenantRepository;
     private final AzureGraphService azureGraphService;
+    private final EventsGroupRepository eventsGroupRepository;
+    private final PolicyAssignmentRepository policyAssignmentRepository;
 
     private static final String SYNC_USER = "AZURE_SYNC_SERVICE";
 
@@ -280,6 +287,230 @@ public class AzureGroupSyncService {
 
             syncStatusCache.put(tenantId, failedStatus);
         }
+    }
+
+    /**
+     * Get Azure groups from Azure AD API and combine with authorization status from DB
+     * This replaces the sync approach - groups are fetched on-demand
+     *
+     * @param tenantId Tenant ID
+     * @param authorizedOnly If true, only return authorized groups; if false, return all from Azure AD
+     * @return List of EventsGroupDto with authorization status
+     */
+    @Transactional(readOnly = true)
+    public List<EventsGroupDto> getAvailableAzureGroupsForTenant(String tenantId, Boolean authorizedOnly) {
+        log.info("Fetching available Azure groups for tenant: {}, authorizedOnly: {}", tenantId, authorizedOnly);
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
+
+        // Validate Azure tenant configuration
+        if (tenant.getAzureTenantId() == null || tenant.getAzureTenantId().isEmpty()) {
+            throw new IllegalStateException("Azure tenant ID not configured for tenant: " + tenantId);
+        }
+
+        // Fetch all groups from Azure AD API (real-time)
+        List<AzureResourceDto> azureGroups = azureGraphService.searchTenantGroups(
+                tenant, null, tenant.getAzureTenantId()
+        );
+
+        // Get authorized groups from database
+        List<EventsGroup> authorizedGroupsInDb =
+                eventsGroupRepository.findByTenantIdAndGroupTypeAndAuthorized(
+                        tenantId, EventsGroup.GroupType.AZURE_GROUP, true
+                );
+
+        Map<String, EventsGroup> authorizedGroupMap = authorizedGroupsInDb.stream()
+                .collect(Collectors.toMap(EventsGroup::getAzureGroupId, Function.identity()));
+
+        // Combine Azure API data with authorization status
+        List<EventsGroupDto> result = azureGroups.stream()
+                .map(azureGroup -> {
+                    EventsGroup dbGroup = authorizedGroupMap.get(azureGroup.getId());
+                    boolean isAuthorized = dbGroup != null;
+
+                    // For unauthorized groups, create a DTO with Azure data only
+                    if (!isAuthorized) {
+                        return EventsGroupDto.builder()
+                                .pkEventsGroupId(null) // Not in DB yet
+                                .tenantId(tenantId)
+                                .name(azureGroup.getName())
+                                .description("Azure AD group (not authorized)")
+                                .groupType("AZURE_GROUP")
+                                .authorized(false)
+                                .azureGroupId(azureGroup.getId())
+                                .azureGroupDisplayName(azureGroup.getName())
+                                .syncedAt(null)
+                                .isDefault(false)
+                                .isActive(true)
+                                .build();
+                    } else {
+                        // For authorized groups, return full DB data
+                        return EventsGroupDto.builder()
+                                .pkEventsGroupId(dbGroup.getPkEventsGroupId())
+                                .tenantId(dbGroup.getTenantId())
+                                .name(dbGroup.getName())
+                                .description(dbGroup.getDescription())
+                                .groupType(dbGroup.getGroupType().name())
+                                .authorized(dbGroup.getAuthorized())
+                                .azureGroupId(dbGroup.getAzureGroupId())
+                                .azureGroupDisplayName(dbGroup.getAzureGroupDisplayName())
+                                .syncedAt(dbGroup.getSyncedAt())
+                                .isDefault(dbGroup.getIsDefault())
+                                .isActive(dbGroup.getIsActive())
+                                .createdAt(dbGroup.getCreatedAt())
+                                .updatedAt(dbGroup.getUpdatedAt())
+                                .createdBy(dbGroup.getCreatedBy())
+                                .updatedBy(dbGroup.getUpdatedBy())
+                                .build();
+                    }
+                })
+                .filter(group -> !authorizedOnly || group.getAuthorized())
+                .collect(Collectors.toList());
+
+        log.info("Found {} Azure groups (authorized: {}, total: {})",
+                result.size(),
+                result.stream().filter(EventsGroupDto::getAuthorized).count(),
+                azureGroups.size());
+
+        return result;
+    }
+
+    /**
+     * Authorize Azure group by fetching details from Azure AD API
+     * Handles both database ID and Azure Group ID
+     *
+     * @param tenant Tenant entity
+     * @param groupId Group ID (database ID or Azure Group ID)
+     * @param userEmail User email
+     * @return Authorized EventsGroup
+     */
+    @Transactional
+    public EventsGroup authorizeAzureGroupById(Tenant tenant, String groupId, String userEmail) {
+        String tenantId = tenant.getTenantID();
+
+        // Try to find by database ID first
+        Optional<EventsGroup> existingGroup = eventsGroupRepository.findByIdAndTenantId(groupId, tenantId);
+
+        if (existingGroup.isPresent()) {
+            // Already in database - just update authorization status
+            EventsGroup group = existingGroup.get();
+            if (!group.getAuthorized()) {
+                group.setAuthorized(true);
+                group.setUpdatedBy(userEmail);
+                group.setUpdatedAt(Instant.now());
+                return eventsGroupRepository.save(group);
+            }
+            return group;
+        }
+
+        // Not in database - treat as Azure Group ID, fetch from Azure AD
+        log.info("Group ID {} not found in database. Treating as Azure Group ID and fetching from Azure AD", groupId);
+
+        // Fetch group details from Azure AD API
+        List<AzureResourceDto> azureGroups = azureGraphService.searchTenantGroups(
+                tenant, null, tenant.getAzureTenantId()
+        );
+
+        AzureResourceDto azureGroup = azureGroups.stream()
+                .filter(g -> g.getId().equals(groupId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Azure group not found in Azure AD: " + groupId));
+
+        // Authorize and persist with details from Azure AD
+        return eventsGroupService.authorizeAndPersistAzureGroup(
+                tenantId,
+                azureGroup.getId(),
+                azureGroup.getName(),
+                userEmail
+        );
+    }
+
+    /**
+     * Get Azure groups with policy information
+     * Combines Azure AD API data with database authorization status and policy counts
+     *
+     * @param tenantId Tenant ID
+     * @param authorizedOnly Filter to only authorized groups
+     * @param includePolicies Include detailed policy information
+     * @return List of group data maps
+     */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getAzureGroupsWithPolicyInfo(
+            String tenantId,
+            Boolean authorizedOnly,
+            Boolean includePolicies) {
+
+        // Fetch Azure groups from Azure AD API with authorization status
+        List<EventsGroupDto> azureGroupDtos = getAvailableAzureGroupsForTenant(
+                tenantId,
+                authorizedOnly != null ? authorizedOnly : false
+        );
+
+        // Build response with policy information
+        return azureGroupDtos.stream()
+                .map(dto -> buildGroupDataMap(dto, tenantId, includePolicies))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Build group data map with policy information
+     */
+    private Map<String, Object> buildGroupDataMap(EventsGroupDto dto, String tenantId, Boolean includePolicies) {
+        Map<String, Object> groupData = new HashMap<>();
+
+        // Basic group info
+        groupData.put("pkEventsGroupId", dto.getPkEventsGroupId());
+        groupData.put("tenantId", dto.getTenantId());
+        groupData.put("name", dto.getName());
+        groupData.put("description", dto.getDescription());
+        groupData.put("groupType", dto.getGroupType());
+        groupData.put("authorized", dto.getAuthorized());
+        groupData.put("azureGroupId", dto.getAzureGroupId());
+        groupData.put("azureGroupDisplayName", dto.getAzureGroupDisplayName());
+        groupData.put("syncedAt", dto.getSyncedAt());
+        groupData.put("isDefault", dto.getIsDefault());
+        groupData.put("isActive", dto.getIsActive());
+        groupData.put("createdAt", dto.getCreatedAt());
+        groupData.put("updatedAt", dto.getUpdatedAt());
+        groupData.put("createdBy", dto.getCreatedBy());
+        groupData.put("updatedBy", dto.getUpdatedBy());
+
+        // For unauthorized groups, policy count is always 0
+        if (!dto.getAuthorized() || dto.getPkEventsGroupId() == null) {
+            groupData.put("policyCount", 0);
+            groupData.put("policyCountsByType", Map.of(
+                    "browserPolicies", 0L,
+                    "networkPolicies", 0L,
+                    "extensionPolicies", 0L,
+                    "total", 0L
+            ));
+            return groupData;
+        }
+
+        // For authorized groups, add policy information
+        addPolicyInformation(groupData, dto.getPkEventsGroupId(), tenantId, includePolicies);
+
+        return groupData;
+    }
+
+    /**
+     * Add policy information to group data map
+     */
+    private void addPolicyInformation(Map<String, Object> groupData, String groupId,
+                                     String tenantId, Boolean includePolicies) {
+
+        long policyCount = policyAssignmentRepository.countByEventsGroupIdAndTenantId(groupId, tenantId);
+        groupData.put("policyCount", policyCount);
+
+        // For now, set type counts to 0 - these can be enhanced if needed
+        groupData.put("policyCountsByType", Map.of(
+                "browserPolicies", 0L,
+                "networkPolicies", 0L,
+                "extensionPolicies", 0L,
+                "total", policyCount
+        ));
     }
 
 }

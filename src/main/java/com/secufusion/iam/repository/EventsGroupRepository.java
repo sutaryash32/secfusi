@@ -187,4 +187,19 @@ public interface EventsGroupRepository extends JpaRepository<EventsGroup, String
         @Param("tenantId") String tenantId,
         @Param("groupType") EventsGroup.GroupType groupType
     );
+
+    /**
+     * Find all groups by tenant, type, and authorization status
+     * Used for Azure group on-demand fetch to find already authorized groups
+     *
+     * @param tenantId Tenant ID
+     * @param groupType Group type (APIKEY_GROUP or AZURE_GROUP)
+     * @param authorized Authorization status
+     * @return List of EventsGroups matching criteria
+     */
+    List<EventsGroup> findByTenantIdAndGroupTypeAndAuthorized(
+        String tenantId,
+        EventsGroup.GroupType groupType,
+        Boolean authorized
+    );
 }
