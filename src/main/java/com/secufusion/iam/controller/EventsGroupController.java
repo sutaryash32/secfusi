@@ -8,6 +8,7 @@ import com.secufusion.iam.entity.PolicyAssignment;
 import com.secufusion.iam.entity.Tenant;
 import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.DeviceUserRepository;
+import com.secufusion.iam.repository.EventsGroupDeviceUserMappingRepository;
 import com.secufusion.iam.repository.PolicyAssignmentRepository;
 import com.secufusion.iam.service.AzureGroupSyncService;
 import com.secufusion.iam.service.DeviceUserGroupMappingService;
@@ -45,6 +46,7 @@ public class EventsGroupController {
     private final PolicyAssignmentRepository policyAssignmentRepository;
     private final DeviceUserRepository deviceUserRepository;
     private final JwtUtl jwtUtil;
+    private final EventsGroupDeviceUserMappingRepository mappingRepository;
 
     @GetMapping
     @Operation(
@@ -125,6 +127,21 @@ public class EventsGroupController {
                     .collect(Collectors.groupingBy(PolicyAssignment::getAzureResourceId));
         }
 
+        Map<String, Long> deviceUserCountByGroup;
+
+        if (!groupIds.isEmpty()) {
+            List<EventsGroupDeviceUserMapping> allMappings =
+                    mappingRepository.findByFkEventsGroupIdIn(groupIds);
+
+            deviceUserCountByGroup = allMappings.stream()
+                    .collect(Collectors.groupingBy(
+                            EventsGroupDeviceUserMapping::getFkEventsGroupId,
+                            Collectors.counting()
+                    ));
+        } else {
+            deviceUserCountByGroup = new HashMap<>();
+        }
+
         // Build response with policy information
         Map<String, List<PolicyAssignment>> finalPolicyMap = policyAssignmentsByGroup;
         boolean isApiKeyTenant = "APIKEY".equalsIgnoreCase(ssoType);
@@ -148,6 +165,11 @@ public class EventsGroupController {
                         groupData.put("azureGroupDisplayName", dto.getAzureGroupDisplayName());
                         groupData.put("syncedAt", dto.getSyncedAt());
                     }
+
+                    Long deviceUsersCount = deviceUserCountByGroup
+                            .getOrDefault(group.getPkEventsGroupId(), 0L);
+
+                    groupData.put("deviceUsersCount", deviceUsersCount);
 
                     groupData.put("isDefault", dto.getIsDefault());
                     groupData.put("isActive", dto.getIsActive());
@@ -260,8 +282,10 @@ public class EventsGroupController {
                 .collect(Collectors.toList());
 
         response.put("deviceUserCount", deviceUserMappings.size());
-        response.put("deviceUsers", deviceUserMappings);
-
+        response.put("deviceUsers", Map.of(
+                "count", deviceUserMappings.size(),
+                "items", deviceUserMappings
+        ));
         // Get policy assignments for this group
         List<PolicyAssignment> policyAssignments = policyAssignmentRepository.findByEventsGroupIdAndTenantId(
                 groupId,
@@ -707,6 +731,11 @@ public class EventsGroupController {
         // Set additional details if available from lazy-loaded relationships
         if (mapping.getEventsGroup() != null) {
             dto.setGroupName(mapping.getEventsGroup().getName());
+        }
+
+        // Set device user email if available
+        if (mapping.getDeviceUser() != null) {
+            dto.setDeviceUserEmail(mapping.getDeviceUser().getEmail());
         }
 
         return dto;
