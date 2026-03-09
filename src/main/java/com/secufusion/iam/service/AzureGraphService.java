@@ -3,10 +3,7 @@ package com.secufusion.iam.service;
 import com.azure.identity.ClientSecretCredential;
 import com.azure.identity.ClientSecretCredentialBuilder;
 import com.microsoft.graph.core.tasks.PageIterator;
-import com.microsoft.graph.models.Group;
-import com.microsoft.graph.models.GroupCollectionResponse;
-import com.microsoft.graph.models.ServicePrincipal;
-import com.microsoft.graph.models.ServicePrincipalCollectionResponse;
+import com.microsoft.graph.models.*;
 import com.microsoft.graph.serviceclient.GraphServiceClient;
 import com.secufusion.iam.dto.AzureResourceDto;
 import com.secufusion.iam.entity.SsoConfiguration;
@@ -30,9 +27,9 @@ public class AzureGraphService {
 
     private final SsoConfigurationRepository ssoRepository;
 
-    @Value("${secufusion.azure.client-id}")
+    @Value("${secufusion.azure.client-id:}")
     private String configClientId;
-    @Value("${secufusion.azure.client-secret}")
+    @Value("${secufusion.azure.client-secret:}")
     private String configClientSecret;
     /**
      * Fetch App Roles defined in the Azure App Registration
@@ -148,6 +145,61 @@ public class AzureGraphService {
                 .build();
 
         return new GraphServiceClient(credential, "https://graph.microsoft.com/.default");
+    }
+
+    /**
+     * Fetch members of a specific Azure AD group
+     * Returns email addresses of group members (users only, not nested groups)
+     */
+    public List<String> getGroupMemberEmails(Tenant tenant, String azureGroupId, String azureTenantId) {
+        if (tenant == null || tenant.getTenantID() == null) {
+            throw new BadRequestException("Tenant cannot be null");
+        }
+
+        validateAzureAccess(tenant, azureTenantId);
+
+        try {
+            GraphServiceClient graphClient = getGraphClientByAzureTenantId(azureTenantId);
+
+            DirectoryObjectCollectionResponse response = graphClient
+                    .groups()
+                    .byGroupId(azureGroupId)
+                    .members()
+                    .get(requestConfiguration -> {
+                        requestConfiguration.queryParameters.select = new String[]{"id", "displayName", "mail", "userPrincipalName"};
+                        requestConfiguration.queryParameters.top = 999;
+                    });
+
+            List<String> memberEmails = new ArrayList<>();
+
+            if (response != null && response.getValue() != null) {
+                PageIterator<DirectoryObject, DirectoryObjectCollectionResponse> iterator =
+                        new PageIterator.Builder<DirectoryObject, DirectoryObjectCollectionResponse>()
+                                .client(graphClient)
+                                .collectionPage(response)
+                                .collectionPageFactory(DirectoryObjectCollectionResponse::createFromDiscriminatorValue)
+                                .processPageItemCallback(member -> {
+                                    if (member instanceof User user) {
+                                        // Prefer mail, fallback to userPrincipalName
+                                        String email = user.getMail() != null ? user.getMail() : user.getUserPrincipalName();
+                                        if (email != null && !email.isBlank()) {
+                                            memberEmails.add(email.toLowerCase());
+                                        }
+                                    }
+                                    return true;
+                                })
+                                .build();
+
+                iterator.iterate();
+            }
+
+            log.info("Fetched {} member emails for Azure group: {}", memberEmails.size(), azureGroupId);
+            return memberEmails;
+
+        } catch (Exception e) {
+            log.error("Failed to fetch group members for group {}: {}", azureGroupId, e.getMessage());
+            throw new ExternalServiceException("Failed to fetch group members", e);
+        }
     }
 
     private void validateAzureAccess(Tenant tenant, String azureTenantId) {
