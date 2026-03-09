@@ -3,9 +3,14 @@ package com.secufusion.iam.service;
 import com.secufusion.iam.dto.AzureResourceDto;
 import com.secufusion.iam.dto.AzureSyncStatus;
 import com.secufusion.iam.dto.EventsGroupDto;
+import com.secufusion.iam.dto.GroupMemberSyncResult;
+import com.secufusion.iam.entity.DeviceUser;
 import com.secufusion.iam.entity.EventsGroup;
+import com.secufusion.iam.entity.EventsGroupDeviceUserMapping;
 import com.secufusion.iam.entity.Tenant;
 import com.secufusion.iam.exception.ResourceNotFoundException;
+import com.secufusion.iam.repository.DeviceUserRepository;
+import com.secufusion.iam.repository.EventsGroupDeviceUserMappingRepository;
 import com.secufusion.iam.repository.EventsGroupRepository;
 import com.secufusion.iam.repository.PolicyAssignmentRepository;
 import com.secufusion.iam.repository.TenantRepository;
@@ -46,6 +51,8 @@ public class AzureGroupSyncService {
     private final AzureGraphService azureGraphService;
     private final EventsGroupRepository eventsGroupRepository;
     private final PolicyAssignmentRepository policyAssignmentRepository;
+    private final DeviceUserRepository deviceUserRepository;
+    private final EventsGroupDeviceUserMappingRepository mappingRepository;
 
     private static final String SYNC_USER = "AZURE_SYNC_SERVICE";
 
@@ -256,6 +263,9 @@ public class AzureGroupSyncService {
                 }
             }
 
+            // Sync members for all authorized groups
+            syncAllAuthorizedGroupMembers(tenant);
+
             // Update status to completed
             AzureSyncStatus completedStatus = AzureSyncStatus.builder()
                     .tenantId(tenantId)
@@ -265,7 +275,7 @@ public class AzureGroupSyncService {
                     .updatedGroups(updatedGroups)
                     .startedAt(syncStatusCache.get(tenantId).getStartedAt())
                     .completedAt(Instant.now())
-                    .message("Successfully synced " + azureGroups.size() + " Azure groups")
+                    .message("Successfully synced " + azureGroups.size() + " Azure groups with members")
                     .build();
 
             syncStatusCache.put(tenantId, completedStatus);
@@ -399,8 +409,10 @@ public class AzureGroupSyncService {
                 group.setAuthorized(true);
                 group.setUpdatedBy(userEmail);
                 group.setUpdatedAt(Instant.now());
-                return eventsGroupRepository.save(group);
+                group = eventsGroupRepository.save(group);
             }
+            // Sync members after authorization
+            syncGroupMembers(tenant, group, userEmail);
             return group;
         }
 
@@ -419,12 +431,17 @@ public class AzureGroupSyncService {
                         "Azure group not found in Azure AD: " + groupId));
 
         // Authorize and persist with details from Azure AD
-        return eventsGroupService.authorizeAndPersistAzureGroup(
+        EventsGroup authorizedGroup = eventsGroupService.authorizeAndPersistAzureGroup(
                 tenantId,
                 azureGroup.getId(),
                 azureGroup.getName(),
                 userEmail
         );
+
+        // Sync members after authorization
+        syncGroupMembers(tenant, authorizedGroup, userEmail);
+
+        return authorizedGroup;
     }
 
     /**
@@ -477,8 +494,9 @@ public class AzureGroupSyncService {
         groupData.put("createdBy", dto.getCreatedBy());
         groupData.put("updatedBy", dto.getUpdatedBy());
 
-        // For unauthorized groups, policy count is always 0
+        // For unauthorized groups, policy and device user count is always 0
         if (!dto.getAuthorized() || dto.getPkEventsGroupId() == null) {
+            groupData.put("deviceUsersCount", 0L);
             groupData.put("policyCount", 0);
             groupData.put("policyCountsByType", Map.of(
                     "browserPolicies", 0L,
@@ -489,10 +507,125 @@ public class AzureGroupSyncService {
             return groupData;
         }
 
-        // For authorized groups, add policy information
+        // For authorized groups, add device user count and policy information
+        long deviceUserCount = mappingRepository.countByFkEventsGroupId(dto.getPkEventsGroupId());
+        groupData.put("deviceUsersCount", deviceUserCount);
         addPolicyInformation(groupData, dto.getPkEventsGroupId(), tenantId, includePolicies);
 
         return groupData;
+    }
+
+    /**
+     * Sync Azure AD group members to local device user mappings.
+     * Fetches members from Microsoft Graph API, matches them to existing DeviceUser records by email,
+     * and creates EventsGroupDeviceUserMapping entries for matched users.
+     *
+     * @param tenant   Tenant entity
+     * @param group    Authorized EventsGroup with azureGroupId
+     * @param assignedBy User who triggered the sync
+     * @return Number of new mappings created
+     */
+    @Transactional
+    public GroupMemberSyncResult syncGroupMembers(Tenant tenant, EventsGroup group, String assignedBy) {
+        if (group.getAzureGroupId() == null || !group.getAuthorized()) {
+            log.debug("Skipping member sync for group {} - not authorized or no Azure group ID", group.getName());
+            return GroupMemberSyncResult.builder()
+                    .groupId(group.getPkEventsGroupId())
+                    .groupName(group.getName())
+                    .azureMembersCount(0).matchedDeviceUsers(0).newMappingsCreated(0)
+                    .unmatchedEmails(Collections.emptyList())
+                    .build();
+        }
+
+        String tenantId = tenant.getTenantID();
+        String azureGroupId = group.getAzureGroupId();
+        String groupId = group.getPkEventsGroupId();
+
+        try {
+            // Fetch member emails from Azure AD
+            List<String> memberEmails = azureGraphService.getGroupMemberEmails(
+                    tenant, azureGroupId, tenant.getAzureTenantId()
+            );
+
+            if (memberEmails.isEmpty()) {
+                log.info("No members found in Azure group: {} for tenant: {}", group.getName(), tenantId);
+                return GroupMemberSyncResult.builder()
+                        .groupId(groupId).groupName(group.getName())
+                        .azureMembersCount(0).matchedDeviceUsers(0).newMappingsCreated(0)
+                        .unmatchedEmails(Collections.emptyList())
+                        .build();
+            }
+
+            // Match to existing device users by email
+            List<DeviceUser> matchedUsers = deviceUserRepository.findByTenantIdAndEmailIn(tenantId, memberEmails);
+
+            // Find unmatched emails (Azure members with no DeviceUser record)
+            Set<String> matchedEmails = matchedUsers.stream()
+                    .map(u -> u.getEmail().toLowerCase())
+                    .collect(java.util.stream.Collectors.toSet());
+            List<String> unmatchedEmails = memberEmails.stream()
+                    .filter(email -> !matchedEmails.contains(email))
+                    .toList();
+
+            // Create mappings for users not already assigned
+            int created = 0;
+            for (DeviceUser user : matchedUsers) {
+                if (!mappingRepository.existsByFkDeviceUserIdAndFkEventsGroupId(
+                        user.getPkDeviceUserId(), groupId)) {
+
+                    EventsGroupDeviceUserMapping mapping = new EventsGroupDeviceUserMapping();
+                    mapping.setPkMappingId(UUID.randomUUID().toString());
+                    mapping.setFkDeviceUserId(user.getPkDeviceUserId());
+                    mapping.setFkEventsGroupId(groupId);
+                    mapping.setAssignedBy(assignedBy);
+                    mappingRepository.save(mapping);
+                    created++;
+                }
+            }
+
+            log.info("Synced members for group '{}': {} Azure members, {} matched, {} unmatched, {} new mappings",
+                    group.getName(), memberEmails.size(), matchedUsers.size(), unmatchedEmails.size(), created);
+
+            return GroupMemberSyncResult.builder()
+                    .groupId(groupId)
+                    .groupName(group.getName())
+                    .azureMembersCount(memberEmails.size())
+                    .matchedDeviceUsers(matchedUsers.size())
+                    .newMappingsCreated(created)
+                    .unmatchedEmails(unmatchedEmails)
+                    .build();
+
+        } catch (Exception e) {
+            log.error("Failed to sync members for group '{}' (azureGroupId={}): {}",
+                    group.getName(), azureGroupId, e.getMessage());
+            return GroupMemberSyncResult.builder()
+                    .groupId(groupId).groupName(group.getName())
+                    .azureMembersCount(0).matchedDeviceUsers(0).newMappingsCreated(0)
+                    .unmatchedEmails(Collections.emptyList())
+                    .build();
+        }
+    }
+
+    /**
+     * Sync members for all authorized Azure groups in a tenant
+     */
+    @Transactional
+    public List<GroupMemberSyncResult> syncAllAuthorizedGroupMembers(Tenant tenant) {
+        String tenantId = tenant.getTenantID();
+        List<EventsGroup> authorizedGroups = eventsGroupRepository.findByTenantIdAndGroupTypeAndAuthorized(
+                tenantId, EventsGroup.GroupType.AZURE_GROUP, true
+        );
+
+        log.info("Syncing members for {} authorized Azure groups in tenant: {}", authorizedGroups.size(), tenantId);
+
+        List<GroupMemberSyncResult> results = new ArrayList<>();
+        for (EventsGroup group : authorizedGroups) {
+            results.add(syncGroupMembers(tenant, group, SYNC_USER));
+        }
+
+        int totalCreated = results.stream().mapToInt(GroupMemberSyncResult::getNewMappingsCreated).sum();
+        log.info("Member sync complete for tenant: {}. Total new mappings: {}", tenantId, totalCreated);
+        return results;
     }
 
     /**
