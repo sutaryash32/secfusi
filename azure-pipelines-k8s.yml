@@ -3,7 +3,7 @@ trigger: none
 variables:
 - group: sfn-iam-api-config-prod
 - name: dockerRegistryServiceConnection
-  value: secufusion-prod-terraform
+  value: sfn-prod-acr
 - name: imageRepository
   value: sfniamapi
 - name: containerRegistry
