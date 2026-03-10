@@ -364,6 +364,9 @@ public class EventsGroupController {
                 userEmail
         );
 
+        // Assign default policies to newly created APIKEY group
+        azureGroupSyncService.assignDefaultPolicies(created, tenantId, userEmail);
+
         return ResponseEntity.status(HttpStatus.CREATED).body(convertToDto(created));
     }
 
