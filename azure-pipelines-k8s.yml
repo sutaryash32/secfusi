@@ -7,7 +7,7 @@ variables:
 - name: imageRepository
   value: sfniamapi
 - name: containerRegistry
-  value: sfnprodacreastus
+  value: sfnprodacreastus2
 - name: dockerfilePath
   value: $(Build.SourcesDirectory)/Dockerfile
 - name: vmImageName
