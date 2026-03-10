@@ -1,6 +1,7 @@
 package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.*;
+import com.secufusion.iam.dto.GroupMemberSyncResult;
 import com.secufusion.iam.entity.DeviceUser;
 import com.secufusion.iam.entity.EventsGroup;
 import com.secufusion.iam.entity.EventsGroupDeviceUserMapping;
@@ -828,7 +829,50 @@ public class EventsGroupController {
         };
     }
 
-    // ================== 5. Helper Methods ==================
+    // ================== 5. Azure Member Sync ==================
+
+    @PostMapping("/sync-members")
+    @Operation(
+            summary = "Sync Azure AD group members for all authorized groups",
+            description = "Fetches members from Azure AD for all authorized Azure groups and maps them to existing device users. " +
+                    "Only works for AZURE tenants. Members are matched by email address to existing device users in the system. " +
+                    "Duplicate mappings are skipped. Returns the total number of new mappings created."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Member sync completed successfully"),
+            @ApiResponse(responseCode = "400", description = "Tenant is not Azure-enabled"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden")
+    })
+    public ResponseEntity<Map<String, Object>> syncAzureGroupMembers(HttpServletRequest request) {
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        String ssoType = tenant.getAuthProviderConfig().getSsoType();
+
+        if (!"AZURE".equalsIgnoreCase(ssoType)) {
+            throw new IllegalArgumentException("Member sync is only available for Azure tenants");
+        }
+
+        log.info("Manual Azure group member sync triggered for tenant: {} by user: {}",
+                tenant.getTenantID(), jwtUtil.getUserFromRequest(request).getEmail());
+
+        List<GroupMemberSyncResult> syncResults = azureGroupSyncService.syncAllAuthorizedGroupMembers(tenant);
+
+        int totalMatched = syncResults.stream().mapToInt(GroupMemberSyncResult::getMatchedDeviceUsers).sum();
+        int totalUnmatched = syncResults.stream().mapToInt(r -> r.getUnmatchedEmails().size()).sum();
+        int totalNewMappings = syncResults.stream().mapToInt(GroupMemberSyncResult::getNewMappingsCreated).sum();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Member sync completed successfully");
+        response.put("groupsSynced", syncResults.size());
+        response.put("totalMatchedDeviceUsers", totalMatched);
+        response.put("totalUnmatchedMembers", totalUnmatched);
+        response.put("totalNewMappings", totalNewMappings);
+        response.put("groups", syncResults);
+
+        return ResponseEntity.ok(response);
+    }
+
+    // ================== 6. Statistics ==================
 
     /**
      * Get group membership statistics
