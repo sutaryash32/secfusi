@@ -4,16 +4,9 @@ import com.secufusion.iam.dto.AzureResourceDto;
 import com.secufusion.iam.dto.AzureSyncStatus;
 import com.secufusion.iam.dto.EventsGroupDto;
 import com.secufusion.iam.dto.GroupMemberSyncResult;
-import com.secufusion.iam.entity.DeviceUser;
-import com.secufusion.iam.entity.EventsGroup;
-import com.secufusion.iam.entity.EventsGroupDeviceUserMapping;
-import com.secufusion.iam.entity.Tenant;
+import com.secufusion.iam.entity.*;
 import com.secufusion.iam.exception.ResourceNotFoundException;
-import com.secufusion.iam.repository.DeviceUserRepository;
-import com.secufusion.iam.repository.EventsGroupDeviceUserMappingRepository;
-import com.secufusion.iam.repository.EventsGroupRepository;
-import com.secufusion.iam.repository.PolicyAssignmentRepository;
-import com.secufusion.iam.repository.TenantRepository;
+import com.secufusion.iam.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -51,8 +44,12 @@ public class AzureGroupSyncService {
     private final AzureGraphService azureGraphService;
     private final EventsGroupRepository eventsGroupRepository;
     private final PolicyAssignmentRepository policyAssignmentRepository;
+    private final BrowserPolicyRepository browserPolicyRepository;
+    private final NetworkPolicyRepository networkPolicyRepository;
+    private final ExtensionPolicyRepository extensionPolicyRepository;
     private final DeviceUserRepository deviceUserRepository;
     private final EventsGroupDeviceUserMappingRepository mappingRepository;
+    private final EventsGroupHistoryRepository historyRepository;
 
     private static final String SYNC_USER = "AZURE_SYNC_SERVICE";
 
@@ -410,25 +407,25 @@ public class AzureGroupSyncService {
                 group.setUpdatedBy(userEmail);
                 group.setUpdatedAt(Instant.now());
                 group = eventsGroupRepository.save(group);
+
+                recordHistory(tenantId, group, "GROUP_AUTHORIZED",
+                        "Group authorized by admin", userEmail);
             }
-            // Sync members after authorization
+            // Assign default policies and sync members after authorization
+            assignDefaultPolicies(group, tenantId, userEmail);
             syncGroupMembers(tenant, group, userEmail);
             return group;
         }
 
-        // Not in database - treat as Azure Group ID, fetch from Azure AD
+        // Not in database - treat as Azure Group ID, fetch directly from Azure AD
         log.info("Group ID {} not found in database. Treating as Azure Group ID and fetching from Azure AD", groupId);
 
-        // Fetch group details from Azure AD API
-        List<AzureResourceDto> azureGroups = azureGraphService.searchTenantGroups(
-                tenant, null, tenant.getAzureTenantId()
-        );
+        AzureResourceDto azureGroup = azureGraphService.getGroupById(
+                tenant, groupId, tenant.getAzureTenantId());
 
-        AzureResourceDto azureGroup = azureGroups.stream()
-                .filter(g -> g.getId().equals(groupId))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Azure group not found in Azure AD: " + groupId));
+        if (azureGroup == null) {
+            throw new ResourceNotFoundException("Azure group not found in Azure AD: " + groupId);
+        }
 
         // Authorize and persist with details from Azure AD
         EventsGroup authorizedGroup = eventsGroupService.authorizeAndPersistAzureGroup(
@@ -438,7 +435,12 @@ public class AzureGroupSyncService {
                 userEmail
         );
 
-        // Sync members after authorization
+        // Record authorization history
+        recordHistory(tenantId, authorizedGroup, "GROUP_AUTHORIZED",
+                "New Azure group authorized and persisted from Azure AD", userEmail);
+
+        // Assign default policies and sync members after authorization
+        assignDefaultPolicies(authorizedGroup, tenantId, userEmail);
         syncGroupMembers(tenant, authorizedGroup, userEmail);
 
         return authorizedGroup;
@@ -516,6 +518,73 @@ public class AzureGroupSyncService {
     }
 
     /**
+     * Assign default policies (Browser, Network, Extension) to a newly authorized group.
+     * Picks the first active policy of each type for the tenant.
+     * Skips if the group already has policy assignments.
+     */
+    @Transactional
+    public void assignDefaultPolicies(EventsGroup group, String tenantId, String performedBy) {
+        String groupId = group.getPkEventsGroupId();
+
+        // Skip if group already has policy assignments
+        if (policyAssignmentRepository.existsByGroupIdAndTenantId(groupId, tenantId)) {
+            log.debug("Group '{}' already has policy assignments, skipping default assignment", group.getName());
+            return;
+        }
+
+        // Find first active policy of each type for this tenant
+        BrowserPolicy browserPolicy = browserPolicyRepository
+                .findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(tenantId)
+                .stream().findFirst().orElse(null);
+
+        NetworkPolicy networkPolicy = networkPolicyRepository
+                .findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(tenantId)
+                .stream().findFirst().orElse(null);
+
+        ExtensionPolicy extensionPolicy = extensionPolicyRepository
+                .findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(tenantId)
+                .stream().findFirst().orElse(null);
+
+        if (browserPolicy == null && networkPolicy == null && extensionPolicy == null) {
+            log.info("No active policies found for tenant '{}', skipping default assignment for group '{}'",
+                    tenantId, group.getName());
+            return;
+        }
+
+        PolicyAssignment assignment = PolicyAssignment.builder()
+                .browserPolicy(browserPolicy)
+                .networkPolicy(networkPolicy)
+                .extensionPolicy(extensionPolicy)
+                .azureResourceId(groupId)
+                .azureResourceName(group.getName())
+                .assignmentType("GROUP")
+                .tenantId(tenantId)
+                .build();
+
+        PolicyAssignment saved = policyAssignmentRepository.save(assignment);
+
+        // Record history for each assigned policy type
+        if (browserPolicy != null) {
+            recordPolicyHistory(tenantId, group, "POLICY_ASSIGNED", saved.getId(),
+                    "BROWSER", browserPolicy.getName(), "Default browser policy assigned", performedBy);
+        }
+        if (networkPolicy != null) {
+            recordPolicyHistory(tenantId, group, "POLICY_ASSIGNED", saved.getId(),
+                    "NETWORK", networkPolicy.getName(), "Default network policy assigned", performedBy);
+        }
+        if (extensionPolicy != null) {
+            recordPolicyHistory(tenantId, group, "POLICY_ASSIGNED", saved.getId(),
+                    "EXTENSION", extensionPolicy.getName(), "Default extension policy assigned", performedBy);
+        }
+
+        log.info("Assigned default policies to group '{}': browser={}, network={}, extension={}",
+                group.getName(),
+                browserPolicy != null ? browserPolicy.getName() : "none",
+                networkPolicy != null ? networkPolicy.getName() : "none",
+                extensionPolicy != null ? extensionPolicy.getName() : "none");
+    }
+
+    /**
      * Sync Azure AD group members to local device user mappings.
      * Fetches members from Microsoft Graph API, matches them to existing DeviceUser records by email,
      * and creates EventsGroupDeviceUserMapping entries for matched users.
@@ -586,6 +655,12 @@ public class AzureGroupSyncService {
             log.info("Synced members for group '{}': {} Azure members, {} matched, {} unmatched, {} new mappings",
                     group.getName(), memberEmails.size(), matchedUsers.size(), unmatchedEmails.size(), created);
 
+            // Record member sync history
+            String syncDetails = String.format(
+                    "Azure members: %d, matched: %d, unmatched: %d, new mappings: %d",
+                    memberEmails.size(), matchedUsers.size(), unmatchedEmails.size(), created);
+            recordHistory(tenantId, group, "MEMBERS_SYNCED", syncDetails, assignedBy);
+
             return GroupMemberSyncResult.builder()
                     .groupId(groupId)
                     .groupName(group.getName())
@@ -646,4 +721,57 @@ public class AzureGroupSyncService {
         ));
     }
 
+    // =================================================================================
+    // HISTORY HELPERS
+    // =================================================================================
+
+    private void recordHistory(String tenantId, EventsGroup group, String action,
+                               String details, String performedBy) {
+        try {
+            historyRepository.save(EventsGroupHistory.builder()
+                    .tenantId(tenantId)
+                    .eventsGroupId(group.getPkEventsGroupId())
+                    .groupName(group.getName())
+                    .action(action)
+                    .details(details)
+                    .performedBy(performedBy)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record history for group '{}': {}", group.getName(), e.getMessage());
+        }
+    }
+
+    private void recordPolicyHistory(String tenantId, EventsGroup group, String action,
+                                     String assignmentId, String policyType, String policyName,
+                                     String details, String performedBy) {
+        try {
+            historyRepository.save(EventsGroupHistory.builder()
+                    .tenantId(tenantId)
+                    .eventsGroupId(group.getPkEventsGroupId())
+                    .groupName(group.getName())
+                    .action(action)
+                    .policyAssignmentId(assignmentId)
+                    .policyType(policyType)
+                    .policyName(policyName)
+                    .details(details)
+                    .performedBy(performedBy)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record policy history for group '{}': {}", group.getName(), e.getMessage());
+        }
+    }
+
+    /**
+     * Get history for a specific group
+     */
+    public List<EventsGroupHistory> getGroupHistory(String eventsGroupId, String tenantId) {
+        return historyRepository.findByEventsGroupIdAndTenantIdOrderByPerformedAtDesc(eventsGroupId, tenantId);
+    }
+
+    /**
+     * Get all history for a tenant
+     */
+    public List<EventsGroupHistory> getTenantHistory(String tenantId) {
+        return historyRepository.findByTenantIdOrderByPerformedAtDesc(tenantId);
+    }
 }

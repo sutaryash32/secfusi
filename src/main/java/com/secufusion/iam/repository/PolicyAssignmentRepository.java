@@ -49,6 +49,16 @@ public interface PolicyAssignmentRepository extends JpaRepository<PolicyAssignme
     );
 
     /**
+     * Check if any policy assignment exists for a group
+     */
+    @Query("SELECT CASE WHEN COUNT(p) > 0 THEN true ELSE false END FROM PolicyAssignment p " +
+           "WHERE p.azureResourceId = :groupId AND p.tenantId = :tenantId")
+    boolean existsByGroupIdAndTenantId(
+        @Param("groupId") String groupId,
+        @Param("tenantId") String tenantId
+    );
+
+    /**
      * Find all policy assignments for multiple groups in a single query (batch fetch)
      *
      * @param groupIds List of events group IDs
