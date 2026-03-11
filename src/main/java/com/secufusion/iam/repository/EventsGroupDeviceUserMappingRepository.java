@@ -203,4 +203,26 @@ public interface EventsGroupDeviceUserMappingRepository extends JpaRepository<Ev
     List<UserGroupMembershipStats> getUserGroupMembershipStatsByTenant(@Param("tenantId") String tenantId);
 
     List<EventsGroupDeviceUserMapping> findByFkEventsGroupIdIn(List<String> groupIds);
+
+    /**
+     * Check if a user (by email) is a member of any authorized and active group within a tenant.
+     * Joins DeviceUser → Mapping → EventsGroup to verify group membership.
+     *
+     * @param tenantId Tenant ID
+     * @param email    User email
+     * @return true if user exists in at least one authorized active group
+     */
+    @Query("SELECT CASE WHEN COUNT(m) > 0 THEN true ELSE false END " +
+           "FROM EventsGroupDeviceUserMapping m " +
+           "JOIN m.deviceUser du " +
+           "JOIN m.eventsGroup g " +
+           "WHERE du.tenantId = :tenantId " +
+           "AND LOWER(du.email) = LOWER(:email) " +
+           "AND g.tenantId = :tenantId " +
+           "AND g.authorized = true " +
+           "AND g.isActive = true")
+    boolean existsInAuthorizedGroup(
+        @Param("tenantId") String tenantId,
+        @Param("email") String email
+    );
 }

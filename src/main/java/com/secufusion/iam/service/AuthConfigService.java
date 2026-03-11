@@ -8,6 +8,8 @@ import com.secufusion.iam.entity.*;
 import com.secufusion.iam.exception.AccessDeniedException;
 import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.AuthProviderConfigRepository;
+import com.secufusion.iam.repository.EventsGroupDeviceUserMappingRepository;
+import com.secufusion.iam.repository.EventsGroupRepository;
 import com.secufusion.iam.repository.SsoConfigurationRepository;
 import com.secufusion.iam.repository.TenantRepository;
 import com.secufusion.iam.repository.UserRepository;
@@ -50,6 +52,12 @@ public class AuthConfigService {
 
     @Autowired
     private SsoConfigurationRepository ssoConfigurationRepository;
+
+    @Autowired
+    private EventsGroupDeviceUserMappingRepository eventsGroupDeviceUserMappingRepository;
+
+    @Autowired
+    private EventsGroupRepository eventsGroupRepository;
 
     /**
      * Load authentication details for a tenant identified by host (domain or tenantName).
@@ -475,6 +483,73 @@ public class AuthConfigService {
         } catch (Exception auditEx) {
             log.warn("Failed to log login failure audit event: {}", auditEx.getMessage());
         }
+    }
+
+    /**
+     * Validates that the user is a member of at least one authorized and active EventsGroup.
+     * Supports two paths:
+     * <ul>
+     *   <li><b>Azure:</b> Checks JWT "groups" claim against authorized EventsGroups by azure_group_id</li>
+     *   <li><b>API key:</b> Checks device_user mapping against authorized EventsGroups by email</li>
+     * </ul>
+     *
+     * @param request incoming HTTP request containing JWT
+     * @param token   raw JWT token
+     * @throws AccessDeniedException if user is not in any authorized group
+     */
+    public void validateExtensionGroupAuthorization(HttpServletRequest request, String token) {
+        log.info("validateExtensionGroupAuthorization - start");
+
+        // Validate token
+        jwtUtil.validateRequestToken(request, token);
+
+        // Extract tenant from JWT
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        if (tenant == null) {
+            log.error("validateExtensionGroupAuthorization: tenant not found from token");
+            throw new AccessDeniedException("Tenant not found");
+        }
+
+        String tenantId = tenant.getTenantID();
+
+        // --- Path 1: Azure — check JWT "groups" claim against authorized Azure groups ---
+        List<String> azureGroupIds = jwtUtil.getGroupsFromToken(token);
+        if (azureGroupIds != null && !azureGroupIds.isEmpty()) {
+            log.debug("validateExtensionGroupAuthorization: found {} Azure group IDs in token for tenant '{}'",
+                    azureGroupIds.size(), tenantId);
+
+            boolean azureMatch = eventsGroupRepository.existsAuthorizedAzureGroup(tenantId, azureGroupIds);
+            if (azureMatch) {
+                log.info("validateExtensionGroupAuthorization: user verified via Azure group for tenant '{}'", tenantId);
+                return;
+            }
+            log.debug("validateExtensionGroupAuthorization: no matching authorized Azure group found, falling through to API key check");
+        }
+
+        // --- Path 2: API key — check device_user mapping against authorized groups ---
+        String email = jwtUtil.getEmail(request);
+        if (email == null || email.isBlank()) {
+            String preferred = jwtUtil.getPreferredUsernameFromRequest(request);
+            if (preferred == null || preferred.isBlank()) {
+                log.error("validateExtensionGroupAuthorization: email and preferred_username missing in token");
+                throw new AccessDeniedException("Unable to identify user from token");
+            }
+            email = preferred;
+        }
+
+        boolean existsInAuthorizedGroup = eventsGroupDeviceUserMappingRepository
+                .existsInAuthorizedGroup(tenantId, email);
+
+        if (existsInAuthorizedGroup) {
+            log.info("validateExtensionGroupAuthorization: user '{}' verified via API key group for tenant '{}'",
+                    email, tenantId);
+            return;
+        }
+
+        // Neither path matched
+        log.warn("validateExtensionGroupAuthorization: user '{}' is not a member of any authorized group in tenant '{}'",
+                email, tenantId);
+        throw new AccessDeniedException("User is not a member of any authorized group");
     }
 
     public LoginResponseDto loginByEmail(String email) {
