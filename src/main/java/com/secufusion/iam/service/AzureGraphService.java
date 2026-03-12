@@ -189,12 +189,13 @@ public class AzureGraphService {
         try {
             GraphServiceClient graphClient = getGraphClientByAzureTenantId(azureTenantId);
 
+            // Do NOT use $select on /members — it strips @odata.type,
+            // preventing the SDK from deserializing members as User objects.
             DirectoryObjectCollectionResponse response = graphClient
                     .groups()
                     .byGroupId(azureGroupId)
                     .members()
                     .get(requestConfiguration -> {
-                        requestConfiguration.queryParameters.select = new String[]{"id", "displayName", "mail", "userPrincipalName"};
                         requestConfiguration.queryParameters.top = 999;
                     });
 
@@ -208,10 +209,21 @@ public class AzureGraphService {
                                 .collectionPageFactory(DirectoryObjectCollectionResponse::createFromDiscriminatorValue)
                                 .processPageItemCallback(member -> {
                                     if (member instanceof User user) {
-                                        // Prefer mail, fallback to userPrincipalName
                                         String email = user.getMail() != null ? user.getMail() : user.getUserPrincipalName();
                                         if (email != null && !email.isBlank()) {
                                             memberEmails.add(email.toLowerCase());
+                                        }
+                                    } else {
+                                        // Fallback: extract email from additionalData if type info was lost
+                                        var data = member.getAdditionalData();
+                                        if (data != null) {
+                                            Object mail = data.get("mail");
+                                            Object upn = data.get("userPrincipalName");
+                                            String email = mail != null ? mail.toString() :
+                                                    (upn != null ? upn.toString() : null);
+                                            if (email != null && !email.isBlank()) {
+                                                memberEmails.add(email.toLowerCase());
+                                            }
                                         }
                                     }
                                     return true;
@@ -225,7 +237,7 @@ public class AzureGraphService {
             return memberEmails;
 
         } catch (Exception e) {
-            log.error("Failed to fetch group members for group {}: {}", azureGroupId, e.getMessage());
+            log.error("Failed to fetch group members for group {}: {}", azureGroupId, e.getMessage(), e);
             throw new ExternalServiceException("Failed to fetch group members", e);
         }
     }

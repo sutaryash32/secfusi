@@ -201,9 +201,9 @@ public class EventsGroupController {
                     policyCountsByType.put("browserPolicies", browserPolicyCount);
                     policyCountsByType.put("networkPolicies", networkPolicyCount);
                     policyCountsByType.put("extensionPolicies", extensionPolicyCount);
-                    policyCountsByType.put("total", assignments.size());
+                    policyCountsByType.put("total", browserPolicyCount + networkPolicyCount + extensionPolicyCount);
 
-                    groupData.put("policyCount", assignments.size());
+                    groupData.put("policyCount", browserPolicyCount + networkPolicyCount + extensionPolicyCount);
                     groupData.put("policyCountsByType", policyCountsByType);
 
                     // Add full policy details if requested
@@ -309,9 +309,9 @@ public class EventsGroupController {
         policyCountsByType.put("browserPolicies", browserPolicyCount);
         policyCountsByType.put("networkPolicies", networkPolicyCount);
         policyCountsByType.put("extensionPolicies", extensionPolicyCount);
-        policyCountsByType.put("total", policyAssignments.size());
+        policyCountsByType.put("total", browserPolicyCount + networkPolicyCount + extensionPolicyCount);
 
-        response.put("policyCount", policyAssignments.size());
+        response.put("policyCount", browserPolicyCount + networkPolicyCount + extensionPolicyCount);
         response.put("policyCountsByType", policyCountsByType);
 
         // Add policy assignment details
@@ -688,7 +688,7 @@ public class EventsGroupController {
         policyCountsByType.put("browserPolicies", browserPolicyCount);
         policyCountsByType.put("networkPolicies", networkPolicyCount);
         policyCountsByType.put("extensionPolicies", extensionPolicyCount);
-        policyCountsByType.put("total", assignments.size());
+        policyCountsByType.put("total", browserPolicyCount + networkPolicyCount + extensionPolicyCount);
 
         // Convert to DTOs with full policy details
         List<PolicyAssignmentDto> assignmentDtos = assignments.stream()
@@ -701,7 +701,7 @@ public class EventsGroupController {
         response.put("groupName", group.getName());
         response.put("groupType", group.getGroupType().name());
         response.put("authorized", group.getAuthorized());
-        response.put("policyCount", assignments.size());
+        response.put("policyCount", browserPolicyCount + networkPolicyCount + extensionPolicyCount);
         response.put("policyCountsByType", policyCountsByType);
         response.put("policyAssignments", assignmentDtos);
 
