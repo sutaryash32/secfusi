@@ -464,6 +464,11 @@ public class EventsGroupController {
             default -> throw new IllegalArgumentException("Invalid action. Allowed values: authorize, unauthorize");
         };
 
+        // For non-Azure tenants, assign default policies after authorization
+        if ("authorize".equalsIgnoreCase(action) && !isAzureTenant) {
+            azureGroupSyncService.assignDefaultPolicies(updated, tenantId, userEmail);
+        }
+
         return ResponseEntity.ok(convertToDto(updated));
     }
 

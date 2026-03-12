@@ -10,4 +10,6 @@ import java.util.List;
 public interface BrowserPolicyRepository extends JpaRepository<BrowserPolicy, String> {
 
     List<BrowserPolicy> findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(String tenantId);
+
+    List<BrowserPolicy> findAllByFkTenantIdIsNullAndIsActiveTrueOrderByCreatedAtAsc();
 }

@@ -10,4 +10,6 @@ import java.util.List;
 public interface ExtensionPolicyRepository extends JpaRepository<ExtensionPolicy, String> {
 
     List<ExtensionPolicy> findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(String tenantId);
+
+    List<ExtensionPolicy> findAllByFkTenantIdIsNullAndIsActiveTrueOrderByCreatedAtAsc();
 }

@@ -532,18 +532,27 @@ public class AzureGroupSyncService {
             return;
         }
 
-        // Find first active policy of each type for this tenant
+        // Find first active policy of each type: prefer tenant-specific, fall back to global defaults (fkTenantId = null)
         BrowserPolicy browserPolicy = browserPolicyRepository
                 .findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(tenantId)
-                .stream().findFirst().orElse(null);
+                .stream().findFirst()
+                .orElseGet(() -> browserPolicyRepository
+                        .findAllByFkTenantIdIsNullAndIsActiveTrueOrderByCreatedAtAsc()
+                        .stream().findFirst().orElse(null));
 
         NetworkPolicy networkPolicy = networkPolicyRepository
                 .findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(tenantId)
-                .stream().findFirst().orElse(null);
+                .stream().findFirst()
+                .orElseGet(() -> networkPolicyRepository
+                        .findAllByFkTenantIdIsNullAndIsActiveTrueOrderByCreatedAtAsc()
+                        .stream().findFirst().orElse(null));
 
         ExtensionPolicy extensionPolicy = extensionPolicyRepository
                 .findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(tenantId)
-                .stream().findFirst().orElse(null);
+                .stream().findFirst()
+                .orElseGet(() -> extensionPolicyRepository
+                        .findAllByFkTenantIdIsNullAndIsActiveTrueOrderByCreatedAtAsc()
+                        .stream().findFirst().orElse(null));
 
         if (browserPolicy == null && networkPolicy == null && extensionPolicy == null) {
             log.info("No active policies found for tenant '{}', skipping default assignment for group '{}'",

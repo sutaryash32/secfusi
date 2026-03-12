@@ -10,4 +10,6 @@ import java.util.List;
 public interface NetworkPolicyRepository extends JpaRepository<NetworkPolicy, String> {
 
     List<NetworkPolicy> findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(String tenantId);
+
+    List<NetworkPolicy> findAllByFkTenantIdIsNullAndIsActiveTrueOrderByCreatedAtAsc();
 }
