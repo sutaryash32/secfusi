@@ -29,4 +29,9 @@ public interface DeviceUserRepository extends JpaRepository<DeviceUser, String> 
             @Param("tenantId") String tenantId,
             @Param("emails") List<String> emails
     );
+
+    /**
+     * Find device user by tenant ID and email (case-insensitive)
+     */
+    Optional<DeviceUser> findByTenantIdAndEmailIgnoreCase(String tenantId, String email);
 }

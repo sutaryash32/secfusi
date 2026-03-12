@@ -14,7 +14,9 @@ import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -314,6 +316,29 @@ public class JwtUtl {
         } catch (Exception e) {
             logger.error("getAzureTenantIdFromToken: unexpected error", e);
             return null;
+        }
+    }
+
+    /**
+     * Get Azure AD group IDs from the JWT token's "groups" claim.
+     *
+     * @param token raw JWT string
+     * @return list of Azure group IDs, or empty list if not present
+     */
+    public List<String> getGroupsFromToken(String token) {
+        try {
+            JWTClaimsSet claims = decodeToken(token);
+            if (claims == null) return Collections.emptyList();
+
+            List<String> groups = claims.getStringListClaim("groups");
+            if (groups == null || groups.isEmpty()) {
+                logger.debug("getGroupsFromToken: 'groups' claim not found or empty");
+                return Collections.emptyList();
+            }
+            return groups;
+        } catch (Exception e) {
+            logger.error("getGroupsFromToken: unexpected error", e);
+            return Collections.emptyList();
         }
     }
 

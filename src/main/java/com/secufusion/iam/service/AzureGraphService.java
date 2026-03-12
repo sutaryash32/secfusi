@@ -27,9 +27,9 @@ public class AzureGraphService {
 
     private final SsoConfigurationRepository ssoRepository;
 
-    @Value("${secufusion.azure.client-id:}")
+    @Value("${AZURE_CLIENT_ID:}")
     private String configClientId;
-    @Value("${secufusion.azure.client-secret:}")
+    @Value("${AZURE_CLIENT_SECRET:}")
     private String configClientSecret;
     /**
      * Fetch App Roles defined in the Azure App Registration
@@ -145,6 +145,34 @@ public class AzureGraphService {
                 .build();
 
         return new GraphServiceClient(credential, "https://graph.microsoft.com/.default");
+    }
+
+    /**
+     * Fetch a specific Azure AD group by its ID
+     */
+    public AzureResourceDto getGroupById(Tenant tenant, String azureGroupId, String azureTenantId) {
+        if (tenant == null || tenant.getTenantID() == null) {
+            throw new BadRequestException("Tenant cannot be null");
+        }
+        validateAzureAccess(tenant, azureTenantId);
+
+        try {
+            GraphServiceClient graphClient = getGraphClientByAzureTenantId(azureTenantId);
+
+            Group group = graphClient.groups().byGroupId(azureGroupId).get(requestConfiguration -> {
+                requestConfiguration.queryParameters.select = new String[]{"id", "displayName"};
+            });
+
+            if (group == null) {
+                return null;
+            }
+
+            return new AzureResourceDto(group.getId(), group.getDisplayName(), group.getId(), "GROUP");
+
+        } catch (Exception e) {
+            log.error("Failed to fetch Azure group by ID {}: {}", azureGroupId, e.getMessage());
+            throw new ExternalServiceException("Failed to fetch Azure group", e);
+        }
     }
 
     /**
