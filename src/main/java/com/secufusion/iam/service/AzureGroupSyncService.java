@@ -560,28 +560,42 @@ public class AzureGroupSyncService {
             return;
         }
 
-        PolicyAssignment assignment = PolicyAssignment.builder()
-                .browserPolicy(browserPolicy)
-                .networkPolicy(networkPolicy)
-                .extensionPolicy(extensionPolicy)
-                .azureResourceId(groupId)
-                .azureResourceName(group.getName())
-                .assignmentType("GROUP")
-                .fkTenantId(tenantId)
-                .build();
-
-        PolicyAssignment saved = policyAssignmentRepository.save(assignment);
-
-        // Record history for each assigned policy type
+        // Create separate assignment rows for each policy type (one row per policy)
         if (browserPolicy != null) {
+            PolicyAssignment browserAssignment = PolicyAssignment.builder()
+                    .browserPolicy(browserPolicy)
+                    .azureResourceId(groupId)
+                    .azureResourceName(group.getName())
+                    .assignmentType("GROUP")
+                    .fkTenantId(tenantId)
+                    .build();
+            PolicyAssignment saved = policyAssignmentRepository.save(browserAssignment);
             recordPolicyHistory(tenantId, group, "POLICY_ASSIGNED", saved.getId(),
                     "BROWSER", browserPolicy.getName(), "Default browser policy assigned", performedBy);
         }
+
         if (networkPolicy != null) {
+            PolicyAssignment networkAssignment = PolicyAssignment.builder()
+                    .networkPolicy(networkPolicy)
+                    .azureResourceId(groupId)
+                    .azureResourceName(group.getName())
+                    .assignmentType("GROUP")
+                    .fkTenantId(tenantId)
+                    .build();
+            PolicyAssignment saved = policyAssignmentRepository.save(networkAssignment);
             recordPolicyHistory(tenantId, group, "POLICY_ASSIGNED", saved.getId(),
                     "NETWORK", networkPolicy.getName(), "Default network policy assigned", performedBy);
         }
+
         if (extensionPolicy != null) {
+            PolicyAssignment extensionAssignment = PolicyAssignment.builder()
+                    .extensionPolicy(extensionPolicy)
+                    .azureResourceId(groupId)
+                    .azureResourceName(group.getName())
+                    .assignmentType("GROUP")
+                    .fkTenantId(tenantId)
+                    .build();
+            PolicyAssignment saved = policyAssignmentRepository.save(extensionAssignment);
             recordPolicyHistory(tenantId, group, "POLICY_ASSIGNED", saved.getId(),
                     "EXTENSION", extensionPolicy.getName(), "Default extension policy assigned", performedBy);
         }
@@ -681,7 +695,7 @@ public class AzureGroupSyncService {
 
         } catch (Exception e) {
             log.error("Failed to sync members for group '{}' (azureGroupId={}): {}",
-                    group.getName(), azureGroupId, e.getMessage());
+                    group.getName(), azureGroupId, e.getMessage(), e);
             return GroupMemberSyncResult.builder()
                     .groupId(groupId).groupName(group.getName())
                     .azureMembersCount(0).matchedDeviceUsers(0).newMappingsCreated(0)
@@ -718,15 +732,19 @@ public class AzureGroupSyncService {
     private void addPolicyInformation(Map<String, Object> groupData, String groupId,
                                      String tenantId, Boolean includePolicies) {
 
-        long policyCount = policyAssignmentRepository.countByEventsGroupIdAndTenantId(groupId, tenantId);
-        groupData.put("policyCount", policyCount);
+        List<PolicyAssignment> assignments = policyAssignmentRepository.findByEventsGroupIdAndTenantId(groupId, tenantId);
 
-        // For now, set type counts to 0 - these can be enhanced if needed
+        long browserPolicyCount = assignments.stream().filter(a -> a.getBrowserPolicy() != null).count();
+        long networkPolicyCount = assignments.stream().filter(a -> a.getNetworkPolicy() != null).count();
+        long extensionPolicyCount = assignments.stream().filter(a -> a.getExtensionPolicy() != null).count();
+        long total = browserPolicyCount + networkPolicyCount + extensionPolicyCount;
+
+        groupData.put("policyCount", total);
         groupData.put("policyCountsByType", Map.of(
-                "browserPolicies", 0L,
-                "networkPolicies", 0L,
-                "extensionPolicies", 0L,
-                "total", policyCount
+                "browserPolicies", browserPolicyCount,
+                "networkPolicies", networkPolicyCount,
+                "extensionPolicies", extensionPolicyCount,
+                "total", total
         ));
     }
 
