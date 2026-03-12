@@ -4,6 +4,7 @@ import com.secufusion.iam.dto.*;
 import com.secufusion.iam.dto.GroupMemberSyncResult;
 import com.secufusion.iam.entity.DeviceUser;
 import com.secufusion.iam.entity.EventsGroup;
+import com.secufusion.iam.entity.EventsGroupHistory;
 import com.secufusion.iam.entity.EventsGroupDeviceUserMapping;
 import com.secufusion.iam.entity.PolicyAssignment;
 import com.secufusion.iam.entity.Tenant;
@@ -363,6 +364,9 @@ public class EventsGroupController {
                 userEmail
         );
 
+        // Assign default policies to newly created APIKEY group
+        azureGroupSyncService.assignDefaultPolicies(created, tenantId, userEmail);
+
         return ResponseEntity.status(HttpStatus.CREATED).body(convertToDto(created));
     }
 
@@ -459,6 +463,11 @@ public class EventsGroupController {
             case "unauthorize" -> eventsGroupService.handleGroupUnauthorization(tenantId, groupId, userEmail, isAzureTenant);
             default -> throw new IllegalArgumentException("Invalid action. Allowed values: authorize, unauthorize");
         };
+
+        // For non-Azure tenants, assign default policies after authorization
+        if ("authorize".equalsIgnoreCase(action) && !isAzureTenant) {
+            azureGroupSyncService.assignDefaultPolicies(updated, tenantId, userEmail);
+        }
 
         return ResponseEntity.ok(convertToDto(updated));
     }
@@ -1050,4 +1059,42 @@ public class EventsGroupController {
         return ResponseEntity.ok(userWithGroups);
     }
 
+    // ================== 7. History ==================
+
+    @GetMapping("/{groupId}/history")
+    @Operation(
+            summary = "Get history for a specific group",
+            description = "Returns the full audit trail for a group including authorization, " +
+                    "policy assignments, and member sync events."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Successfully retrieved group history"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized")
+    })
+    public ResponseEntity<List<EventsGroupHistory>> getGroupHistory(
+            HttpServletRequest request,
+            @PathVariable String groupId) {
+
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        List<EventsGroupHistory> history = azureGroupSyncService.getGroupHistory(
+                groupId, tenant.getTenantID());
+        return ResponseEntity.ok(history);
+    }
+
+    @GetMapping("/history")
+    @Operation(
+            summary = "Get all group history for the tenant",
+            description = "Returns the full audit trail for all groups in the tenant."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Successfully retrieved tenant history"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized")
+    })
+    public ResponseEntity<List<EventsGroupHistory>> getTenantHistory(HttpServletRequest request) {
+
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        List<EventsGroupHistory> history = azureGroupSyncService.getTenantHistory(
+                tenant.getTenantID());
+        return ResponseEntity.ok(history);
+    }
 }

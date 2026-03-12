@@ -148,6 +148,7 @@ public class AuthController {
             @ApiResponse(responseCode = "200", description = "Login successful",
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = LoginResponseDto.class))),
             @ApiResponse(responseCode = "401", description = "Invalid or expired token"),
+            @ApiResponse(responseCode = "403", description = "User not in any authorized group"),
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @PostMapping("/login/extension")
@@ -163,7 +164,10 @@ public class AuthController {
                 remoteAddr, token != null && !token.isBlank(), tokenLength > 0 ? tokenLength : 0,
                 deviceInfo != null && deviceInfo.getDeviceFingerprint() != null);
 
-        // Delegate authentication to service with device info
+        // Check if user is a member of any authorized group FIRST
+        authConfigService.validateExtensionGroupAuthorization(request, token);
+
+        // Proceed with login only if user is in an authorized group
         LoginResponseDto response = authConfigService.login(request, token, deviceInfo);
 
         log.debug("Extension login processed for remoteAddr={}, resultStatus={}",
