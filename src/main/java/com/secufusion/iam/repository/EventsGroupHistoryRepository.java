@@ -9,8 +9,8 @@ import java.util.List;
 @Repository
 public interface EventsGroupHistoryRepository extends JpaRepository<EventsGroupHistory, String> {
 
-    List<EventsGroupHistory> findByEventsGroupIdAndTenantIdOrderByPerformedAtDesc(
-            String eventsGroupId, String tenantId);
+    List<EventsGroupHistory> findByEventsGroupIdAndFkTenantIdOrderByPerformedAtDesc(
+            String eventsGroupId, String fkTenantId);
 
-    List<EventsGroupHistory> findByTenantIdOrderByPerformedAtDesc(String tenantId);
+    List<EventsGroupHistory> findByFkTenantIdOrderByPerformedAtDesc(String fkTenantId);
 }

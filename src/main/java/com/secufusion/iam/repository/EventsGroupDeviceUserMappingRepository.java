@@ -138,7 +138,7 @@ public interface EventsGroupDeviceUserMappingRepository extends JpaRepository<Ev
            "JOIN m.deviceUser du " +
            "JOIN m.eventsGroup g " +
            "WHERE m.fkDeviceUserId = :deviceUserId " +
-           "AND du.tenantId = :tenantId " +
+           "AND du.fkTenantId = :tenantId " +
            "AND g.tenantId = :tenantId")
     List<EventsGroupDeviceUserMapping> findByDeviceUserIdAndTenantId(
         @Param("deviceUserId") String deviceUserId,
@@ -196,7 +196,7 @@ public interface EventsGroupDeviceUserMappingRepository extends JpaRepository<Ev
            "FROM DeviceUser du " +
            "LEFT JOIN EventsGroupDeviceUserMapping m ON du.pkDeviceUserId = m.fkDeviceUserId " +
            "LEFT JOIN EventsGroup g ON m.fkEventsGroupId = g.pkEventsGroupId " +
-           "WHERE du.tenantId = :tenantId " +
+           "WHERE du.fkTenantId = :tenantId " +
            "AND (du.status = 'ACTIVE' OR du.status IS NULL) " +
            "AND (g.authorized = true OR g.authorized IS NULL) " +
            "GROUP BY du.pkDeviceUserId, du.email, du.displayName, du.userName, du.source")
@@ -216,7 +216,7 @@ public interface EventsGroupDeviceUserMappingRepository extends JpaRepository<Ev
            "FROM EventsGroupDeviceUserMapping m " +
            "JOIN m.deviceUser du " +
            "JOIN m.eventsGroup g " +
-           "WHERE du.tenantId = :tenantId " +
+           "WHERE du.fkTenantId = :tenantId " +
            "AND LOWER(du.email) = LOWER(:email) " +
            "AND g.tenantId = :tenantId " +
            "AND g.authorized = true " +
