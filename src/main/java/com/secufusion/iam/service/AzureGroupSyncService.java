@@ -567,7 +567,7 @@ public class AzureGroupSyncService {
                 .azureResourceId(groupId)
                 .azureResourceName(group.getName())
                 .assignmentType("GROUP")
-                .tenantId(tenantId)
+                .fkTenantId(tenantId)
                 .build();
 
         PolicyAssignment saved = policyAssignmentRepository.save(assignment);
@@ -635,7 +635,7 @@ public class AzureGroupSyncService {
             }
 
             // Match to existing device users by email
-            List<DeviceUser> matchedUsers = deviceUserRepository.findByTenantIdAndEmailIn(tenantId, memberEmails);
+            List<DeviceUser> matchedUsers = deviceUserRepository.findByFkTenantIdAndEmailIn(tenantId, memberEmails);
 
             // Find unmatched emails (Azure members with no DeviceUser record)
             Set<String> matchedEmails = matchedUsers.stream()
@@ -738,7 +738,7 @@ public class AzureGroupSyncService {
                                String details, String performedBy) {
         try {
             historyRepository.save(EventsGroupHistory.builder()
-                    .tenantId(tenantId)
+                    .fkTenantId(tenantId)
                     .eventsGroupId(group.getPkEventsGroupId())
                     .groupName(group.getName())
                     .action(action)
@@ -755,7 +755,7 @@ public class AzureGroupSyncService {
                                      String details, String performedBy) {
         try {
             historyRepository.save(EventsGroupHistory.builder()
-                    .tenantId(tenantId)
+                    .fkTenantId(tenantId)
                     .eventsGroupId(group.getPkEventsGroupId())
                     .groupName(group.getName())
                     .action(action)
@@ -774,13 +774,13 @@ public class AzureGroupSyncService {
      * Get history for a specific group
      */
     public List<EventsGroupHistory> getGroupHistory(String eventsGroupId, String tenantId) {
-        return historyRepository.findByEventsGroupIdAndTenantIdOrderByPerformedAtDesc(eventsGroupId, tenantId);
+        return historyRepository.findByEventsGroupIdAndFkTenantIdOrderByPerformedAtDesc(eventsGroupId, tenantId);
     }
 
     /**
      * Get all history for a tenant
      */
     public List<EventsGroupHistory> getTenantHistory(String tenantId) {
-        return historyRepository.findByTenantIdOrderByPerformedAtDesc(tenantId);
+        return historyRepository.findByFkTenantIdOrderByPerformedAtDesc(tenantId);
     }
 }

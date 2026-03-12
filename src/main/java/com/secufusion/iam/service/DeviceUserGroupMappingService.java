@@ -334,7 +334,7 @@ public class DeviceUserGroupMappingService {
 
         return DeviceUserWithGroupsDto.builder()
                 .pkDeviceUserId(deviceUser.getPkDeviceUserId())
-                .tenantId(deviceUser.getTenantId())
+                .tenantId(deviceUser.getFkTenantId())
                 .email(deviceUser.getEmail())
                 .userName(deviceUser.getUserName())
                 .displayName(deviceUser.getDisplayName())

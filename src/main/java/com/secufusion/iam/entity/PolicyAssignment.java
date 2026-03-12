@@ -33,7 +33,7 @@ public class PolicyAssignment {
     /* ================= Tenant ================= */
 
     @Column(name = "fk_tenant_id", nullable = false)
-    private String tenantId;
+    private String fkTenantId;
 
     @Column(name = "assigned_at")
     private LocalDateTime assignedAt;

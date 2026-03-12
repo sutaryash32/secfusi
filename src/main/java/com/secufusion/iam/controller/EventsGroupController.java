@@ -754,7 +754,7 @@ public class EventsGroupController {
     private PolicyAssignmentDto convertPolicyAssignmentToDto(PolicyAssignment assignment) {
         PolicyAssignmentDto.PolicyAssignmentDtoBuilder builder = PolicyAssignmentDto.builder()
                 .assignmentId(assignment.getId())
-                .tenantId(assignment.getTenantId())
+                .tenantId(assignment.getFkTenantId())
                 .groupId(assignment.getAzureResourceId())
                 .assignmentType(assignment.getAssignmentType())
                 .resourceId(assignment.getAzureResourceId())

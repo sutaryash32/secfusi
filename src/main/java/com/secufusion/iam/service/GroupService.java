@@ -54,12 +54,12 @@ public class GroupService {
         String tenantId = tenant.getTenantID();
 
         // Prevent duplicate group name inside tenant
-        groupsRepository.findByNameAndTenantId(groups.getName().trim(), tenantId)
+        groupsRepository.findByNameAndFkTenantId(groups.getName().trim(), tenantId)
                 .ifPresent(e -> {
                     throw new ResourceNotFoundException("Group with this name already exists");
                 });
 
-        groups.setTenantId(tenantId);
+        groups.setFkTenantId(tenantId);
         groups.setCreatedBy(creator.getUserName());
         groups.setActive(true);
         groups.setCreatedTime(LocalDateTime.now());
@@ -72,7 +72,7 @@ public class GroupService {
        if (groups.getMappedRoles() == null) {
            groups.setMappedRoles(new HashSet<>());
        } else {
-           String groupTenantId = groups.getTenantId();
+           String groupTenantId = groups.getFkTenantId();
            Set<Roles> filtered = new HashSet<>();
            for (Roles r : groups.getMappedRoles()) {
                if (r == null) continue;
@@ -130,7 +130,7 @@ public class GroupService {
         }
         String tenantId = tenantFromRequest.getTenantID();
         log.info("getAllGroups: Fetching all groups for tenantId={}", tenantId);
-        List<Groups> result = groupsRepository.findByTenantId(tenantId)
+        List<Groups> result = groupsRepository.findByFkTenantId(tenantId)
                 .stream()
                 .peek(g -> {
                     String creatorId = g.getCreatedBy();
@@ -173,7 +173,7 @@ public class GroupService {
         // UNIQUE NAME CHECK
         // ---------------------------
         if (incoming.getName() != null && !incoming.getName().equals(existing.getName())) {
-            groupsRepository.findByNameAndTenantId(incoming.getName(), existing.getTenantId())
+            groupsRepository.findByNameAndFkTenantId(incoming.getName(), existing.getFkTenantId())
                     .ifPresent(conflict -> {
                         if (!conflict.getPkGroupId().equals(existing.getPkGroupId())) {
                             throw new ResourceNotFoundException("Group name already exists");
@@ -189,7 +189,7 @@ public class GroupService {
         if (incoming.getMappedRoles() == null) {
             existing.setMappedRoles(new HashSet<>());
         } else {
-            String groupTenantId = existing.getTenantId();
+            String groupTenantId = existing.getFkTenantId();
             Set<Roles> filtered = new HashSet<>();
             for (Roles r : incoming.getMappedRoles()) {
                 if (r == null) continue;
@@ -233,14 +233,14 @@ public class GroupService {
                     tenantId, requestingTenant.getTenantID());
             throw new ResourceNotFoundException("Requested tenant not accessible");
         }
-        List<Groups> groups = groupsRepository.findByTenantId(tenantId);
+        List<Groups> groups = groupsRepository.findByFkTenantId(tenantId);
         log.debug("getGroupsByTenant: found {} groups for tenantId={}", groups.size(), tenantId);
         return groups;
     }
 
     public boolean deleteGroupsByTenantId(String tenantID) {
         log.info("deleteGroupsByTenantId: Deleting groups for tenantId={}", tenantID);
-        List<Groups> groupsToDelete = groupsRepository.findByTenantId(tenantID);
+        List<Groups> groupsToDelete = groupsRepository.findByFkTenantId(tenantID);
         groupsRepository.deleteAll(groupsToDelete);
         log.debug("deleteGroupsByTenantId: Deleted {} groups for tenantId={}", groupsToDelete.size(), tenantID);
         return true;
