@@ -337,7 +337,7 @@ public class UserService {
                         .orElseThrow(() -> new ResourceNotFoundException(
                                 "Group not found: " + gReq.getPkGroupId())))
                 .peek(g -> {
-                    if (g.getTenantId() == null || user.getTenant().getTenantID() == null || !user.getTenant().getTenantID().equals(g.getTenantId())) {
+                    if (g.getFkTenantId() == null || user.getTenant().getTenantID() == null || !user.getTenant().getTenantID().equals(g.getFkTenantId())) {
                         throw new ResourceNotFoundException("Group does not belong to tenant: " + g.getPkGroupId());
                     }
                 })

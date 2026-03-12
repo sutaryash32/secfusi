@@ -217,7 +217,7 @@ public class DropdownService {
         }
         String tenantId = tenantFromRequest.getTenantID();
         log.info("getGroupsForDropdown: Fetching all groups for tenantId={}", tenantId);
-        List<Groups> groupsList = groupsRepository.findByTenantId(tenantId);
+        List<Groups> groupsList = groupsRepository.findByFkTenantId(tenantId);
         List<GroupsDropdown> dropdown = groupsList.stream()
                 .map(group -> {
                     // Convert mapped roles to dropdown DTOs safely

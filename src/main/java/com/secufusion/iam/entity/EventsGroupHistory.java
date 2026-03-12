@@ -31,7 +31,7 @@ public class EventsGroupHistory {
     private String pkHistoryId;
 
     @Column(name = "fk_tenant_id", nullable = false, length = 36)
-    private String tenantId;
+    private String fkTenantId;
 
     @Column(name = "fk_events_group_id", nullable = false, length = 36)
     private String eventsGroupId;
