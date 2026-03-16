@@ -155,6 +155,7 @@ public class AuthController {
     public ResponseEntity<ResponseDto<LoginResponseDto>> extensionLogin(
             HttpServletRequest request,
             @RequestParam String token,
+            @RequestParam(required = false) String deviceUserEmail,
             @RequestBody(required = false) DeviceInfoRequest deviceInfo) {
 
         // Mask token info: don't log the token itself, only its length and presence
@@ -165,10 +166,10 @@ public class AuthController {
                 deviceInfo != null && deviceInfo.getDeviceFingerprint() != null);
 
         // Check if user is a member of any authorized group FIRST
-        authConfigService.validateExtensionGroupAuthorization(request, token);
+        authConfigService.validateExtensionGroupAuthorization(request, token, deviceUserEmail);
 
         // Proceed with login only if user is in an authorized group
-        LoginResponseDto response = authConfigService.login(request, token, deviceInfo);
+        LoginResponseDto response = authConfigService.loginForExtension(request, token, deviceInfo, deviceUserEmail);
 
         log.debug("Extension login processed for remoteAddr={}, resultStatus={}",
                 remoteAddr, response != null ? "non-null" : "null");
