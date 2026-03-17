@@ -456,7 +456,12 @@ public class KeycloakAdminUtil {
             int status = response.getStatus();
 
             if (status == 409) {
-                log.warn("User already exists in realm={} username={}", realm, username);
+                log.warn("User already exists in realm={} username={} - fetching existing user id", realm, username);
+                List<UserRepresentation> existing = findUsersByUsernameOrEmail(realm, username, email);
+                if (!existing.isEmpty()) {
+                    log.info("Recovered existing KC user on 409. kcUserId={}", existing.get(0).getId());
+                    return existing.get(0).getId();
+                }
                 return null;
             }
 
