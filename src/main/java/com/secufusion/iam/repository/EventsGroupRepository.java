@@ -202,4 +202,22 @@ public interface EventsGroupRepository extends JpaRepository<EventsGroup, String
         EventsGroup.GroupType groupType,
         Boolean authorized
     );
+
+    /**
+     * Check if any of the given Azure group IDs are authorized and active for a tenant.
+     * Used during extension login to verify Azure AD group membership.
+     *
+     * @param tenantId      Tenant ID
+     * @param azureGroupIds List of Azure AD group object IDs from JWT token
+     * @return true if at least one matching authorized active group exists
+     */
+    @Query("SELECT CASE WHEN COUNT(g) > 0 THEN true ELSE false END FROM EventsGroup g " +
+           "WHERE g.tenantId = :tenantId " +
+           "AND g.azureGroupId IN :azureGroupIds " +
+           "AND g.authorized = true " +
+           "AND g.isActive = true")
+    boolean existsAuthorizedAzureGroup(
+        @Param("tenantId") String tenantId,
+        @Param("azureGroupIds") List<String> azureGroupIds
+    );
 }

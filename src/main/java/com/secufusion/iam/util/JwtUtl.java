@@ -14,7 +14,9 @@ import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -168,7 +170,30 @@ public class JwtUtl {
             }
 
             try {
-                return tenantRepository.findByTenantName(azp).orElse(null);
+                // Primary: direct tenant name match
+                Tenant tenant = tenantRepository.findByTenantName(azp).orElse(null);
+                if (tenant != null) return tenant;
+
+                // Fallback 1: extension client_credentials tokens use azp = "{tenantName}-extension-client"
+                if (azp.endsWith("-extension-client")) {
+                    String tenantNameGuess = azp.substring(0, azp.length() - "-extension-client".length());
+                    tenant = tenantRepository.findByTenantName(tenantNameGuess).orElse(null);
+                    if (tenant != null) return tenant;
+                }
+
+                // Fallback 2: resolve via realm name from iss claim (e.g. https://keycloak.host/realms/{realmName})
+                String iss = claims.getStringClaim("iss");
+                if (iss != null && iss.contains("/realms/")) {
+                    String realmPart = iss.substring(iss.indexOf("/realms/") + "/realms/".length());
+                    String realmName = realmPart.contains("/") ? realmPart.substring(0, realmPart.indexOf("/")) : realmPart;
+                    if (!realmName.isBlank()) {
+                        tenant = tenantRepository.findByRealmName(realmName).orElse(null);
+                        if (tenant != null) return tenant;
+                    }
+                }
+
+                logger.debug("getTenantFromRequest: no tenant found for azp={}", azp);
+                return null;
             } catch (Exception repoEx) {
                 logger.error("getTenantFromRequest: error querying tenantRepository for name {}", azp, repoEx);
                 return null;
@@ -314,6 +339,29 @@ public class JwtUtl {
         } catch (Exception e) {
             logger.error("getAzureTenantIdFromToken: unexpected error", e);
             return null;
+        }
+    }
+
+    /**
+     * Get Azure AD group IDs from the JWT token's "groups" claim.
+     *
+     * @param token raw JWT string
+     * @return list of Azure group IDs, or empty list if not present
+     */
+    public List<String> getGroupsFromToken(String token) {
+        try {
+            JWTClaimsSet claims = decodeToken(token);
+            if (claims == null) return Collections.emptyList();
+
+            List<String> groups = claims.getStringListClaim("groups");
+            if (groups == null || groups.isEmpty()) {
+                logger.debug("getGroupsFromToken: 'groups' claim not found or empty");
+                return Collections.emptyList();
+            }
+            return groups;
+        } catch (Exception e) {
+            logger.error("getGroupsFromToken: unexpected error", e);
+            return Collections.emptyList();
         }
     }
 

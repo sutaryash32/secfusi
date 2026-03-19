@@ -8,6 +8,10 @@ import com.secufusion.iam.entity.*;
 import com.secufusion.iam.exception.AccessDeniedException;
 import com.secufusion.iam.exception.ResourceNotFoundException;
 import com.secufusion.iam.repository.AuthProviderConfigRepository;
+import com.secufusion.iam.repository.EventsGroupDeviceUserMappingRepository;
+import com.secufusion.iam.repository.DeviceUserRepository;
+import com.secufusion.iam.entity.DeviceUser;
+import com.secufusion.iam.repository.EventsGroupRepository;
 import com.secufusion.iam.repository.SsoConfigurationRepository;
 import com.secufusion.iam.repository.TenantRepository;
 import com.secufusion.iam.repository.UserRepository;
@@ -50,6 +54,15 @@ public class AuthConfigService {
 
     @Autowired
     private SsoConfigurationRepository ssoConfigurationRepository;
+
+    @Autowired
+    private EventsGroupDeviceUserMappingRepository eventsGroupDeviceUserMappingRepository;
+
+    @Autowired
+    private EventsGroupRepository eventsGroupRepository;
+
+    @Autowired
+    private DeviceUserRepository deviceUserRepository;
 
     /**
      * Load authentication details for a tenant identified by host (domain or tenantName).
@@ -477,6 +490,85 @@ public class AuthConfigService {
         }
     }
 
+    /**
+     * Validates that the user is a member of at least one authorized and active EventsGroup.
+     * Supports two paths:
+     * <ul>
+     *   <li><b>Azure:</b> Checks JWT "groups" claim against authorized EventsGroups by azure_group_id</li>
+     *   <li><b>API key:</b> Checks device_user mapping against authorized EventsGroups by email</li>
+     * </ul>
+     *
+     * @param request incoming HTTP request containing JWT
+     * @param token   raw JWT token
+     * @throws AccessDeniedException if user is not in any authorized group
+     */
+    public void validateExtensionGroupAuthorization(HttpServletRequest request, String token) {
+        validateExtensionGroupAuthorization(request, token, null);
+    }
+
+    public void validateExtensionGroupAuthorization(HttpServletRequest request, String token, String deviceUserEmail) {
+        log.info("validateExtensionGroupAuthorization - start");
+
+        // Validate token
+        jwtUtil.validateRequestToken(request, token);
+
+        // Extract tenant from JWT
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        if (tenant == null) {
+            log.error("validateExtensionGroupAuthorization: tenant not found from token");
+            throw new AccessDeniedException("Tenant not found");
+        }
+
+        String tenantId = tenant.getTenantID();
+
+        // --- Path 1: Azure — check JWT "groups" claim against authorized Azure groups ---
+        List<String> azureGroupIds = jwtUtil.getGroupsFromToken(token);
+        if (azureGroupIds != null && !azureGroupIds.isEmpty()) {
+            log.debug("validateExtensionGroupAuthorization: found {} Azure group IDs in token for tenant '{}'",
+                    azureGroupIds.size(), tenantId);
+
+            boolean azureMatch = eventsGroupRepository.existsAuthorizedAzureGroup(tenantId, azureGroupIds);
+            if (azureMatch) {
+                log.info("validateExtensionGroupAuthorization: user verified via Azure group for tenant '{}'", tenantId);
+                return;
+            }
+            log.debug("validateExtensionGroupAuthorization: no matching authorized Azure group found, falling through to API key check");
+        }
+
+        // --- Path 2: API key — check device_user mapping against authorized groups ---
+        String email = jwtUtil.getEmail(request);
+        if (email == null || email.isBlank()) {
+            // For client_credentials tokens (APIKEY tenants), email is not in JWT.
+            // Use the device user email passed explicitly from the extension login request.
+            if (deviceUserEmail != null && !deviceUserEmail.isBlank()) {
+                email = deviceUserEmail;
+            } else {
+                String preferred = jwtUtil.getPreferredUsernameFromRequest(request);
+                // Ignore service-account usernames (client_credentials tokens)
+                if (preferred != null && !preferred.isBlank() && !preferred.startsWith("service-account-")) {
+                    email = preferred;
+                } else {
+                    log.error("validateExtensionGroupAuthorization: email not in token and no deviceUserEmail provided");
+                    throw new AccessDeniedException("Unable to identify user from token");
+                }
+            }
+        }
+
+        boolean existsInAuthorizedGroup = eventsGroupDeviceUserMappingRepository
+                .existsInAuthorizedGroup(tenantId, email);
+
+        if (existsInAuthorizedGroup) {
+            log.info("validateExtensionGroupAuthorization: user '{}' verified via API key group for tenant '{}'",
+                    email, tenantId);
+            return;
+        }
+
+        // Neither path matched
+        log.warn("validateExtensionGroupAuthorization: user '{}' is not a member of any authorized group in tenant '{}'",
+                email, tenantId);
+        throw new AccessDeniedException("User is not a member of any authorized group");
+    }
+
     public LoginResponseDto loginByEmail(String email) {
         log.info("loginByEmail - start for email={}", email);
 
@@ -694,6 +786,67 @@ public class AuthConfigService {
                 .authorized(false)
                 .message(message)
                 .build();
+    }
+
+    /**
+     * Extension login with DeviceUser fallback for APIKEY tenants.
+     * First tries the standard portal-user login. If the user is a device-only user
+     * (not registered in the portal users table), falls back to DeviceUser-based login.
+     */
+    public LoginResponseDto loginForExtension(HttpServletRequest request, String token,
+                                              DeviceInfoRequest deviceInfo, String deviceUserEmail) {
+        try {
+            return login(request, token, deviceInfo);
+        } catch (ResourceNotFoundException e) {
+            // Portal user not found — attempt DeviceUser-based login for APIKEY tenants
+            if (deviceUserEmail != null && !deviceUserEmail.isBlank()) {
+                log.info("loginForExtension: portal user not found, attempting DeviceUser login for email={}", deviceUserEmail);
+                Tenant tenant = jwtUtil.getTenantFromRequest(request);
+                if (tenant == null) {
+                    log.error("loginForExtension: tenant could not be resolved from token");
+                    throw new ResourceNotFoundException("Tenant not found in token");
+                }
+                return loginForDeviceUser(tenant, deviceUserEmail, token);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Build a LoginResponseDto from a DeviceUser record.
+     * Used for APIKEY extension users who are not registered as portal users.
+     */
+    private LoginResponseDto loginForDeviceUser(Tenant tenant, String email, String token) {
+        DeviceUser deviceUser = deviceUserRepository
+                .findByFkTenantIdAndEmailIgnoreCase(tenant.getTenantID(), email)
+                .orElseThrow(() -> new ResourceNotFoundException("Device user not found for email: " + email));
+
+        AuthProviderConfig cfg = authProviderConfigRepository.findByTenant(tenant)
+                .orElseThrow(() -> new ResourceNotFoundException("Auth provider config missing for tenant"));
+
+        String displayName = deviceUser.getDisplayName() != null
+                ? deviceUser.getDisplayName()
+                : deviceUser.getUserName() != null ? deviceUser.getUserName() : email;
+
+        LoginResponseDto response = new LoginResponseDto();
+        response.setUserId(deviceUser.getPkDeviceUserId());
+        response.setEmail(deviceUser.getEmail());
+        response.setUsername(deviceUser.getUserName() != null ? deviceUser.getUserName() : email);
+        response.setFullName(displayName);
+        response.setFirstName(displayName);
+        response.setLastName("");
+        response.setAccessToken(token);
+        response.setTenantId(tenant.getTenantID());
+        response.setUserType(Optional.ofNullable(tenant.getTenantType())
+                .map(String::trim).map(String::toUpperCase).orElse("EXTENSION"));
+        response.setSsoType(cfg.getSsoType());
+        response.setMappedTenant(new TenantLean(tenant.getTenantID(), tenant.getTenantName()));
+        response.setMappedGroups(Collections.emptySet());
+        response.setPermissionMatrix(Collections.emptyMap());
+
+        log.info("loginForDeviceUser: login successful for deviceUserId={}, email={}",
+                deviceUser.getPkDeviceUserId(), email);
+        return response;
     }
 
 

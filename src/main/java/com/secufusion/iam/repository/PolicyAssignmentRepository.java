@@ -27,7 +27,7 @@ public interface PolicyAssignmentRepository extends JpaRepository<PolicyAssignme
      */
     @Query("SELECT p FROM PolicyAssignment p " +
            "WHERE p.azureResourceId = :groupId " +
-           "AND p.tenantId = :tenantId")
+           "AND p.fkTenantId = :tenantId")
     List<PolicyAssignment> findByEventsGroupIdAndTenantId(
         @Param("groupId") String groupId,
         @Param("tenantId") String tenantId
@@ -42,8 +42,18 @@ public interface PolicyAssignmentRepository extends JpaRepository<PolicyAssignme
      */
     @Query("SELECT COUNT(p) FROM PolicyAssignment p " +
            "WHERE p.azureResourceId = :groupId " +
-           "AND p.tenantId = :tenantId")
+           "AND p.fkTenantId = :tenantId")
     long countByEventsGroupIdAndTenantId(
+        @Param("groupId") String groupId,
+        @Param("tenantId") String tenantId
+    );
+
+    /**
+     * Check if any policy assignment exists for a group
+     */
+    @Query("SELECT CASE WHEN COUNT(p) > 0 THEN true ELSE false END FROM PolicyAssignment p " +
+           "WHERE p.azureResourceId = :groupId AND p.fkTenantId = :tenantId")
+    boolean existsByGroupIdAndTenantId(
         @Param("groupId") String groupId,
         @Param("tenantId") String tenantId
     );
@@ -57,7 +67,7 @@ public interface PolicyAssignmentRepository extends JpaRepository<PolicyAssignme
      */
     @Query("SELECT p FROM PolicyAssignment p " +
            "WHERE p.azureResourceId IN :groupIds " +
-           "AND p.tenantId = :tenantId")
+           "AND p.fkTenantId = :tenantId")
     List<PolicyAssignment> findByEventsGroupIdsAndTenantId(
         @Param("groupIds") List<String> groupIds,
         @Param("tenantId") String tenantId

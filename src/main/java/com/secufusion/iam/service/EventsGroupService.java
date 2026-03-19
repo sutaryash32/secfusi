@@ -421,16 +421,17 @@ public class EventsGroupService {
             throw new IllegalArgumentException("Only Azure groups can be unauthorized via this method");
         }
 
-        // Check if group has assigned users or policies
-        long userCount = mappingRepository.countByFkEventsGroupId(groupId);
-        long policyCount = policyAssignmentRepository.countByEventsGroupIdAndTenantId(groupId, tenantId);
-
-        if (userCount > 0 || policyCount > 0) {
-            throw new IllegalStateException(
-                    String.format("Cannot unauthorize group with %d users and %d policies. " +
-                            "Remove assignments first.", userCount, policyCount)
-            );
-        }
+        // TODO: Re-enable when ready to enforce pre-unauthorization cleanup
+        // // Check if group has assigned users or policies
+        // long userCount = mappingRepository.countByFkEventsGroupId(groupId);
+        // long policyCount = policyAssignmentRepository.countByEventsGroupIdAndTenantId(groupId, tenantId);
+        //
+        // if (userCount > 0 || policyCount > 0) {
+        //     throw new IllegalStateException(
+        //             String.format("Cannot unauthorize group with %d users and %d policies. " +
+        //                     "Remove assignments first.", userCount, policyCount)
+        //     );
+        // }
 
         // Hard delete from database (no soft delete for unauthorized Azure groups)
         groupRepository.delete(group);

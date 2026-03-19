@@ -15,9 +15,23 @@ public interface DeviceUserRepository extends JpaRepository<DeviceUser, String> 
     /**
      * Find device user by ID and tenant ID
      */
-    @Query("SELECT du FROM DeviceUser du WHERE du.pkDeviceUserId = :deviceUserId AND du.tenantId = :tenantId")
+    @Query("SELECT du FROM DeviceUser du WHERE du.pkDeviceUserId = :deviceUserId AND du.fkTenantId = :tenantId")
     Optional<DeviceUser> findByIdAndTenantId(
             @Param("deviceUserId") String deviceUserId,
             @Param("tenantId") String tenantId
     );
+
+    /**
+     * Find device users by tenant ID and list of emails (case-insensitive)
+     */
+    @Query("SELECT du FROM DeviceUser du WHERE du.fkTenantId = :tenantId AND LOWER(du.email) IN :emails")
+    List<DeviceUser> findByFkTenantIdAndEmailIn(
+            @Param("tenantId") String tenantId,
+            @Param("emails") List<String> emails
+    );
+
+    /**
+     * Find device user by tenant ID and email (case-insensitive)
+     */
+    Optional<DeviceUser> findByFkTenantIdAndEmailIgnoreCase(String fkTenantId, String email);
 }

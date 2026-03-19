@@ -42,7 +42,7 @@ public class DeviceUser {
     private String pkDeviceUserId;
 
     @Column(name = "fk_tenant_id", length = 50, nullable = false)
-    private String tenantId;
+    private String fkTenantId;
 
     @Column(name = "email", length = 255, nullable = false)
     private String email;

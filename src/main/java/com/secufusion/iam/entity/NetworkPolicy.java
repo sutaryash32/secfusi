@@ -37,7 +37,7 @@ public class NetworkPolicy {
     @Column(nullable = false)
     private boolean isEnabled;
 
-    @Column(name = "fk_tenant_id", nullable = false, length = 36)
+    @Column(name = "fk_tenant_id", length = 36)
     private String fkTenantId;
 
     @Column(length = 36)

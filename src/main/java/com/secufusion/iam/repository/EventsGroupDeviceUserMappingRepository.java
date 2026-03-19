@@ -138,7 +138,7 @@ public interface EventsGroupDeviceUserMappingRepository extends JpaRepository<Ev
            "JOIN m.deviceUser du " +
            "JOIN m.eventsGroup g " +
            "WHERE m.fkDeviceUserId = :deviceUserId " +
-           "AND du.tenantId = :tenantId " +
+           "AND du.fkTenantId = :tenantId " +
            "AND g.tenantId = :tenantId")
     List<EventsGroupDeviceUserMapping> findByDeviceUserIdAndTenantId(
         @Param("deviceUserId") String deviceUserId,
@@ -196,11 +196,33 @@ public interface EventsGroupDeviceUserMappingRepository extends JpaRepository<Ev
            "FROM DeviceUser du " +
            "LEFT JOIN EventsGroupDeviceUserMapping m ON du.pkDeviceUserId = m.fkDeviceUserId " +
            "LEFT JOIN EventsGroup g ON m.fkEventsGroupId = g.pkEventsGroupId " +
-           "WHERE du.tenantId = :tenantId " +
+           "WHERE du.fkTenantId = :tenantId " +
            "AND (du.status = 'ACTIVE' OR du.status IS NULL) " +
            "AND (g.authorized = true OR g.authorized IS NULL) " +
            "GROUP BY du.pkDeviceUserId, du.email, du.displayName, du.userName, du.source")
     List<UserGroupMembershipStats> getUserGroupMembershipStatsByTenant(@Param("tenantId") String tenantId);
 
     List<EventsGroupDeviceUserMapping> findByFkEventsGroupIdIn(List<String> groupIds);
+
+    /**
+     * Check if a user (by email) is a member of any authorized and active group within a tenant.
+     * Joins DeviceUser → Mapping → EventsGroup to verify group membership.
+     *
+     * @param tenantId Tenant ID
+     * @param email    User email
+     * @return true if user exists in at least one authorized active group
+     */
+    @Query("SELECT CASE WHEN COUNT(m) > 0 THEN true ELSE false END " +
+           "FROM EventsGroupDeviceUserMapping m " +
+           "JOIN m.deviceUser du " +
+           "JOIN m.eventsGroup g " +
+           "WHERE du.fkTenantId = :tenantId " +
+           "AND LOWER(du.email) = LOWER(:email) " +
+           "AND g.tenantId = :tenantId " +
+           "AND g.authorized = true " +
+           "AND g.isActive = true")
+    boolean existsInAuthorizedGroup(
+        @Param("tenantId") String tenantId,
+        @Param("email") String email
+    );
 }

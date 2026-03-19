@@ -97,6 +97,11 @@ public class JwtTenantUserValidationFilter extends OncePerRequestFilter {
                 filterChain.doFilter(request, response);
                 return;
             }
+            if (request.getRequestURI().endsWith("/login/extension") && "POST".equalsIgnoreCase(request.getMethod())) {
+                log.debug("Skipping JWT/tenant/user validation for POST /login/extension (service account token)");
+                filterChain.doFilter(request, response);
+                return;
+            }
             // ============================================================
             // 2️⃣ Extract details from JWT
             // ============================================================

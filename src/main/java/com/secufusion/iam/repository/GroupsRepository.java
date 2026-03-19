@@ -11,10 +11,10 @@ import java.util.Optional;
 
 @Repository
 public interface GroupsRepository extends JpaRepository<Groups, Serializable> {
-    Optional<Groups> findByNameAndTenantId(String name, String tenantId);
+    Optional<Groups> findByNameAndFkTenantId(String name, String fkTenantId);
 
-    Optional<Groups> findByTenantIdAndIsAdminAndIsDefault(
-            String tenantId,
+    Optional<Groups> findByFkTenantIdAndIsAdminAndIsDefault(
+            String fkTenantId,
             Character isAdmin,
             Character isDefault
     );
@@ -40,6 +40,6 @@ public interface GroupsRepository extends JpaRepository<Groups, Serializable> {
     """, nativeQuery = true)
     Groups findGroupAccessibleByTenant(String groupId, String requestingTenantId);
 
-    List<Groups> findByTenantId(String tenantId);
+    List<Groups> findByFkTenantId(String fkTenantId);
 }
 

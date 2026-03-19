@@ -40,7 +40,7 @@ public class Groups {
 
     /** Each group belongs to one tenant */
     @Column(name = "fk_tenant_id", nullable = false)
-    private String tenantId;
+    private String fkTenantId;
 
     /** Group ↔ Roles = M:N */
     @ManyToMany(fetch = FetchType.EAGER)

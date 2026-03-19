@@ -148,12 +148,14 @@ public class AuthController {
             @ApiResponse(responseCode = "200", description = "Login successful",
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = LoginResponseDto.class))),
             @ApiResponse(responseCode = "401", description = "Invalid or expired token"),
+            @ApiResponse(responseCode = "403", description = "User not in any authorized group"),
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @PostMapping("/login/extension")
     public ResponseEntity<ResponseDto<LoginResponseDto>> extensionLogin(
             HttpServletRequest request,
             @RequestParam String token,
+            @RequestParam(required = false) String deviceUserEmail,
             @RequestBody(required = false) DeviceInfoRequest deviceInfo) {
 
         // Mask token info: don't log the token itself, only its length and presence
@@ -163,8 +165,11 @@ public class AuthController {
                 remoteAddr, token != null && !token.isBlank(), tokenLength > 0 ? tokenLength : 0,
                 deviceInfo != null && deviceInfo.getDeviceFingerprint() != null);
 
-        // Delegate authentication to service with device info
-        LoginResponseDto response = authConfigService.login(request, token, deviceInfo);
+        // Check if user is a member of any authorized group FIRST
+        authConfigService.validateExtensionGroupAuthorization(request, token, deviceUserEmail);
+
+        // Proceed with login only if user is in an authorized group
+        LoginResponseDto response = authConfigService.loginForExtension(request, token, deviceInfo, deviceUserEmail);
 
         log.debug("Extension login processed for remoteAddr={}, resultStatus={}",
                 remoteAddr, response != null ? "non-null" : "null");
