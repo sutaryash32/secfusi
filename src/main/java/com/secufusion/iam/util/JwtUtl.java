@@ -365,6 +365,37 @@ public class JwtUtl {
         }
     }
 
+    /**
+     * Validate a token directly (no Authorization header required).
+     * Used on initial login where the token is supplied as a query parameter.
+     */
+    public boolean validateToken(String token) {
+        log.info("validateToken: start");
+        if (token == null || token.isBlank()) {
+            log.error("validateToken: token is null or blank");
+            throw new InvalidTokenException("Token is null or blank");
+        }
+        try {
+            JWTClaimsSet claims = decodeToken(token);
+            if (claims == null) {
+                log.error("validateToken: failed to decode token");
+                throw new TokenValidationException("Failed to decode token");
+            }
+            java.util.Date exp = claims.getExpirationTime();
+            if (exp != null && exp.before(new java.util.Date())) {
+                log.info("validateToken: token is expired");
+                throw new TokenExpiredException("Token is expired");
+            }
+            log.info("validateToken: token is valid");
+            return true;
+        } catch (TokenValidationException | TokenExpiredException | InvalidTokenException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("validateToken: unexpected error: {}", e.getMessage(), e);
+            throw new TokenValidationException("Unexpected error during token validation");
+        }
+    }
+
     public boolean validateRequestToken(HttpServletRequest request, String token) {
         log.info("validateRequestToken: start");
         if (token == null) {
