@@ -127,6 +127,7 @@ public class AzureGraphService {
             return groups;
 
         } catch (Exception e) {
+            log.error("Failed to fetch groups for azureTenantId={}: [{}] {}", azureTenantId, e.getClass().getSimpleName(), e.getMessage(), e);
             throw new ExternalServiceException("Failed to fetch groups", e);
         }
     }
