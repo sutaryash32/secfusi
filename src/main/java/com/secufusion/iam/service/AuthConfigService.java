@@ -206,9 +206,12 @@ public class AuthConfigService {
                 throw new ResourceNotFoundException("Invalid request");
             }
 
-            // Validate token directly — login is the initial call, no Authorization header yet
-            log.debug("Validating token");
-            jwtUtil.validateToken(token);
+            // Validate token against request
+            log.debug("Validating request token");
+            if (!jwtUtil.validateRequestToken(request, token)) {
+                log.warn("Token validation failed for request from {}", request.getRemoteAddr());
+                throw new ResourceNotFoundException("Invalid or missing token");
+            }
             log.info("Token validated successfully (token length={})", token != null ? token.length() : 0);
 
             // Extract user from token/request
@@ -314,9 +317,7 @@ public class AuthConfigService {
                                     new ResourceNotFoundException("User tenant type is missing"));
 
             response.setUserType(userTenantType);
-            response.setSsoType(authProviderConfigRepository.findByTenant(tenantFromRequest)
-                    .map(AuthProviderConfig::getSsoType)
-                    .orElse(null));
+            response.setSsoType(authProviderConfigRepository.findByTenant(tenantFromRequest).get().getSsoType());
 
             // Convert mapped groups → Set<GroupsLean>
             log.debug("Mapping user groups and roles");
@@ -355,11 +356,10 @@ public class AuthConfigService {
             response.setMobilePhone(userFromRequest.getPhoneNo());
             response.setMappedTenant(new TenantLean(userFromRequest.getTenant().getTenantID(), userFromRequest.getTenant().getTenantName()));
             Map<String, Map<String, Set<String>>> permissionMatrix =
-                    Optional.ofNullable(userFromRequest.getMappedGroups())
-                            .orElse(Collections.emptySet())
+                    userFromRequest.getMappedGroups()
                             .stream()
-                            .flatMap(group -> Optional.ofNullable(group.getMappedRoles()).orElse(Collections.emptySet()).stream())
-                            .flatMap(role -> Optional.ofNullable(role.getScopes()).orElse(Collections.emptySet()).stream())
+                            .flatMap(group -> group.getMappedRoles().stream())
+                            .flatMap(role -> role.getScopes().stream())
                             .filter(scope ->
                                     scope.getTenantTypes() != null &&
                                             scope.getTenantTypes().stream().anyMatch(tt ->
