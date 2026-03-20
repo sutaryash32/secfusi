@@ -29,9 +29,7 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
                                 "/swagger-resources/**",
-                                "/webjars/**",
-                                "/login", "/login/**",
-                                "/api/iam/login", "/api/iam/login/**").permitAll()
+                                "/webjars/**","/login/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
