@@ -49,6 +49,9 @@ public class NetworkPolicy {
     @Column
     private boolean isActive;
 
+    @Column(name = "is_tenant_default")
+    private boolean isTenantDefault = false;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
