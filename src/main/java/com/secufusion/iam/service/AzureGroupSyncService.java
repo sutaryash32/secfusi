@@ -411,9 +411,10 @@ public class AzureGroupSyncService {
                 recordHistory(tenantId, group, "GROUP_AUTHORIZED",
                         "Group authorized by admin", userEmail);
             }
-            // Assign default policies and sync members after authorization
+            // Assign default policies after authorization
             assignDefaultPolicies(group, tenantId, userEmail);
-            syncGroupMembers(tenant, group, userEmail);
+            // Sync members independently — failure must not roll back the authorization
+            trySyncGroupMembers(tenant, group, userEmail);
             return group;
         }
 
@@ -439,9 +440,10 @@ public class AzureGroupSyncService {
         recordHistory(tenantId, authorizedGroup, "GROUP_AUTHORIZED",
                 "New Azure group authorized and persisted from Azure AD", userEmail);
 
-        // Assign default policies and sync members after authorization
+        // Assign default policies after authorization
         assignDefaultPolicies(authorizedGroup, tenantId, userEmail);
-        syncGroupMembers(tenant, authorizedGroup, userEmail);
+        // Sync members independently — failure must not roll back the authorization
+        trySyncGroupMembers(tenant, authorizedGroup, userEmail);
 
         return authorizedGroup;
     }
@@ -532,28 +534,19 @@ public class AzureGroupSyncService {
             return;
         }
 
-        // Find first active policy of each type: prefer tenant-specific, fall back to global defaults (fkTenantId = null)
+        // Find the active default policy for the tenant for each policy type
         BrowserPolicy browserPolicy = browserPolicyRepository
-                .findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(tenantId)
-                .stream().findFirst()
-                .orElseGet(() -> browserPolicyRepository
-                        .findAllByFkTenantIdIsNullAndIsActiveTrueOrderByCreatedAtAsc()
-                        .stream().findFirst().orElse(null));
+                .findFirstByFkTenantIdAndIsActiveTrueAndIsTenantDefaultTrue(tenantId)
+                .orElse(null);
 
         NetworkPolicy networkPolicy = networkPolicyRepository
-                .findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(tenantId)
-                .stream().findFirst()
-                .orElseGet(() -> networkPolicyRepository
-                        .findAllByFkTenantIdIsNullAndIsActiveTrueOrderByCreatedAtAsc()
-                        .stream().findFirst().orElse(null));
+                .findFirstByFkTenantIdAndIsActiveTrueAndIsTenantDefaultTrue(tenantId)
+                .orElse(null);
 
         ExtensionPolicy extensionPolicy = extensionPolicyRepository
-                .findAllByFkTenantIdAndIsActiveTrueOrderByCreatedAtAsc(tenantId)
-                .stream().findFirst()
-                .orElseGet(() -> extensionPolicyRepository
-                        .findAllByFkTenantIdIsNullAndIsActiveTrueOrderByCreatedAtAsc()
-                        .stream().findFirst().orElse(null));
-
+                .findFirstByFkTenantIdAndIsActiveTrueAndIsTenantDefaultTrue(tenantId)
+                .orElse(null);
+ 
         if (browserPolicy == null && networkPolicy == null && extensionPolicy == null) {
             log.info("No active policies found for tenant '{}', skipping default assignment for group '{}'",
                     tenantId, group.getName());
@@ -605,6 +598,21 @@ public class AzureGroupSyncService {
                 browserPolicy != null ? browserPolicy.getName() : "none",
                 networkPolicy != null ? networkPolicy.getName() : "none",
                 extensionPolicy != null ? extensionPolicy.getName() : "none");
+    }
+
+    /**
+     * Non-throwing wrapper around syncGroupMembers.
+     * Member sync is a best-effort operation — an Azure Graph API failure must not
+     * roll back the group authorization and default policy assignment that already succeeded.
+     */
+    private void trySyncGroupMembers(Tenant tenant, EventsGroup group, String assignedBy) {
+        try {
+            syncGroupMembers(tenant, group, assignedBy);
+        } catch (Exception e) {
+            log.error("Member sync failed for group '{}' ({}). Authorization and default policies are committed. " +
+                      "Sync can be retried manually. Error: {}",
+                      group.getName(), group.getPkEventsGroupId(), e.getMessage(), e);
+        }
     }
 
     /**

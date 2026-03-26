@@ -43,6 +43,9 @@ public class ExtensionPolicy {
     @Column(name = "is_active")
     private Boolean isActive = true;
 
+    @Column(name = "is_tenant_default")
+    private Boolean isTenantDefault = false;
+
     @Column(name = "landing_page_url", length = 500)
     private String landingPageUrl;
 
