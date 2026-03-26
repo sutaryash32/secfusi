@@ -15,6 +15,7 @@ import com.secufusion.iam.repository.PolicyAssignmentRepository;
 import com.secufusion.iam.service.AzureGroupSyncService;
 import com.secufusion.iam.service.DeviceUserGroupMappingService;
 import com.secufusion.iam.service.EventsGroupService;
+import com.secufusion.iam.service.KeycloakGroupClaimSyncService;
 import com.secufusion.iam.util.JwtUtl;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -49,6 +50,7 @@ public class EventsGroupController {
     private final DeviceUserRepository deviceUserRepository;
     private final JwtUtl jwtUtil;
     private final EventsGroupDeviceUserMappingRepository mappingRepository;
+    private final KeycloakGroupClaimSyncService keycloakGroupClaimSyncService;
 
     @GetMapping
     @Operation(
@@ -467,6 +469,11 @@ public class EventsGroupController {
         // For non-Azure tenants, assign default policies after authorization
         if ("authorize".equalsIgnoreCase(action) && !isAzureTenant) {
             azureGroupSyncService.assignDefaultPolicies(updated, tenantId, userEmail);
+        }
+
+        // For Azure tenants, rebuild Keycloak IdP essential claim filter to include/exclude the group
+        if (isAzureTenant) {
+            keycloakGroupClaimSyncService.syncEssentialClaim(tenantId, tenant.getRealmName());
         }
 
         return ResponseEntity.ok(convertToDto(updated));

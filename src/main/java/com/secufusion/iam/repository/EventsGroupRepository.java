@@ -59,6 +59,8 @@ public interface EventsGroupRepository extends JpaRepository<EventsGroup, String
      */
     List<EventsGroup> findByTenantIdAndGroupType(String tenantId, EventsGroup.GroupType groupType);
 
+    List<EventsGroup> findByTenantIdAndGroupTypeAndIsActive(String tenantId, EventsGroup.GroupType groupType, Boolean isActive);
+
     /**
      * Find authorized groups for a tenant (for policy assignment dropdowns)
      *
@@ -67,6 +69,8 @@ public interface EventsGroupRepository extends JpaRepository<EventsGroup, String
      * @return List of authorized EventsGroups
      */
     List<EventsGroup> findByTenantIdAndAuthorized(String tenantId, Boolean authorized);
+
+    List<EventsGroup> findByTenantIdAndAuthorizedAndIsActive(String tenantId, Boolean authorized, Boolean isActive);
 
     /**
      * Find authorized groups of specific type
@@ -80,6 +84,13 @@ public interface EventsGroupRepository extends JpaRepository<EventsGroup, String
         String tenantId,
         Boolean authorized,
         EventsGroup.GroupType groupType
+    );
+
+    List<EventsGroup> findByTenantIdAndAuthorizedAndGroupTypeAndIsActive(
+        String tenantId,
+        Boolean authorized,
+        EventsGroup.GroupType groupType,
+        Boolean isActive
     );
 
     /**

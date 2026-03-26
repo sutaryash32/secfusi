@@ -186,7 +186,7 @@ public class EventsGroupService {
     @Transactional(readOnly = true)
     public List<EventsGroup> getAllGroups(String tenantId) {
         log.debug("Fetching all events groups for tenant: {}", tenantId);
-        return groupRepository.findByTenantId(tenantId);
+        return groupRepository.findByTenantIdAndIsActive(tenantId, true);
     }
 
     /**
@@ -210,7 +210,7 @@ public class EventsGroupService {
     @Transactional(readOnly = true)
     public List<EventsGroup> getAuthorizedGroups(String tenantId) {
         log.debug("Fetching authorized events groups for tenant: {}", tenantId);
-        return groupRepository.findByTenantIdAndAuthorized(tenantId, true);
+        return groupRepository.findByTenantIdAndAuthorizedAndIsActive(tenantId, true, true);
     }
 
     /**
@@ -223,7 +223,7 @@ public class EventsGroupService {
     @Transactional(readOnly = true)
     public List<EventsGroup> getAuthorizedGroupsByType(String tenantId, EventsGroup.GroupType groupType) {
         log.debug("Fetching authorized {} groups for tenant: {}", groupType, tenantId);
-        return groupRepository.findByTenantIdAndAuthorizedAndGroupType(tenantId, true, groupType);
+        return groupRepository.findByTenantIdAndAuthorizedAndGroupTypeAndIsActive(tenantId, true, groupType, true);
     }
 
     /**
@@ -236,7 +236,7 @@ public class EventsGroupService {
     @Transactional(readOnly = true)
     public List<EventsGroup> getGroupsByType(String tenantId, EventsGroup.GroupType groupType) {
         log.debug("Fetching {} groups for tenant: {}", groupType, tenantId);
-        return groupRepository.findByTenantIdAndGroupType(tenantId, groupType);
+        return groupRepository.findByTenantIdAndGroupTypeAndIsActive(tenantId, groupType, true);
     }
 
     /**
@@ -325,7 +325,7 @@ public class EventsGroupService {
         mappingRepository.deleteByGroup(groupId);
 
         // Remove all policy assignments for this group
-        policyAssignmentRepository.deleteByEventsGroupId(groupId); // Note: Will need to update method name
+        policyAssignmentRepository.deleteByEventsGroupId(groupId);
 
         log.info("Events group soft-deleted: {} (mappings and policy assignments removed)", groupId);
     }
@@ -432,6 +432,9 @@ public class EventsGroupService {
         //                     "Remove assignments first.", userCount, policyCount)
         //     );
         // }
+
+        // Remove all policy assignments before deleting the group
+        policyAssignmentRepository.deleteByEventsGroupId(groupId);
 
         // Hard delete from database (no soft delete for unauthorized Azure groups)
         groupRepository.delete(group);

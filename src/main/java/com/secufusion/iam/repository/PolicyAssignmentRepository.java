@@ -14,8 +14,7 @@ public interface PolicyAssignmentRepository extends JpaRepository<PolicyAssignme
 
     @Modifying
     @Query("DELETE FROM PolicyAssignment p " +
-           "WHERE p.azureResourceId = :groupId " +
-           "AND p.assignmentType = 'APIKEY_GROUP'")
+           "WHERE p.azureResourceId = :groupId")
     void deleteByEventsGroupId(@Param("groupId") String groupId);
 
     /**
