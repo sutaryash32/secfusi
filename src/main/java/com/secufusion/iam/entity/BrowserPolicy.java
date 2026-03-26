@@ -65,6 +65,9 @@ public class BrowserPolicy {
     @Column
     private boolean isActive = true;
 
+    @Column(name = "is_tenant_default")
+    private boolean isTenantDefault = false;
+
     /**
      * Landing Page URL - Direct URL entered by user.
      * Used when landingPageId is null.
