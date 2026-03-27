@@ -644,4 +644,63 @@ public class KeycloakAdminUtil {
         }
     }
 
+    /**
+     * Updates the Identity Provider's essential claim filter so that only users
+     * belonging to at least one of the supplied Azure group OIDs can log in.
+     *
+     * When groupIds is non-empty the following IdP config keys are set:
+     *   filteredByClaim  = "true"
+     *   claimFilterName  = "groups"
+     *   claimFilterValue = ".*(id1|id2|id3).*"
+     *
+     * When groupIds is empty the filter is disabled (filteredByClaim = "false").
+     *
+     * @param realm     Keycloak realm name
+     * @param idpAlias  Identity provider alias (e.g. "microsoft")
+     * @param groupIds  Azure AD group OIDs to allow through the claim filter
+     */
+    public void updateIdpEssentialClaim(String realm, String idpAlias, List<String> groupIds) {
+        log.info("Updating IdP essential claim for realm={} alias={} groupCount={}",
+                realm, idpAlias, groupIds.size());
+        try {
+            IdentityProviderResource idpRes = keycloak.realm(realm).identityProviders().get(idpAlias);
+            IdentityProviderRepresentation rep = idpRes.toRepresentation();
+
+            if (rep == null) {
+                throw new KeycloakOperationException("IDP_NOT_FOUND", 404,
+                        "Identity provider not found: " + idpAlias);
+            }
+
+            Map<String, String> config = rep.getConfig();
+            if (config == null) {
+                config = new HashMap<>();
+                rep.setConfig(config);
+            }
+
+            if (groupIds.isEmpty()) {
+                config.put("filteredByClaim", "false");
+                config.remove("claimFilterName");
+                config.remove("claimFilterValue");
+                log.info("Disabled essential claim filter for IdP={} in realm={} (no authorized groups remaining)",
+                        idpAlias, realm);
+            } else {
+                String pattern = ".*(" + String.join("|", groupIds) + ").*";
+                config.put("filteredByClaim", "true");
+                config.put("claimFilterName", "groups");
+                config.put("claimFilterValue", pattern);
+                log.info("Set essential claim filter for IdP={} in realm={}: {}", idpAlias, realm, pattern);
+            }
+
+            rep.setConfig(config);
+            idpRes.update(rep);
+            log.info("Essential claim updated successfully for IdP={} in realm={}", idpAlias, realm);
+
+        } catch (KeycloakOperationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap("IDP_CLAIM_UPDATE_FAILED", 500,
+                    "Failed to update essential claim for IdP " + idpAlias + " in realm " + realm, e);
+        }
+    }
+
 }
