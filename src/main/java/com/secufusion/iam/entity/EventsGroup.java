@@ -68,11 +68,21 @@ public class EventsGroup {
     private GroupType groupType = GroupType.APIKEY_GROUP;
 
     /**
-     * Whether group is authorized for policy assignments
-     * Admin must authorize groups before they appear in policy assignment dropdowns
+     * Whether group is authorized for policy assignments and main app login.
+     * Admin must authorize groups before they appear in policy assignment dropdowns.
+     * For AZURE_GROUP: also controls Keycloak essential claim (filteredByClaims) gate.
      */
     @Column(name = "authorized", nullable = false)
     private Boolean authorized = true; // APIKEY_GROUP defaults to true, AZURE_GROUP defaults to false
+
+    /**
+     * Whether group is authorized for browser extension login.
+     * Separate gate from main app login (authorized field).
+     * Admin must explicitly grant extension access per group.
+     * Only applies to AZURE_GROUP type.
+     */
+    @Column(name = "extension_authorized", nullable = false)
+    private Boolean extensionAuthorized = false;
 
     /**
      * Azure AD group object ID (OID) - only for AZURE_GROUP type

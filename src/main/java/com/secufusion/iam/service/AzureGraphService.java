@@ -27,10 +27,12 @@ public class AzureGraphService {
 
     private final SsoConfigurationRepository ssoRepository;
 
-    @Value("${AZURE_CLIENT_ID:}")
-    private String configClientId;
-    @Value("${AZURE_CLIENT_SECRET:}")
-    private String configClientSecret;
+    @Value("${AZURE_CLIENT_ID}")
+    private String graphClientId;
+
+    @Value("${AZURE_CLIENT_SECRET}")
+    private String graphClientSecret;
+
     /**
      * Fetch App Roles defined in the Azure App Registration
      */
@@ -43,12 +45,9 @@ public class AzureGraphService {
         validateAzureAccess(tenant, azureTenantId);
 
         try {
-            GraphServiceClient graphClient = getGraphClientByAzureTenantId(azureTenantId);
+            GraphServiceClient graphClient = getGraphClientForTenant(tenant);
 
-            SsoConfiguration config = ssoRepository.findByFkTenantId(tenant.getTenantID())
-                    .stream()
-                    .filter(c -> "ACTIVE".equalsIgnoreCase(c.getActive()))
-                    .findFirst()
+            SsoConfiguration config = ssoRepository.findByFkTenantIdAndActive(tenant.getTenantID(), "ACTIVE")
                     .orElseThrow(() -> new ResourceNotFoundException("No active Azure config"));
 
             // v6 Syntax: requestConfiguration lambda
@@ -97,7 +96,7 @@ public class AzureGraphService {
         validateAzureAccess(tenant, azureTenantId);
 
         try {
-            GraphServiceClient graphClient = getGraphClientByAzureTenantId(azureTenantId);
+            GraphServiceClient graphClient = getGraphClientForTenant(tenant);
 
             GroupCollectionResponse response = graphClient.groups().get(requestConfiguration -> {
                 requestConfiguration.queryParameters.select = new String[]{"id", "displayName"};
@@ -106,8 +105,6 @@ public class AzureGraphService {
                 if (searchTerm != null && !searchTerm.isBlank()) {
                     String safe = searchTerm.replace("'", "''");
                     requestConfiguration.queryParameters.filter = "startswith(displayName,'" + safe + "')";
-                    // Advanced search requires ConsistencyLevel: eventual
-                    requestConfiguration.headers.add("ConsistencyLevel", "eventual");
                 }
             });
 
@@ -132,16 +129,11 @@ public class AzureGraphService {
     }
 
 
-    private GraphServiceClient getGraphClientByAzureTenantId(String azureTenantId) {
-
-        // TODO: idp specific config lookup needed here
-//        SsoConfiguration config = ssoRepository.findActiveAzureConfig()
-//                .orElseThrow(() -> new ResourceNotFoundException("SSO config missing", "404"));
-
+    private GraphServiceClient getGraphClientForTenant(Tenant tenant) {
         ClientSecretCredential credential = new ClientSecretCredentialBuilder()
-                .tenantId(azureTenantId)
-                .clientId(configClientId)
-                .clientSecret(configClientSecret)
+                .tenantId(tenant.getAzureTenantId())
+                .clientId(graphClientId)
+                .clientSecret(graphClientSecret)
                 .build();
 
         return new GraphServiceClient(credential, "https://graph.microsoft.com/.default");
@@ -157,7 +149,7 @@ public class AzureGraphService {
         validateAzureAccess(tenant, azureTenantId);
 
         try {
-            GraphServiceClient graphClient = getGraphClientByAzureTenantId(azureTenantId);
+            GraphServiceClient graphClient = getGraphClientForTenant(tenant);
 
             Group group = graphClient.groups().byGroupId(azureGroupId).get(requestConfiguration -> {
                 requestConfiguration.queryParameters.select = new String[]{"id", "displayName"};
@@ -187,57 +179,42 @@ public class AzureGraphService {
         validateAzureAccess(tenant, azureTenantId);
 
         try {
-            GraphServiceClient graphClient = getGraphClientByAzureTenantId(azureTenantId);
+            GraphServiceClient graphClient = getGraphClientForTenant(tenant);
 
-            // Do NOT use $select on /members — it strips @odata.type,
-            // preventing the SDK from deserializing members as User objects.
-            DirectoryObjectCollectionResponse response = graphClient
+            log.info("[MEMBER-SYNC] Calling Graph API: GET /groups/{}/members/microsoft.graph.user", azureGroupId);
+
+            UserCollectionResponse response = graphClient
                     .groups()
                     .byGroupId(azureGroupId)
                     .members()
+                    .graphUser()
                     .get(requestConfiguration -> {
+                        requestConfiguration.queryParameters.select = new String[]{"id", "mail", "userPrincipalName"};
                         requestConfiguration.queryParameters.top = 999;
                     });
+
+            log.info("[MEMBER-SYNC] Response null={}, valueNull={}, valueSize={}",
+                    response == null,
+                    response != null && response.getValue() == null,
+                    response != null && response.getValue() != null ? response.getValue().size() : "N/A");
 
             List<String> memberEmails = new ArrayList<>();
 
             if (response != null && response.getValue() != null) {
-                PageIterator<DirectoryObject, DirectoryObjectCollectionResponse> iterator =
-                        new PageIterator.Builder<DirectoryObject, DirectoryObjectCollectionResponse>()
-                                .client(graphClient)
-                                .collectionPage(response)
-                                .collectionPageFactory(DirectoryObjectCollectionResponse::createFromDiscriminatorValue)
-                                .processPageItemCallback(member -> {
-                                    if (member instanceof User user) {
-                                        String email = user.getMail() != null ? user.getMail() : user.getUserPrincipalName();
-                                        if (email != null && !email.isBlank()) {
-                                            memberEmails.add(email.toLowerCase());
-                                        }
-                                    } else {
-                                        // Fallback: extract email from additionalData if type info was lost
-                                        var data = member.getAdditionalData();
-                                        if (data != null) {
-                                            Object mail = data.get("mail");
-                                            Object upn = data.get("userPrincipalName");
-                                            String email = mail != null ? mail.toString() :
-                                                    (upn != null ? upn.toString() : null);
-                                            if (email != null && !email.isBlank()) {
-                                                memberEmails.add(email.toLowerCase());
-                                            }
-                                        }
-                                    }
-                                    return true;
-                                })
-                                .build();
-
-                iterator.iterate();
+                for (User user : response.getValue()) {
+                    log.info("[MEMBER-SYNC] User id={}, mail={}, upn={}", user.getId(), user.getMail(), user.getUserPrincipalName());
+                    String email = user.getMail() != null ? user.getMail() : user.getUserPrincipalName();
+                    if (email != null && !email.isBlank()) {
+                        memberEmails.add(email.toLowerCase());
+                    }
+                }
             }
 
             log.info("Fetched {} member emails for Azure group: {}", memberEmails.size(), azureGroupId);
             return memberEmails;
 
         } catch (Exception e) {
-            log.error("Failed to fetch group members for group {}: {}", azureGroupId, e.getMessage(), e);
+            log.error("[MEMBER-SYNC] Exception for group {}: {} - {}", azureGroupId, e.getClass().getSimpleName(), e.getMessage(), e);
             throw new ExternalServiceException("Failed to fetch group members", e);
         }
     }
