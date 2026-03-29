@@ -607,6 +607,7 @@ public class AuthConfigService {
             response.setFullName(user.getFirstName() + " " + user.getLastName());
             response.setUserType(tenantType);
             response.setTenantId(tenant.getTenantID());
+            response.setSelfManaged(Boolean.TRUE.equals(tenant.getSelfManaged()));
             response.setMappedTenant(new TenantLean(
                     tenant.getTenantID(),
                     tenant.getTenantName()

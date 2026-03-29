@@ -29,4 +29,10 @@ public class LoginResponseDto {
     String mobilePhone;
     TenantLean mappedTenant;
     private String ssoType; // "AZURE_AD", "OKTA", "GOOGLE", etc.
+
+    /**
+     * Whether this tenant is selfManaged (MSSP/Master MSSP with own users).
+     * When true the UI shows the mode switcher (MSSP Mode ↔ My Org Mode).
+     */
+    private boolean selfManaged;
 }
