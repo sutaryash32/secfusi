@@ -378,6 +378,7 @@ public class AuthConfigService {
                                     )
                             ));
             response.setPermissionMatrix(permissionMatrix);
+            response.setSelfManaged(Boolean.TRUE.equals(userFromRequest.getTenant().getSelfManaged()));
 
             // Log successful login event with device info if available
             try {
@@ -607,6 +608,7 @@ public class AuthConfigService {
             response.setFullName(user.getFirstName() + " " + user.getLastName());
             response.setUserType(tenantType);
             response.setTenantId(tenant.getTenantID());
+            response.setSelfManaged(Boolean.TRUE.equals(tenant.getSelfManaged()));
             response.setMappedTenant(new TenantLean(
                     tenant.getTenantID(),
                     tenant.getTenantName()

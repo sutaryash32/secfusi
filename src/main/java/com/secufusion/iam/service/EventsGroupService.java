@@ -370,10 +370,11 @@ public class EventsGroupService {
             if (!group.getAuthorized()) {
                 // Update to authorized
                 group.setAuthorized(true);
+                group.setExtensionAuthorized(true);
                 group.setUpdatedBy(authorizedBy);
                 group.setUpdatedAt(Instant.now());
                 group.setSyncedAt(Instant.now());
-                log.info("Updated existing Azure group {} to authorized", azureGroupId);
+                log.info("Updated existing Azure group {} to authorized (main login + extension)", azureGroupId);
                 return groupRepository.save(group);
             }
             log.info("Azure group {} already authorized", azureGroupId);
@@ -387,7 +388,8 @@ public class EventsGroupService {
         newGroup.setName(azureGroupDisplayName);
         newGroup.setDescription("Authorized Azure AD group");
         newGroup.setGroupType(EventsGroup.GroupType.AZURE_GROUP);
-        newGroup.setAuthorized(true);  // ALWAYS true when created via this method
+        newGroup.setAuthorized(true);            // ALWAYS true when created via this method
+        newGroup.setExtensionAuthorized(true);   // Extension access granted by default on authorization
         newGroup.setAzureGroupId(azureGroupId);
         newGroup.setAzureGroupDisplayName(azureGroupDisplayName);
         newGroup.setSyncedAt(Instant.now());
