@@ -35,4 +35,10 @@ public class LoginResponseDto {
      * When true the UI shows the mode switcher (MSSP Mode ↔ My Org Mode).
      */
     private boolean selfManaged;
+
+    /**
+     * Enterprise-scoped permission matrix — only populated when selfManaged=true.
+     * Used by the UI in "My Org Mode" to show Enterprise menu items.
+     */
+    private Map<String, Map<String, Set<String>>> myOrgPermissionMatrix;
 }

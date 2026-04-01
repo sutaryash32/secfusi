@@ -378,7 +378,37 @@ public class AuthConfigService {
                                     )
                             ));
             response.setPermissionMatrix(permissionMatrix);
-            response.setSelfManaged(Boolean.TRUE.equals(userFromRequest.getTenant().getSelfManaged()));
+
+            boolean selfManaged = Boolean.TRUE.equals(userFromRequest.getTenant().getSelfManaged());
+            response.setSelfManaged(selfManaged);
+
+            // For selfManaged tenants, also build an Enterprise-scoped permission matrix
+            // so the UI can show full Enterprise menu items in "My Org Mode".
+            if (selfManaged) {
+                Map<String, Map<String, Set<String>>> myOrgPermissionMatrix =
+                        userFromRequest.getMappedGroups()
+                                .stream()
+                                .flatMap(group -> group.getMappedRoles().stream())
+                                .flatMap(role -> role.getScopes().stream())
+                                .filter(scope ->
+                                        scope.getTenantTypes() != null &&
+                                                scope.getTenantTypes().stream().anyMatch(tt ->
+                                                        tt.getTenantTypeName() != null &&
+                                                                tt.getTenantTypeName().trim().equalsIgnoreCase("ENTERPRISE")
+                                                )
+                                )
+                                .collect(Collectors.groupingBy(
+                                        Scopes::getMenuName,
+                                        Collectors.groupingBy(
+                                                Scopes::getSubMenu,
+                                                Collectors.mapping(
+                                                        Scopes::getAction,
+                                                        Collectors.toSet()
+                                                )
+                                        )
+                                ));
+                response.setMyOrgPermissionMatrix(myOrgPermissionMatrix);
+            }
 
             // Log successful login event with device info if available
             try {
