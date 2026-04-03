@@ -345,6 +345,7 @@ public class AzureGroupSyncService {
                                 .description("Azure AD group (not authorized)")
                                 .groupType("AZURE_GROUP")
                                 .authorized(false)
+                                .extensionAuthorized(false)
                                 .azureGroupId(azureGroup.getId())
                                 .azureGroupDisplayName(azureGroup.getName())
                                 .syncedAt(null)
@@ -360,6 +361,7 @@ public class AzureGroupSyncService {
                                 .description(dbGroup.getDescription())
                                 .groupType(dbGroup.getGroupType().name())
                                 .authorized(dbGroup.getAuthorized())
+                                .extensionAuthorized(dbGroup.getExtensionAuthorized())
                                 .azureGroupId(dbGroup.getAzureGroupId())
                                 .azureGroupDisplayName(dbGroup.getAzureGroupDisplayName())
                                 .syncedAt(dbGroup.getSyncedAt())
@@ -489,6 +491,7 @@ public class AzureGroupSyncService {
         groupData.put("description", dto.getDescription());
         groupData.put("groupType", dto.getGroupType());
         groupData.put("authorized", dto.getAuthorized());
+        groupData.put("extensionAuthorized", dto.getExtensionAuthorized());
         groupData.put("azureGroupId", dto.getAzureGroupId());
         groupData.put("azureGroupDisplayName", dto.getAzureGroupDisplayName());
         groupData.put("syncedAt", dto.getSyncedAt());

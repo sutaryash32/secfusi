@@ -82,7 +82,7 @@ public class EventsGroup {
      * Only applies to AZURE_GROUP type.
      */
     @Column(name = "extension_authorized", nullable = false)
-    private Boolean extensionAuthorized = false;
+    private Boolean extensionAuthorized = true;
 
     /**
      * Azure AD group object ID (OID) - only for AZURE_GROUP type

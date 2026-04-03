@@ -798,6 +798,7 @@ public class EventsGroupController {
                 .description(group.getDescription())
                 .groupType(group.getGroupType().name())
                 .authorized(group.getAuthorized())
+                .extensionAuthorized(group.getExtensionAuthorized())
                 .azureGroupId(group.getAzureGroupId())
                 .azureGroupDisplayName(group.getAzureGroupDisplayName())
                 .syncedAt(group.getSyncedAt())
