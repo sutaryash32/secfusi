@@ -162,6 +162,7 @@ public class EventsGroupController {
                     groupData.put("description", dto.getDescription());
                     groupData.put("groupType", dto.getGroupType());
                     groupData.put("authorized", dto.getAuthorized());
+                    groupData.put("extensionAuthorized", dto.getExtensionAuthorized());
 
                     // Only include Azure fields if tenant is Azure SSO
                     if (!isApiKeyTenant) {
@@ -264,6 +265,7 @@ public class EventsGroupController {
         response.put("description", dto.getDescription());
         response.put("groupType", dto.getGroupType());
         response.put("authorized", dto.getAuthorized());
+        response.put("extensionAuthorized", dto.getExtensionAuthorized());
 
         // Only include Azure fields if tenant is not APIKEY
         if (!isApiKeyTenant) {
