@@ -16,7 +16,7 @@
 
 -- IF NOT EXISTS: safe to run even if sfn-tenants-api already added this column first
 ALTER TABLE events_groups
-    ADD COLUMN IF NOT EXISTS extension_authorized BOOLEAN NOT NULL DEFAULT FALSE;
+    ADD COLUMN IF NOT EXISTS extension_authorized BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- Backfill: all currently authorized groups get extension access enabled
 -- This matches the new default behavior where authorization grants both main + extension access
