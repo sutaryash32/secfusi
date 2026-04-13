@@ -22,6 +22,7 @@ public class EventsGroupDto {
     private String description;
     private String groupType; // "APIKEY_GROUP" or "AZURE_GROUP"
     private Boolean authorized;
+    private Boolean extensionAuthorized;
     private String azureGroupId;
     private String azureGroupDisplayName;
     private Instant syncedAt;

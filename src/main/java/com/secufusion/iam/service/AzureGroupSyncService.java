@@ -345,6 +345,7 @@ public class AzureGroupSyncService {
                                 .description("Azure AD group (not authorized)")
                                 .groupType("AZURE_GROUP")
                                 .authorized(false)
+                                .extensionAuthorized(false)
                                 .azureGroupId(azureGroup.getId())
                                 .azureGroupDisplayName(azureGroup.getName())
                                 .syncedAt(null)
@@ -360,6 +361,7 @@ public class AzureGroupSyncService {
                                 .description(dbGroup.getDescription())
                                 .groupType(dbGroup.getGroupType().name())
                                 .authorized(dbGroup.getAuthorized())
+                                .extensionAuthorized(dbGroup.getExtensionAuthorized())
                                 .azureGroupId(dbGroup.getAzureGroupId())
                                 .azureGroupDisplayName(dbGroup.getAzureGroupDisplayName())
                                 .syncedAt(dbGroup.getSyncedAt())
@@ -404,12 +406,13 @@ public class AzureGroupSyncService {
             EventsGroup group = existingGroup.get();
             if (!group.getAuthorized()) {
                 group.setAuthorized(true);
+                group.setExtensionAuthorized(true);
                 group.setUpdatedBy(userEmail);
                 group.setUpdatedAt(Instant.now());
                 group = eventsGroupRepository.save(group);
 
                 recordHistory(tenantId, group, "GROUP_AUTHORIZED",
-                        "Group authorized by admin", userEmail);
+                        "Group authorized by admin (main login + extension access)", userEmail);
             }
             // Assign default policies after authorization
             assignDefaultPolicies(group, tenantId, userEmail);
@@ -488,6 +491,7 @@ public class AzureGroupSyncService {
         groupData.put("description", dto.getDescription());
         groupData.put("groupType", dto.getGroupType());
         groupData.put("authorized", dto.getAuthorized());
+        groupData.put("extensionAuthorized", dto.getExtensionAuthorized());
         groupData.put("azureGroupId", dto.getAzureGroupId());
         groupData.put("azureGroupDisplayName", dto.getAzureGroupDisplayName());
         groupData.put("syncedAt", dto.getSyncedAt());
@@ -808,5 +812,72 @@ public class AzureGroupSyncService {
      */
     public List<EventsGroupHistory> getTenantHistory(String tenantId) {
         return historyRepository.findByFkTenantIdOrderByPerformedAtDesc(tenantId);
+    }
+
+    /**
+     * Authorize a group for browser extension login.
+     * This is a separate gate from main app login (authorized field).
+     * Only AZURE_GROUP type is supported.
+     *
+     * @param tenantId  Tenant ID
+     * @param groupId   EventsGroup DB primary key (pkEventsGroupId)
+     * @param userEmail Admin performing the action
+     * @return Updated EventsGroup
+     */
+    @Transactional
+    public EventsGroup authorizeGroupForExtension(String tenantId, String groupId, String userEmail) {
+        EventsGroup group = eventsGroupRepository.findByIdAndTenantId(groupId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Group not found: " + groupId));
+
+        if (group.getGroupType() != EventsGroup.GroupType.AZURE_GROUP) {
+            throw new IllegalArgumentException("Extension authorization is only supported for AZURE_GROUP type");
+        }
+
+        if (Boolean.TRUE.equals(group.getExtensionAuthorized())) {
+            log.info("Group '{}' is already extension-authorized, skipping", group.getName());
+            return group;
+        }
+
+        group.setExtensionAuthorized(true);
+        group.setUpdatedBy(userEmail);
+        group.setUpdatedAt(Instant.now());
+        group = eventsGroupRepository.save(group);
+
+        recordHistory(tenantId, group, "EXTENSION_AUTHORIZED",
+                "Group authorized for browser extension access by admin", userEmail);
+
+        log.info("Group '{}' (id={}) extension-authorized by {}", group.getName(), groupId, userEmail);
+        return group;
+    }
+
+    /**
+     * Revoke browser extension access from a group.
+     * Users in this group will no longer be able to use the browser extension.
+     *
+     * @param tenantId  Tenant ID
+     * @param groupId   EventsGroup DB primary key (pkEventsGroupId)
+     * @param userEmail Admin performing the action
+     * @return Updated EventsGroup
+     */
+    @Transactional
+    public EventsGroup revokeGroupExtensionAccess(String tenantId, String groupId, String userEmail) {
+        EventsGroup group = eventsGroupRepository.findByIdAndTenantId(groupId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Group not found: " + groupId));
+
+        if (!Boolean.TRUE.equals(group.getExtensionAuthorized())) {
+            log.info("Group '{}' does not have extension access, nothing to revoke", group.getName());
+            return group;
+        }
+
+        group.setExtensionAuthorized(false);
+        group.setUpdatedBy(userEmail);
+        group.setUpdatedAt(Instant.now());
+        group = eventsGroupRepository.save(group);
+
+        recordHistory(tenantId, group, "EXTENSION_ACCESS_REVOKED",
+                "Browser extension access revoked for group by admin", userEmail);
+
+        log.info("Extension access revoked for group '{}' (id={}) by {}", group.getName(), groupId, userEmail);
+        return group;
     }
 }

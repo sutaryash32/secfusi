@@ -162,6 +162,7 @@ public class EventsGroupController {
                     groupData.put("description", dto.getDescription());
                     groupData.put("groupType", dto.getGroupType());
                     groupData.put("authorized", dto.getAuthorized());
+                    groupData.put("extensionAuthorized", dto.getExtensionAuthorized());
 
                     // Only include Azure fields if tenant is Azure SSO
                     if (!isApiKeyTenant) {
@@ -264,6 +265,7 @@ public class EventsGroupController {
         response.put("description", dto.getDescription());
         response.put("groupType", dto.getGroupType());
         response.put("authorized", dto.getAuthorized());
+        response.put("extensionAuthorized", dto.getExtensionAuthorized());
 
         // Only include Azure fields if tenant is not APIKEY
         if (!isApiKeyTenant) {
@@ -506,6 +508,79 @@ public class EventsGroupController {
         return ResponseEntity.noContent().build();
     }
 
+    // ================== 1b. Extension Authorization (POST, DELETE) ==================
+
+    @PostMapping("/{groupId}/authorize-extension")
+    @Operation(
+        summary = "Authorize group for browser extension login (AZURE only)",
+        description = "Grants browser extension access to users in this Azure AD group.\n\n" +
+                     "This is a **separate gate** from main app login (`authorized` field).\n\n" +
+                     "**Requirements:**\n" +
+                     "- Group must already be authorized for main login first\n" +
+                     "- Only AZURE_GROUP type is supported\n\n" +
+                     "**Effect:**\n" +
+                     "- Sets `extensionAuthorized=true` on the group\n" +
+                     "- Users in this group can now authenticate via the browser extension\n" +
+                     "- Uses the same PolicyAssignment rows (ExtensionPolicy) already assigned to the group"
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Group authorized for extension successfully"),
+        @ApiResponse(responseCode = "400", description = "Group not authorized for main login yet, or not an AZURE group"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - Azure tenants only"),
+        @ApiResponse(responseCode = "404", description = "Group not found")
+    })
+    public ResponseEntity<EventsGroupDto> authorizeForExtension(
+            HttpServletRequest request,
+            @Parameter(description = "Events group DB ID (pkEventsGroupId)", required = true)
+            @PathVariable String groupId
+    ) {
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        String tenantId = tenant.getTenantID();
+        String userEmail = jwtUtil.getUserFromRequest(request).getEmail();
+
+        if (!"AZURE".equalsIgnoreCase(tenant.getAuthProviderConfig().getSsoType())) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        log.info("Authorizing group {} for extension access in tenant {} by {}", groupId, tenantId, userEmail);
+        EventsGroup updated = azureGroupSyncService.authorizeGroupForExtension(tenantId, groupId, userEmail);
+        return ResponseEntity.ok(convertToDto(updated));
+    }
+
+    @DeleteMapping("/{groupId}/authorize-extension")
+    @Operation(
+        summary = "Revoke browser extension access from group (AZURE only)",
+        description = "Revokes browser extension access for users in this Azure AD group.\n\n" +
+                     "Sets `extensionAuthorized=false`. Users in this group will be denied\n" +
+                     "at the extension auth check even if they can still log into the main app.\n\n" +
+                     "PolicyAssignments are **not** removed — re-authorizing the group later\n" +
+                     "restores access without needing to reconfigure policies."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Extension access revoked successfully"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized - Invalid or missing JWT token"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - Azure tenants only"),
+        @ApiResponse(responseCode = "404", description = "Group not found")
+    })
+    public ResponseEntity<EventsGroupDto> revokeExtensionAccess(
+            HttpServletRequest request,
+            @Parameter(description = "Events group DB ID (pkEventsGroupId)", required = true)
+            @PathVariable String groupId
+    ) {
+        Tenant tenant = jwtUtil.getTenantFromRequest(request);
+        String tenantId = tenant.getTenantID();
+        String userEmail = jwtUtil.getUserFromRequest(request).getEmail();
+
+        if (!"AZURE".equalsIgnoreCase(tenant.getAuthProviderConfig().getSsoType())) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        log.info("Revoking extension access for group {} in tenant {} by {}", groupId, tenantId, userEmail);
+        EventsGroup updated = azureGroupSyncService.revokeGroupExtensionAccess(tenantId, groupId, userEmail);
+        return ResponseEntity.ok(convertToDto(updated));
+    }
+
     // ================== 2. Device User Assignment (POST, GET, DELETE) ==================
 
     @PostMapping("/{groupId}/device-users")
@@ -725,6 +800,7 @@ public class EventsGroupController {
                 .description(group.getDescription())
                 .groupType(group.getGroupType().name())
                 .authorized(group.getAuthorized())
+                .extensionAuthorized(group.getExtensionAuthorized())
                 .azureGroupId(group.getAzureGroupId())
                 .azureGroupDisplayName(group.getAzureGroupDisplayName())
                 .syncedAt(group.getSyncedAt())

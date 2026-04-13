@@ -69,6 +69,14 @@ public class Tenant {
 
     private String azureTenantId;
 
+    /**
+     * Whether this MSSP/Master MSSP tenant also manages its own users directly.
+     * When true: admin has dual roles (MSSP ADMIN + ENTERPRISE ADMIN),
+     * and the UI shows a mode switcher between managing sub-tenants and own org.
+     */
+    @Column(name = "self_managed", nullable = false)
+    private Boolean selfManaged = false;
+
     @OneToOne(mappedBy = "tenant", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JsonManagedReference
     private AuthProviderConfig authProviderConfig;
