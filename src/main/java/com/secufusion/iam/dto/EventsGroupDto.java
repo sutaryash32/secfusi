@@ -32,4 +32,11 @@ public class EventsGroupDto {
     private Instant updatedAt;
     private String createdBy;
     private String updatedBy;
+    public String getDescription() {
+        if ("APIKEY_GROUP".equalsIgnoreCase(this.groupType)
+                && Boolean.TRUE.equals(this.isDefault)) {
+            return "Auto-created default group for Tenant key users";
+        }
+        return this.description;
+    }
 }
