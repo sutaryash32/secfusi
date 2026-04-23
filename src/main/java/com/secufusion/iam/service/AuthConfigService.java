@@ -382,6 +382,20 @@ public class AuthConfigService {
             boolean selfManaged = Boolean.TRUE.equals(userFromRequest.getTenant().getSelfManaged());
             response.setSelfManaged(selfManaged);
 
+            Tenant userTenant = userFromRequest.getTenant();
+            String normalizedTenantType = userTenant.getTenantType() == null
+                    ? ""
+                    : userTenant.getTenantType().trim().replace("_", " ");
+            boolean isPlatformAdminTenant =
+                    "MASTER MSSP".equalsIgnoreCase(normalizedTenantType)
+                            && userTenant.getParentTenantId() == null
+                            && "ACTIVE".equalsIgnoreCase(userTenant.getStatus())
+                            && userRepository
+                                    .findByTenant_TenantIDAndDefaultUser(userTenant.getTenantID(), true)
+                                    .filter(defaultAdmin -> "ACTIVE".equalsIgnoreCase(defaultAdmin.getStatus()))
+                                    .isPresent();
+            response.setPlatformAdminTenant(isPlatformAdminTenant);
+
             // For selfManaged tenants, also build an Enterprise-scoped permission matrix
             // so the UI can show full Enterprise menu items in "My Org Mode".
             if (selfManaged) {
