@@ -220,20 +220,28 @@ public class UserService {
         // 1️⃣ LOAD EXISTING USER (IDEMPOTENCY KEY = EMAIL)
         // -------------------------------------------------
         User user = userRepository
-                .findByEmailAndTenant_TenantID(dto.getEmail(), tenant.getTenantID())
-                .orElse(null);
+            .findByEmailAndTenant_TenantID(dto.getEmail(), tenant.getTenantID())
+            .orElse(null);
 
         // -------------------------------------------------
         // 2️⃣ VALIDATE (EXCLUDE EXISTING USER IF ANY)
         // -------------------------------------------------
         validateUserFields(
-                tenant,
-                dto,
-                user != null ? user.getPkUserId() : null
+            tenant,
+            dto,
+            user != null ? user.getPkUserId() : null
         );
 
+        // If an existing user with the same email was found, block creation and
+        // return an EMAIL_EXISTS error. Email is treated as unique across a tenant.
+        if (user != null) {
+            log.error("❌ Email already exists (create blocked). email={} existingId={}", dto.getEmail(), user.getPkUserId());
+            throw new KeycloakOperationException(
+                "EMAIL_EXISTS", 3101, "Email already exists");
+        }
+
         // -------------------------------------------------
-        // 3️⃣ CREATE DB USER IF NOT EXISTS
+        // 3️⃣ CREATE DB USER
         // -------------------------------------------------
         if (user == null) {
             user = new User();
