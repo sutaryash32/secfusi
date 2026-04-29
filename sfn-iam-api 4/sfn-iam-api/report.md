@@ -25,18 +25,6 @@ File: [src/main/java/com/secufusion/iam/service/UserService.java](src/main/java/
 
 ## Postman Test Cases
 
-**Precondition:** A valid tenant must exist before calling `POST /users/{{tenant_id}}`. To create a tenant first, call the tenant-creation API (`POST /tenants`) which returns the generated `tenantId`, or create the tenant via the admin UI. Use that `tenantId` in the `POST /users/{tenant_id}` request.
-
-### Finding Tenant ID in the Admin UI
-1. Login to the admin console (example UAT: https://master.agenticworkspace.ai, enterprise UI: https://motivitylabs.agenticworkspace.ai).
-2. Navigate to the **Tenants** / **Organizations** section from the main menu.
-3. In the tenants list look for a **Tenant ID** column and copy the value for the tenant you need.
-4. If Tenant ID is not shown in the list, click the tenant to open its details page — the Tenant ID is usually visible in the Overview or Settings panel.
-5. Alternatively, open the tenant details and check the browser address bar for an id parameter (e.g., `/tenants/id?id=TEN-123` or `/tenants/TEN-123`).
-6. When creating a tenant via the UI, copy the generated Tenant ID from the creation success dialog or the new tenant's details page.
-
-Note: you must have tenant-administration permissions to view or create tenants in the admin UI.
-
 ### 1. Create Admin with No Phone Field
 Endpoint: `POST {{iam_url}}/users/{{tenant_id}}`
 
