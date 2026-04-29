@@ -1,6 +1,7 @@
 package com.secufusion.iam.controller;
 
 import com.secufusion.iam.dto.ResponseDto;
+import com.secufusion.iam.dto.UserPhoneCheckDto;
 import com.secufusion.iam.dto.UsersDto;
 import com.secufusion.iam.entity.Tenant;
 import com.secufusion.iam.service.UserService;
@@ -258,7 +259,7 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "No valid parameter supplied or bad request")
     })
     @GetMapping("/check")
-    public ResponseEntity<ResponseDto<?>> uniqueValidations(
+        public ResponseEntity<?> uniqueValidations(HttpServletRequest request,
             @Parameter(description = "Username to check", required = false) @RequestParam(required = false) String userName,
             @Parameter(description = "Phone number to check", required = false) @RequestParam(required = false) String phoneNumber,
             @Parameter(description = "Email to check", required = false) @RequestParam(required = false) String email) {
@@ -271,10 +272,19 @@ public class UserController {
         }
         if (phoneNumber != null) {
             log.debug("Retrieving users for phone number {}", phoneNumber);
-            List<UsersDto> users = userService.findUsersByPhone(phoneNumber);
-            log.info("Phone number lookup returned {} users for {}", users.size(), phoneNumber);
-            String message = users.isEmpty() ? "No users found for this phone number" : "Users found for phone number";
-            return ResponseEntity.ok(new ResponseDto<>(users,String.valueOf(HttpStatus.OK.value()),message));
+            Tenant tenantFromRequest = jwtUtl.getTenantFromRequest(request);
+            String tenantId = null;
+            if (tenantFromRequest != null) tenantId = tenantFromRequest.getTenantID();
+
+            List<UserPhoneCheckDto> users = userService.getUsersByPhoneNumber(phoneNumber, tenantId);
+
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("count", users.size());
+            resp.put("users", users);
+            String message = users.isEmpty() ? "No users found for this phone number" : users.size() + " user(s) found with phone number " + phoneNumber;
+            resp.put("message", message);
+
+            return ResponseEntity.ok(resp);
         }
         if (email != null) {
             log.debug("Checking email uniqueness for {}", email);

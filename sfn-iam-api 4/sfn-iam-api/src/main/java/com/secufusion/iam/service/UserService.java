@@ -940,14 +940,23 @@ public class UserService {
     }
 
     /**
-     * Return a list of users that have the given phone number.
+     * Return a list of minimal DTOs for users that have the given phone number.
+     * Uses JPQL projection to avoid loading groups/roles/scopes.
      */
-    public List<UsersDto> findUsersByPhone(String phoneNumber) {
-        log.info("➡️ [FIND USERS BY PHONE] Start. phone={}", maskPhone(phoneNumber));
-        List<User> users = userRepository.findAllByPhoneNo(phoneNumber);
-        List<UsersDto> dtos = users.stream().map(this::mapToDto).collect(Collectors.toList());
-        log.info("✔ Found {} users for phone={}", dtos.size(), maskPhone(phoneNumber));
-        return dtos;
+    public List<com.secufusion.iam.dto.UserPhoneCheckDto> getUsersByPhoneNumber(String phoneNumber) {
+        return getUsersByPhoneNumber(phoneNumber, null);
+    }
+
+    public List<com.secufusion.iam.dto.UserPhoneCheckDto> getUsersByPhoneNumber(String phoneNumber, String tenantId) {
+        log.info("➡️ [GET USERS BY PHONE - PROJECTION] Start. phone={} tenantId={}", maskPhone(phoneNumber), tenantId);
+        List<com.secufusion.iam.dto.UserPhoneCheckDto> results;
+        if (tenantId == null) {
+            results = userRepository.findPhoneCheckByPhoneNo(phoneNumber);
+        } else {
+            results = userRepository.findPhoneCheckByPhoneNoAndTenantId(phoneNumber, tenantId);
+        }
+        log.info("✔ Projection returned {} records for phone={} tenantId={}", results.size(), maskPhone(phoneNumber), tenantId);
+        return results;
     }
 
     /**

@@ -17,8 +17,8 @@ File: [src/main/java/com/secufusion/iam/service/UserService.java](src/main/java/
 - Verified that no `unique = true` constraint is applied to the phone field at the DTO or entity level.
 
 ### Repository and Utility Behavior
-- Kept the `/users/check` endpoint and `checkMobileNumber` logic unchanged, because they only report availability and do not block creation.
-- Kept phone lookup methods in the repository unchanged so existing read-side behavior still works.
+- `/users/check` was enhanced for `phoneNumber` lookups to return a minimal list of matching users instead of a boolean flag.
+- Added a dedicated projection DTO and JPQL projection query so the endpoint does not load or return groups/roles/scopes.
 
 ### Behavior Change: Email Uniqueness on Create
 - Creation now fails when a user with the same email already exists in the tenant. The `createUserInternal` flow was updated to throw `EMAIL_EXISTS` instead of reusing an existing record. See: [src/main/java/com/secufusion/iam/service/UserService.java](src/main/java/com/secufusion/iam/service/UserService.java).
@@ -101,10 +101,29 @@ Expected result: `201 Created`
 
 Previously this would return `409 Conflict` with `PHONE_EXISTS`.
 
-### 5. Check Phone Availability
+### 5. Check Users by Phone Number
 Endpoint: `GET {{iam_url}}/users/check?phoneNumber=1234567890`
 
-Expected result: `200 OK` with `true` if the phone exists or `false` if it is available.
+Expected result: `200 OK` with a minimal response:
+
+```json
+{
+  "count": 2,
+  "message": "2 user(s) found with phone number 1234567890",
+  "users": [
+    {
+      "pkUserId": "...",
+      "userName": "...",
+      "email": "...",
+      "phoneNumber": "1234567890",
+      "firstName": "...",
+      "lastName": "...",
+      "status": "ACTIVE",
+      "createdAt": "2026-04-29T20:58:40.1042"
+    }
+  ]
+}
+```
 
 ## Validation Scenarios
 The following scenarios should now succeed without validation errors:
@@ -116,7 +135,70 @@ The following scenarios should now succeed without validation errors:
 
 ## Added Functionality
 
-- `GET /users/check?phoneNumber={number}` now returns a list of matching users (`UsersDto`) instead of a boolean when `phoneNumber` is supplied. This makes it possible to inspect which users share a phone number.
+- `GET /users/check?phoneNumber={number}` now returns only users with exact matching phone number and only minimal fields.
+- No `groups`, `roles`, or `scopes` are returned for this phone lookup response.
+
+### Files Touched and What Changed
+
+### Files Created
+
+1. `report.md`
+- Created to document issue analysis, fixes, API behavior changes, and Postman examples.
+
+2. `src/main/java/com/secufusion/iam/dto/UserPhoneCheckDto.java`
+- Created as a minimal projection DTO for `/users/check?phoneNumber=...`.
+
+3. `src/test/java/com/secufusion/iam/controller/UserControllerPhoneCheckTest.java`
+- Created as a focused controller unit test file for phone lookup behavior (kept without execution in this session).
+
+1. `src/main/java/com/secufusion/iam/dto/UserPhoneCheckDto.java`
+- New file (did not exist earlier).
+- Added minimal projection DTO with fields:
+  `pkUserId`, `userName`, `email`, `phoneNumber`, `firstName`, `lastName`, `status`, `createdAt`.
+
+2. `src/main/java/com/secufusion/iam/repository/UserRepository.java`
+- Existed earlier.
+- Added JPQL constructor projection methods for exact phone lookup:
+  - `findPhoneCheckByPhoneNo(...)`
+  - `findPhoneCheckByPhoneNoAndTenantId(...)`
+- Query intentionally avoids fetch joins and returns only minimal DTO fields.
+
+3. `src/main/java/com/secufusion/iam/service/UserService.java`
+- Existed earlier.
+- Added/updated phone lookup service to return `List<UserPhoneCheckDto>` using repository projection methods.
+- Added tenant-scoped variant for request-tenant filtering.
+
+4. `src/main/java/com/secufusion/iam/controller/UserController.java`
+- Existed earlier.
+- Updated `GET /users/check` phone branch to return clean top-level structure:
+  - `count`
+  - `users`
+  - `message`
+
+### What Existed Earlier vs New
+
+- Earlier behavior:
+  - Phone check returned boolean-style response (availability/existence semantics).
+  - Response went through generic `ResponseDto` wrapper.
+  - Full user object expansion could leak unnecessary nested data depending on mapping path.
+
+- New behavior:
+  - Phone check returns minimal user list for exact phone matches.
+  - Uses projection DTO to prevent nested expansion.
+  - Returns clean payload focused on phone-match use case.
+
+### Wrapper Field Problem and Fix
+
+- Problem observed:
+  - Generic `ResponseDto` field names are `results`, `errorMessage`, `errorCode`.
+  - Even for successful `200` responses, wrapper fields looked misleading (for example `errorMessage: "200"`, `errorCode: "...success message..."`).
+
+- Fix applied for phone-number branch:
+  - For `phoneNumber` requests in `/users/check`, controller now returns a direct `Map` response (`ResponseEntity.ok(resp)`) instead of wrapping in `ResponseDto`.
+  - This removes confusing `errorMessage`/`errorCode` fields for this specific success response.
+
+- Note:
+  - Username/email branches under `/users/check` still use the existing `ResponseDto` pattern to avoid broad API contract changes outside this scope.
 
 - `POST /users/{tenantId}` behavior examples (requests used during testing):
 

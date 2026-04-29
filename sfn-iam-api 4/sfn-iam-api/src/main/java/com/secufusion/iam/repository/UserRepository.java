@@ -33,7 +33,20 @@ public interface UserRepository extends JpaRepository<User, Serializable> {
     boolean existsByPhoneNo(String mobileNumber);
 
     Optional<User> findByPhoneNo(String adminPhoneNumber);
-    List<User> findAllByPhoneNo(String phoneNo);
+        List<User> findAllByPhoneNo(String phoneNo);
+
+        @Query("SELECT new com.secufusion.iam.dto.UserPhoneCheckDto(" +
+          "u.pkUserId, u.userName, u.email, u.phoneNo, u.firstName, u.lastName, u.status, u.createdAt) " +
+          "FROM User u WHERE u.phoneNo = :phoneNumber AND (u.defaultUser = false OR u.defaultUser IS NULL)")
+        List<com.secufusion.iam.dto.UserPhoneCheckDto> findPhoneCheckByPhoneNo(@Param("phoneNumber") String phoneNumber);
+
+        @Query("SELECT new com.secufusion.iam.dto.UserPhoneCheckDto(" +
+          "u.pkUserId, u.userName, u.email, u.phoneNo, u.firstName, u.lastName, u.status, u.createdAt) " +
+          "FROM User u WHERE u.phoneNo = :phoneNumber AND u.tenant.tenantID = :tenantId " +
+          "AND (u.defaultUser = false OR u.defaultUser IS NULL)")
+        List<com.secufusion.iam.dto.UserPhoneCheckDto> findPhoneCheckByPhoneNoAndTenantId(
+          @Param("phoneNumber") String phoneNumber,
+          @Param("tenantId") String tenantId);
 
     @Query(
             value = """
