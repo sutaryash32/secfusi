@@ -258,7 +258,7 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "No valid parameter supplied or bad request")
     })
     @GetMapping("/check")
-    public ResponseEntity<ResponseDto<Boolean>> uniqueValidations(
+    public ResponseEntity<ResponseDto<?>> uniqueValidations(
             @Parameter(description = "Username to check", required = false) @RequestParam(required = false) String userName,
             @Parameter(description = "Phone number to check", required = false) @RequestParam(required = false) String phoneNumber,
             @Parameter(description = "Email to check", required = false) @RequestParam(required = false) String email) {
@@ -270,10 +270,11 @@ public class UserController {
             return ResponseEntity.ok(new ResponseDto<>(result,String.valueOf(HttpStatus.OK.value()),result ? "Username Already Exists" : "Username Available"));
         }
         if (phoneNumber != null) {
-            log.debug("Checking phone number uniqueness for {}", phoneNumber);
-            boolean result = userService.checkMobileNumber(phoneNumber);
-            log.info("Phone number validation returned result for {}", phoneNumber);
-            return ResponseEntity.ok(new ResponseDto<>(result,String.valueOf(HttpStatus.OK.value()),result ? "Phone Number Already Exists" : "Phone Number Available"));
+            log.debug("Retrieving users for phone number {}", phoneNumber);
+            List<UsersDto> users = userService.findUsersByPhone(phoneNumber);
+            log.info("Phone number lookup returned {} users for {}", users.size(), phoneNumber);
+            String message = users.isEmpty() ? "No users found for this phone number" : "Users found for phone number";
+            return ResponseEntity.ok(new ResponseDto<>(users,String.valueOf(HttpStatus.OK.value()),message));
         }
         if (email != null) {
             log.debug("Checking email uniqueness for {}", email);

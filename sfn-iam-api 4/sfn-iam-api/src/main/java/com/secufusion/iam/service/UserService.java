@@ -50,6 +50,7 @@ public class UserService {
     @Autowired private KeycloakAdminUtil kcUtil;
     @Autowired private JwtUtl jwtUtl;
     @Autowired private GroupsRepository groupsRepository;
+    // Phone lookup uses repository directly 
 
     // ========================================================================
     // CREATE USER
@@ -936,6 +937,17 @@ public class UserService {
             log.info("✔ Email is available. emailSummary={}", summarizeEmail(email));
         }
         return exists;
+    }
+
+    /**
+     * Return a list of users that have the given phone number.
+     */
+    public List<UsersDto> findUsersByPhone(String phoneNumber) {
+        log.info("➡️ [FIND USERS BY PHONE] Start. phone={}", maskPhone(phoneNumber));
+        List<User> users = userRepository.findAllByPhoneNo(phoneNumber);
+        List<UsersDto> dtos = users.stream().map(this::mapToDto).collect(Collectors.toList());
+        log.info("✔ Found {} users for phone={}", dtos.size(), maskPhone(phoneNumber));
+        return dtos;
     }
 
     /**

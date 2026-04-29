@@ -33,6 +33,7 @@ public interface UserRepository extends JpaRepository<User, Serializable> {
     boolean existsByPhoneNo(String mobileNumber);
 
     Optional<User> findByPhoneNo(String adminPhoneNumber);
+    List<User> findAllByPhoneNo(String phoneNo);
 
     @Query(
             value = """
