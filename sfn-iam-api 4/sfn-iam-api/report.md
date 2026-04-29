@@ -28,10 +28,10 @@ Endpoint: `POST {{iam_url}}/users/{{tenant_id}}`
 Body:
 ```json
 {
-    "firstName": "John",
-    "lastName": "Doe",
-    "email": "john.doe.nophone@example.com",
-    "groups": []
+  "firstName": "John",
+  "lastName": "Doe",
+  "email": "john.doe.nophone@example.com",
+  "groups": []
 }
 ```
 Expected result: `201 Created`
@@ -42,11 +42,11 @@ Endpoint: `POST {{iam_url}}/users/{{tenant_id}}`
 Body:
 ```json
 {
-    "firstName": "Jane",
-    "lastName": "Doe",
-    "email": "jane.doe.nullphone@example.com",
-    "phoneNumber": null,
-    "groups": []
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "email": "jane.doe.nullphone@example.com",
+  "phoneNumber": null,
+  "groups": []
 }
 ```
 Expected result: `201 Created`
@@ -57,11 +57,11 @@ Endpoint: `POST {{iam_url}}/users/{{tenant_id}}`
 Body:
 ```json
 {
-    "firstName": "Bob",
-    "lastName": "Smith",
-    "email": "bob.smith.emptyphone@example.com",
-    "phoneNumber": "",
-    "groups": []
+  "firstName": "Bob",
+  "lastName": "Smith",
+  "email": "bob.smith.emptyphone@example.com",
+  "phoneNumber": "",
+  "groups": []
 }
 ```
 Expected result: `201 Created`
@@ -75,11 +75,11 @@ Endpoint: `POST {{iam_url}}/users/{{tenant_id}}`
 Body:
 ```json
 {
-    "firstName": "Duplicate",
-    "lastName": "User",
-    "email": "duplicate.phone@example.com",
-    "phoneNumber": "1234567890",
-    "groups": []
+  "firstName": "Duplicate",
+  "lastName": "User",
+  "email": "duplicate.phone@example.com",
+  "phoneNumber": "1234567890",
+  "groups": []
 }
 ```
 Expected result: `201 Created`
