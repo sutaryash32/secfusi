@@ -113,3 +113,100 @@ The following scenarios should now succeed without validation errors:
 - Portal admin created with `phoneNumber: ""`.
 - Portal admin created with a phone number already used by another user.
 - Portal admin created with a valid unique phone number.
+
+## Added Functionality
+
+- `GET /users/check?phoneNumber={number}` now returns a list of matching users (`UsersDto`) instead of a boolean when `phoneNumber` is supplied. This makes it possible to inspect which users share a phone number.
+
+- `POST /users/{tenantId}` behavior examples (requests used during testing):
+
+  1) Create user without phone
+
+  Endpoint: `POST {{iam_url}}/users/{{tenant_id}}`
+  Body:
+  ```json
+  {
+    "firstName": "John",
+    "lastName": "Doe",
+    "email": "john.doe.nophone@example.com",
+    "groups": []
+  }
+  ```
+
+  2) Create user with null phone
+
+  Endpoint: `POST {{iam_url}}/users/{{tenant_id}}`
+  Body:
+  ```json
+  {
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "email": "jane.doe.nullphone@example.com",
+    "phoneNumber": null,
+    "groups": []
+  }
+  ```
+
+  3) Create user with empty phone
+
+  Endpoint: `POST {{iam_url}}/users/{{tenant_id}}`
+  Body:
+  ```json
+  {
+    "firstName": "Bob",
+    "lastName": "Smith",
+    "email": "bob.smith.emptyphone@example.com",
+    "phoneNumber": "",
+    "groups": []
+  }
+  ```
+
+  4) Create two users with same phone (duplicate allowed)
+
+  Endpoint: `POST {{iam_url}}/users/{{tenant_id}}`
+  Body (example):
+  ```json
+  {
+    "firstName": "Duplicate",
+    "lastName": "User",
+    "email": "duplicate.phone@example.com",
+    "phoneNumber": "1234567890",
+    "groups": []
+  }
+  ```
+
+  5) Create with an email that already exists (now blocked)
+
+  Endpoint: `POST {{iam_url}}/users/{{tenant_id}}`
+  Body (example):
+  ```json
+  {
+    "firstName": "Existing",
+    "lastName": "User",
+    "email": "john.doe.nophone@example.com",
+    "groups": []
+  }
+  ```
+  Expected result: `409`/`EMAIL_EXISTS` (service throws `EMAIL_EXISTS` and creation is blocked).
+
+## Example Responses
+
+- Successful create (201/accepted body format):
+
+```json
+{
+  "data": { "pkUserId": "<uuid>", "email": "john.doe.nophone@example.com", "fkTenantId": "<tenantId>" },
+  "status": "201",
+  "message": "User created successfully"
+}
+```
+
+- Duplicate email error (example):
+
+```json
+{
+  "error": "EMAIL_EXISTS",
+  "code": 3101,
+  "message": "Email already exists"
+}
+```
