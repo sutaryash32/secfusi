@@ -1,0 +1,22 @@
+package com.secufusion.events.entity;
+
+public enum IncidentActivityAction {
+    CREATED,
+    STATUS_CHANGED,
+    PRIORITY_CHANGED,
+    ASSIGNED,
+    UNASSIGNED,
+    EVENT_LINKED,
+    EVENT_UNLINKED,
+    COMMENT_ADDED,
+    RESOLVED,
+    REOPENED,
+    CLOSED,
+    UPDATED,
+    MERGED,
+    MERGE_RECEIVED,
+    ESCALATED,
+    PLAYBOOK_ATTACHED,
+    PLAYBOOK_STEP_COMPLETED,
+    PLAYBOOK_COMPLETED
+}

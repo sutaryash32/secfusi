@@ -1,0 +1,125 @@
+package com.secufusion.tenant.entity;
+
+import  com.fasterxml.jackson.databind.JsonNode;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.envers.Audited;
+import org.hibernate.envers.NotAudited;
+import org.hibernate.envers.RelationTargetAuditMode;
+import org.hibernate.type.SqlTypes;
+
+import java.time.LocalDateTime;
+import static org.hibernate.envers.RelationTargetAuditMode.NOT_AUDITED;
+
+@Entity
+@Table(name = "browserpolicy")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Audited
+public class BrowserPolicy {
+
+    /* ===================== Primary Key ===================== */
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "pk_browserpolicy_id", length = 36)
+    private String pkBrowserPolicyId;
+
+    /* ===================== Basic Fields ===================== */
+    @Column(nullable = false, length = 100)
+    private String name;
+
+    @Column(length = 250)
+    private String description;
+
+    @Column(length = 250)
+    private String deviceLimit;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "url_restriction", columnDefinition = "jsonb")
+    private JsonNode urlRestriction;
+
+    @Column(name = "policy_type", length = 100)
+    private String policyType;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @NotAudited
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    @NotAudited
+    private String fkTenantId;
+
+    @Column(length = 36)
+    private String policyKey;
+
+    @Column(length = 10)
+    private String version;
+
+    @Column
+    private boolean isActive = true;
+
+    @NotAudited
+    @Column(name = "is_tenant_default", nullable = false)
+    private boolean isTenantDefault = false;
+
+    /* ===================== Relationships ===================== */
+    @OneToOne(cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "fk_dlp_id")
+    @Audited(targetAuditMode = NOT_AUDITED)
+    private Dlp dlp;
+
+    @OneToOne(cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "fk_compliancerules_id")
+    @Audited(targetAuditMode = NOT_AUDITED)
+    private ComplianceRules complianceRules;
+
+    @OneToOne(cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "fk_homepage_id")
+    @Audited(targetAuditMode = NOT_AUDITED)
+    private Homepage homepage;
+
+    /**
+     * Landing Page URL - Direct URL entered by user.
+     * Used when landingPageId is null.
+     */
+    @Column(name = "landing_page_url", length = 500)
+    private String landingPageUrl;
+
+    /**
+     * Reference to an existing LandingPage by ID.
+     * Used when user creates/selects a custom landing page with shortcuts.
+     */
+    @Column(name = "fk_landingpage_id", length = 36)
+    private String landingPageId;
+
+    @OneToOne(cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "fk_managed_extension_id")
+    @Audited(targetAuditMode = NOT_AUDITED)
+    private ManagedExtension managedExtension;
+
+    /* ===================== Computed Fields ===================== */
+
+    @Transient
+    @com.fasterxml.jackson.annotation.JsonProperty("globalDefault")
+    public boolean isGlobalDefault() {
+        return fkTenantId == null;
+    }
+
+    /* ===================== Lifecycle Hooks ===================== */
+    @PrePersist
+    void onCreate() {
+        this.createdAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        this.updatedAt = LocalDateTime.now();
+    }
+}

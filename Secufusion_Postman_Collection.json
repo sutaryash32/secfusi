@@ -1,0 +1,1153 @@
+{
+	"info": {
+		"_postman_id": "sfn-complete-collection-v1",
+		"name": "Secufusion — Complete API Collection",
+		"description": "Complete Postman collection for all Secufusion microservices (IAM, Tenants, Events).\n\nSetup:\n1. Import this collection\n2. Set environment variables: base_url, auth_token, tenant_host\n3. Run '0. Auth Flow > Get Tenant Config' first\n4. Then run 'Login' to set auth_token automatically\n5. All subsequent requests use {{auth_token}}",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8083",
+			"type": "string"
+		},
+		{
+			"key": "auth_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "tenant_host",
+			"value": "example.motivitylabs.net",
+			"type": "string"
+		},
+		{
+			"key": "tenant_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "user_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "role_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "group_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "package_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "feature_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "device_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "events_group_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "device_user_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "extension_key_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "session_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "sso_config_id",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "0. Auth Flow",
+			"description": "Authentication workflow — run these first in order",
+			"item": [
+				{
+					"name": "1. Get Tenant Config (Public)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/iam/tenant-config?host={{tenant_host}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "tenant-config"],
+							"query": [{"key": "host", "value": "{{tenant_host}}"}]
+						}
+					},
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"var jsonData = pm.response.json();",
+								"if (jsonData.results && jsonData.results.tenantId) {",
+								"    pm.collectionVariables.set('tenant_id', jsonData.results.tenantId);",
+								"    console.log('Set tenant_id: ' + jsonData.results.tenantId);",
+								"}",
+								"pm.test('Tenant config retrieved', function() {",
+								"    pm.response.to.have.status(200);",
+								"    pm.expect(jsonData.results).to.have.property('clientId');",
+								"});"
+							],
+							"type": "text/javascript"
+						}
+					}]
+				},
+				{
+					"name": "2. Login (Azure JWT)",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"deviceFingerprint\": \"postman-test-fp\",\n  \"deviceName\": \"Postman\",\n  \"deviceOS\": \"Test\",\n  \"browser\": \"Postman\",\n  \"ipAddress\": \"127.0.0.1\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/iam/login?token=PASTE_YOUR_AZURE_JWT_HERE",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "login"],
+							"query": [{"key": "token", "value": "PASTE_YOUR_AZURE_JWT_HERE"}]
+						}
+					},
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"var jsonData = pm.response.json();",
+								"if (jsonData.results && jsonData.results.token) {",
+								"    pm.collectionVariables.set('auth_token', jsonData.results.token);",
+								"    console.log('Auth token saved!');",
+								"}",
+								"if (jsonData.results && jsonData.results.tenantId) {",
+								"    pm.collectionVariables.set('tenant_id', jsonData.results.tenantId);",
+								"}",
+								"if (jsonData.results && jsonData.results.userId) {",
+								"    pm.collectionVariables.set('user_id', jsonData.results.userId);",
+								"}",
+								"pm.test('Login successful', function() {",
+								"    pm.response.to.have.status(200);",
+								"});"
+							],
+							"type": "text/javascript"
+						}
+					}]
+				},
+				{
+					"name": "3. Extension Login",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/api/iam/login/extension?token=PASTE_JWT&deviceUserEmail=user@example.com",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "login", "extension"],
+							"query": [
+								{"key": "token", "value": "PASTE_JWT"},
+								{"key": "deviceUserEmail", "value": "user@example.com"}
+							]
+						}
+					}
+				},
+				{
+					"name": "4. SSO Login",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"url": {
+							"raw": "{{base_url}}/api/iam/login/sso?token=PASTE_JWT",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "login", "sso"],
+							"query": [{"key": "token", "value": "PASTE_JWT"}]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "1. IAM — Users",
+			"description": "User CRUD operations",
+			"item": [
+				{
+					"name": "Get All Users",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/users", "host": ["{{base_url}}"], "path": ["api", "iam", "users"]}
+					}
+				},
+				{
+					"name": "Get Users by Tenant",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/users/tenant/{{tenant_id}}", "host": ["{{base_url}}"], "path": ["api", "iam", "users", "tenant", "{{tenant_id}}"]}
+					}
+				},
+				{
+					"name": "Get User by ID",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/users/{{user_id}}", "host": ["{{base_url}}"], "path": ["api", "iam", "users", "{{user_id}}"]}
+					}
+				},
+				{
+					"name": "Create User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userName\": \"john.doe\",\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"email\": \"john.doe@example.com\",\n  \"phoneNumber\": \"+1234567890\",\n  \"role\": \"USER\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/iam/users/{{tenant_id}}", "host": ["{{base_url}}"], "path": ["api", "iam", "users", "{{tenant_id}}"]}
+					}
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"firstName\": \"John\",\n  \"lastName\": \"Updated\",\n  \"phoneNumber\": \"+1987654321\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/iam/users/{{user_id}}", "host": ["{{base_url}}"], "path": ["api", "iam", "users", "{{user_id}}"]}
+					}
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"method": "DELETE",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/users/{{user_id}}", "host": ["{{base_url}}"], "path": ["api", "iam", "users", "{{user_id}}"]}
+					}
+				},
+				{
+					"name": "Check User Uniqueness",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/api/iam/users/check?userName=john.doe&phoneNumber=%2B1234567890&email=john@example.com",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "users", "check"],
+							"query": [
+								{"key": "userName", "value": "john.doe"},
+								{"key": "phoneNumber", "value": "+1234567890"},
+								{"key": "email", "value": "john@example.com"}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "2. IAM — Roles",
+			"item": [
+				{
+					"name": "Get All Roles",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/roles", "host": ["{{base_url}}"], "path": ["api", "iam", "roles"]}
+					}
+				},
+				{
+					"name": "Get Role by ID",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/roles/{{role_id}}", "host": ["{{base_url}}"], "path": ["api", "iam", "roles", "{{role_id}}"]}
+					}
+				},
+				{
+					"name": "Create Role",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"roleName\": \"Security Analyst\",\n  \"description\": \"Can view security events and incidents\",\n  \"scopes\": []\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/iam/roles", "host": ["{{base_url}}"], "path": ["api", "iam", "roles"]}
+					}
+				},
+				{
+					"name": "Update Role",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"roleName\": \"Security Analyst (Updated)\",\n  \"description\": \"Updated description\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/iam/roles/{{role_id}}", "host": ["{{base_url}}"], "path": ["api", "iam", "roles", "{{role_id}}"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "3. IAM — Scopes",
+			"item": [
+				{
+					"name": "Get All Scopes",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/scopes", "host": ["{{base_url}}"], "path": ["api", "iam", "scopes"]}
+					}
+				},
+				{
+					"name": "Create Scope",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"scopeName\": \"view_security_events\",\n  \"displayName\": \"View Security Events\",\n  \"menu\": \"SECURITY\",\n  \"subMenu\": \"EVENTS\",\n  \"description\": \"Permission to view security events\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/iam/scopes", "host": ["{{base_url}}"], "path": ["api", "iam", "scopes"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "4. IAM — Groups",
+			"item": [
+				{
+					"name": "Get All Groups",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/groups", "host": ["{{base_url}}"], "path": ["api", "iam", "groups"]}
+					}
+				},
+				{
+					"name": "Get Groups by Tenant",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/api/iam/groups/tenant?tenantId={{tenant_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "groups", "tenant"],
+							"query": [{"key": "tenantId", "value": "{{tenant_id}}"}]
+						}
+					}
+				},
+				{
+					"name": "Create Group",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Engineering Team\",\n  \"roles\": []\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/iam/groups", "host": ["{{base_url}}"], "path": ["api", "iam", "groups"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "5. IAM — Features & Packages",
+			"item": [
+				{
+					"name": "Get All Features",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/features", "host": ["{{base_url}}"], "path": ["api", "iam", "features"]}
+					}
+				},
+				{
+					"name": "Get All Feature Groups",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/feature-groups", "host": ["{{base_url}}"], "path": ["api", "iam", "feature-groups"]}
+					}
+				},
+				{
+					"name": "Get All Packages",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/packages", "host": ["{{base_url}}"], "path": ["api", "iam", "packages"]}
+					}
+				},
+				{
+					"name": "Get Feature Matrix",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/package-feature-mappings/matrices", "host": ["{{base_url}}"], "path": ["api", "iam", "package-feature-mappings", "matrices"]}
+					}
+				},
+				{
+					"name": "Get Access Levels",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/access-levels", "host": ["{{base_url}}"], "path": ["api", "iam", "access-levels"]}
+					}
+				},
+				{
+					"name": "Get Retention Periods",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/retention-periods", "host": ["{{base_url}}"], "path": ["api", "iam", "retention-periods"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "6. IAM — Subscriptions",
+			"item": [
+				{
+					"name": "Get Active Subscription",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/subscriptions/tenant/{{tenant_id}}", "host": ["{{base_url}}"], "path": ["api", "iam", "subscriptions", "tenant", "{{tenant_id}}"]}
+					}
+				},
+				{
+					"name": "Get Subscription History",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/subscriptions/tenant/{{tenant_id}}/history", "host": ["{{base_url}}"], "path": ["api", "iam", "subscriptions", "tenant", "{{tenant_id}}", "history"]}
+					}
+				},
+				{
+					"name": "Get All Package Pricing",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/subscriptions/pricing/packages", "host": ["{{base_url}}"], "path": ["api", "iam", "subscriptions", "pricing", "packages"]}
+					}
+				},
+				{
+					"name": "Get Addon Pricing",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/subscriptions/pricing/addons", "host": ["{{base_url}}"], "path": ["api", "iam", "subscriptions", "pricing", "addons"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "7. IAM — Tenant Features",
+			"item": [
+				{
+					"name": "Get Tenant Feature Access",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/tenant-features/{{tenant_id}}", "host": ["{{base_url}}"], "path": ["api", "iam", "tenant-features", "{{tenant_id}}"]}
+					}
+				},
+				{
+					"name": "Get Tenant Addon Billing Summary",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/tenant-addon-features/tenant/{{tenant_id}}/billing-summary", "host": ["{{base_url}}"], "path": ["api", "iam", "tenant-addon-features", "tenant", "{{tenant_id}}", "billing-summary"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "8. IAM — Login Audit",
+			"item": [
+				{
+					"name": "Get Audit Events",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/api/iam/audit/login/events?page=0&size=20",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "audit", "login", "events"],
+							"query": [{"key": "page", "value": "0"}, {"key": "size", "value": "20"}]
+						}
+					}
+				},
+				{
+					"name": "Get Tenant Devices",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/api/iam/audit/login/devices?page=0&size=20",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "audit", "login", "devices"],
+							"query": [{"key": "page", "value": "0"}, {"key": "size", "value": "20"}]
+						}
+					}
+				},
+				{
+					"name": "Get Device Stats",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/api/iam/audit/login/devices/stats?start=2024-01-01T00:00:00&end=2026-12-31T23:59:59",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "audit", "login", "devices", "stats"],
+							"query": [
+								{"key": "start", "value": "2024-01-01T00:00:00"},
+								{"key": "end", "value": "2026-12-31T23:59:59"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Search Devices",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/api/iam/audit/login/devices/search?q=Chrome&page=0&size=20",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "audit", "login", "devices", "search"],
+							"query": [
+								{"key": "q", "value": "Chrome"},
+								{"key": "page", "value": "0"},
+								{"key": "size", "value": "20"}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "9. IAM — Events Groups",
+			"item": [
+				{
+					"name": "Get All Events Groups",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/api/iam/events-groups?authorizedOnly=false&includePolicies=true",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "events-groups"],
+							"query": [
+								{"key": "authorizedOnly", "value": "false"},
+								{"key": "includePolicies", "value": "true"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Events Group by ID",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/events-groups/{{events_group_id}}", "host": ["{{base_url}}"], "path": ["api", "iam", "events-groups", "{{events_group_id}}"]}
+					}
+				},
+				{
+					"name": "Create APIKEY Group",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Engineering Group\",\n  \"description\": \"API Key group for engineering team\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/iam/events-groups", "host": ["{{base_url}}"], "path": ["api", "iam", "events-groups"]}
+					}
+				},
+				{
+					"name": "Authorize Group",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/events-groups/groups/{{events_group_id}}/authorize", "host": ["{{base_url}}"], "path": ["api", "iam", "events-groups", "groups", "{{events_group_id}}", "authorize"]}
+					}
+				},
+				{
+					"name": "Assign Device Users to Group",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"deviceUserIds\": [\"user-id-1\", \"user-id-2\"]\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/iam/events-groups/{{events_group_id}}/device-users", "host": ["{{base_url}}"], "path": ["api", "iam", "events-groups", "{{events_group_id}}", "device-users"]}
+					}
+				},
+				{
+					"name": "Get Group Policies",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/events-groups/{{events_group_id}}/policies", "host": ["{{base_url}}"], "path": ["api", "iam", "events-groups", "{{events_group_id}}", "policies"]}
+					}
+				},
+				{
+					"name": "Get Group Membership Stats",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/events-groups/stats/memberships", "host": ["{{base_url}}"], "path": ["api", "iam", "events-groups", "stats", "memberships"]}
+					}
+				},
+				{
+					"name": "Get Policies for Device User",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/events-groups/device-users/{{device_user_id}}/policies", "host": ["{{base_url}}"], "path": ["api", "iam", "events-groups", "device-users", "{{device_user_id}}", "policies"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "10. IAM — SSO Configuration",
+			"item": [
+				{
+					"name": "List SSO Configs",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/sso-configurations", "host": ["{{base_url}}"], "path": ["api", "iam", "sso-configurations"]}
+					}
+				},
+				{
+					"name": "Get SSO Config by ID",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/sso-configurations/{{sso_config_id}}", "host": ["{{base_url}}"], "path": ["api", "iam", "sso-configurations", "{{sso_config_id}}"]}
+					}
+				},
+				{
+					"name": "Create SSO Config",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"alias\": \"microsoft\",\n  \"displayName\": \"Azure AD\",\n  \"providerId\": \"oidc\",\n  \"enabled\": true\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/iam/sso-configurations", "host": ["{{base_url}}"], "path": ["api", "iam", "sso-configurations"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "11. IAM — Dropdowns",
+			"item": [
+				{
+					"name": "Get Regions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/regions", "host": ["{{base_url}}"], "path": ["api", "iam", "regions"]}
+					}
+				},
+				{
+					"name": "Get Industries",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/industries", "host": ["{{base_url}}"], "path": ["api", "iam", "industries"]}
+					}
+				},
+				{
+					"name": "Get Billing Types",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/tenants/billing", "host": ["{{base_url}}"], "path": ["api", "iam", "tenants", "billing"]}
+					}
+				},
+				{
+					"name": "Get Tenant Types",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/tenants/types", "host": ["{{base_url}}"], "path": ["api", "iam", "tenants", "types"]}
+					}
+				},
+				{
+					"name": "Get Roles Dropdown",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/roles/dropdown", "host": ["{{base_url}}"], "path": ["api", "iam", "roles", "dropdown"]}
+					}
+				},
+				{
+					"name": "Get Package Types",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/package-types", "host": ["{{base_url}}"], "path": ["api", "iam", "package-types"]}
+					}
+				},
+				{
+					"name": "Get Billing Cycles",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/billing-cycles", "host": ["{{base_url}}"], "path": ["api", "iam", "billing-cycles"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "12. Tenants — Sessions",
+			"item": [
+				{
+					"name": "Get All Sessions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/tenants/sessions", "host": ["{{base_url}}"], "path": ["api", "tenants", "sessions"]}
+					}
+				},
+				{
+					"name": "Get Session Count",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/tenants/sessions/count", "host": ["{{base_url}}"], "path": ["api", "tenants", "sessions", "count"]}
+					}
+				},
+				{
+					"name": "Get Session Summary",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/tenants/sessions/summary", "host": ["{{base_url}}"], "path": ["api", "tenants", "sessions", "summary"]}
+					}
+				},
+				{
+					"name": "Get My Sessions",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/tenants/sessions/me", "host": ["{{base_url}}"], "path": ["api", "tenants", "sessions", "me"]}
+					}
+				},
+				{
+					"name": "Logout Current Session",
+					"request": {
+						"method": "DELETE",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/tenants/sessions/me/current", "host": ["{{base_url}}"], "path": ["api", "tenants", "sessions", "me", "current"]}
+					}
+				},
+				{
+					"name": "Logout Other Sessions",
+					"request": {
+						"method": "DELETE",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/tenants/sessions/me/others", "host": ["{{base_url}}"], "path": ["api", "tenants", "sessions", "me", "others"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "13. Tenants — SMTP Config",
+			"item": [
+				{
+					"name": "Get SMTP Config",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/tenants/smtp-config", "host": ["{{base_url}}"], "path": ["api", "tenants", "smtp-config"]}
+					}
+				},
+				{
+					"name": "Test SMTP Connection",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"host\": \"smtp.example.com\",\n  \"port\": 587,\n  \"username\": \"user@example.com\",\n  \"password\": \"smtp-password\",\n  \"enableTls\": true\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/tenants/smtp-config/test", "host": ["{{base_url}}"], "path": ["api", "tenants", "smtp-config", "test"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "14. Tenants — Policies",
+			"item": [
+				{
+					"name": "Get Extension Policies",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/tenants/extension-policy", "host": ["{{base_url}}"], "path": ["api", "tenants", "extension-policy"]}
+					}
+				},
+				{
+					"name": "Create Extension Policy",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Default Extension Policy\",\n  \"description\": \"Browser extension security policy\",\n  \"policyKey\": \"ext-policy-1\",\n  \"landingPageUrl\": \"https://example.com/landing\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/tenants/extension-policy", "host": ["{{base_url}}"], "path": ["api", "tenants", "extension-policy"]}
+					}
+				},
+				{
+					"name": "Get Policy Mappings",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/tenants/policy/mapping", "host": ["{{base_url}}"], "path": ["api", "tenants", "policy", "mapping"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "15. Events — Core Events",
+			"item": [
+				{
+					"name": "Get Events (Paginated)",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/api/events?page=0&size=20",
+							"host": ["{{base_url}}"],
+							"path": ["api", "events"],
+							"query": [{"key": "page", "value": "0"}, {"key": "size", "value": "20"}]
+						}
+					}
+				},
+				{
+					"name": "Get Event Summary",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/summary", "host": ["{{base_url}}"], "path": ["api", "events", "summary"]}
+					}
+				},
+				{
+					"name": "Get Events by Device",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/device/{{device_id}}", "host": ["{{base_url}}"], "path": ["api", "events", "device", "{{device_id}}"]}
+					}
+				},
+				{
+					"name": "Search Events",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/api/events/search?q=malware&page=0&size=20",
+							"host": ["{{base_url}}"],
+							"path": ["api", "events", "search"],
+							"query": [
+								{"key": "q", "value": "malware"},
+								{"key": "page", "value": "0"},
+								{"key": "size", "value": "20"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Event Categories",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/categories", "host": ["{{base_url}}"], "path": ["api", "events", "categories"]}
+					}
+				},
+				{
+					"name": "Get Event Count",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/count", "host": ["{{base_url}}"], "path": ["api", "events", "count"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "16. Events — Security Events",
+			"item": [
+				{
+					"name": "Get Security Events",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/security", "host": ["{{base_url}}"], "path": ["api", "events", "security"]}
+					}
+				},
+				{
+					"name": "Get Critical Events",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/security/critical", "host": ["{{base_url}}"], "path": ["api", "events", "security", "critical"]}
+					}
+				},
+				{
+					"name": "Get Security Stats",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/security/stats", "host": ["{{base_url}}"], "path": ["api", "events", "security", "stats"]}
+					}
+				},
+				{
+					"name": "Security Dashboard",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/security/dashboard", "host": ["{{base_url}}"], "path": ["api", "events", "security", "dashboard"]}
+					}
+				},
+				{
+					"name": "Filter by Severity",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/security/severity/CRITICAL", "host": ["{{base_url}}"], "path": ["api", "events", "security", "severity", "CRITICAL"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "17. Events — Device Users & API Keys",
+			"item": [
+				{
+					"name": "Get Device Users",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/device-users", "host": ["{{base_url}}"], "path": ["api", "events", "device-users"]}
+					}
+				},
+				{
+					"name": "Get Extension API Keys",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/extension-api-keys", "host": ["{{base_url}}"], "path": ["api", "events", "extension-api-keys"]}
+					}
+				},
+				{
+					"name": "Create Extension API Key",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Production Extension Key\",\n  \"description\": \"API key for browser extension event ingestion\",\n  \"expiresInDays\": 365\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/events/extension-api-keys", "host": ["{{base_url}}"], "path": ["api", "events", "extension-api-keys"]}
+					}
+				},
+				{
+					"name": "Get API Key Stats",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/extension-api-keys/stats", "host": ["{{base_url}}"], "path": ["api", "events", "extension-api-keys", "stats"]}
+					}
+				},
+				{
+					"name": "Rotate API Key",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/extension-api-keys/{{extension_key_id}}/rotate", "host": ["{{base_url}}"], "path": ["api", "events", "extension-api-keys", "{{extension_key_id}}", "rotate"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "18. Events — Escalation Rules",
+			"item": [
+				{
+					"name": "Get Escalation Rules",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/escalation-rules", "host": ["{{base_url}}"], "path": ["api", "events", "escalation-rules"]}
+					}
+				},
+				{
+					"name": "Create Escalation Rule",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Critical Alert Escalation\",\n  \"severity\": \"CRITICAL\",\n  \"escalationDelay\": 300,\n  \"notifyEmail\": \"security@example.com\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/events/escalation-rules", "host": ["{{base_url}}"], "path": ["api", "events", "escalation-rules"]}
+					}
+				}
+			]
+		},
+		{
+			"name": "19. Events — User Activity",
+			"item": [
+				{
+					"name": "Get User Activity",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/user-activity", "host": ["{{base_url}}"], "path": ["api", "events", "user-activity"]}
+					}
+				},
+				{
+					"name": "Get Activity Stats",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/events/user-activity/stats", "host": ["{{base_url}}"], "path": ["api", "events", "user-activity", "stats"]}
+					}
+				},
+				{
+					"name": "Search User Activity",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {
+							"raw": "{{base_url}}/api/events/user-activity/search?q=login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "events", "user-activity", "search"],
+							"query": [{"key": "q", "value": "login"}]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "20. IAM — Admin API Flags",
+			"item": [
+				{
+					"name": "Create API Flag",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"apiKey\": \"security-events-v2\",\n  \"path\": \"/api/events/security/v2\",\n  \"description\": \"V2 Security Events API\"\n}"
+						},
+						"url": {"raw": "{{base_url}}/api/iam/admin/api-flags/apis", "host": ["{{base_url}}"], "path": ["api", "iam", "admin", "api-flags", "apis"]}
+					}
+				},
+				{
+					"name": "Toggle API for Tenant",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{auth_token}}"},
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"enabled\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/iam/admin/api-flags/tenants?tenantId={{tenant_id}}&key=security-events-v2",
+							"host": ["{{base_url}}"],
+							"path": ["api", "iam", "admin", "api-flags", "tenants"],
+							"query": [
+								{"key": "tenantId", "value": "{{tenant_id}}"},
+								{"key": "key", "value": "security-events-v2"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get All API Mappings",
+					"request": {
+						"method": "GET",
+						"header": [{"key": "Authorization", "value": "Bearer {{auth_token}}"}],
+						"url": {"raw": "{{base_url}}/api/iam/admin/api-flags/mappings", "host": ["{{base_url}}"], "path": ["api", "iam", "admin", "api-flags", "mappings"]}
+					}
+				}
+			]
+		}
+	]
+}

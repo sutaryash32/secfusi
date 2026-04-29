@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SecuFusion — System Architecture</title>
+  <meta name="description" content="Comprehensive system architecture diagram for SecuFusion Multi-Tenant Security Platform showing JWT auth flow, microservices, and RBAC.">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #f8fafc;
+      --bg-surface: #ffffff;
+      --bg-elevated: #ffffff;
+      --bg-glass: rgba(255, 255, 255, 0.85); 
+
+      /* Swimlane colors */
+      --lane-frontend: #2563eb;
+      --lane-frontend-bg: rgba(37, 99, 235, 0.04);
+      --lane-frontend-glow: rgba(37, 99, 235, 0.08);
+
+      --lane-gateway: #7c3aed;
+      --lane-gateway-bg: rgba(124, 58, 237, 0.04);
+      --lane-gateway-glow: rgba(124, 58, 237, 0.08);
+
+      --lane-backend: #059669;
+      --lane-backend-bg: rgba(5, 150, 105, 0.04);
+      --lane-backend-glow: rgba(5, 150, 105, 0.08);
+
+      --lane-keycloak: #d97706;
+      --lane-keycloak-bg: rgba(217, 119, 6, 0.04);
+      --lane-keycloak-glow: rgba(217, 119, 6, 0.08);
+
+      --lane-data: #dc2626;
+      --lane-data-bg: rgba(220, 38, 38, 0.04);
+      --lane-data-glow: rgba(220, 38, 38, 0.08);
+
+      --lane-kafka: #db2777;
+      --lane-kafka-bg: rgba(219, 39, 119, 0.04);
+      --lane-kafka-glow: rgba(219, 39, 119, 0.08);
+
+      --text-primary: #0f172a;
+      --text-secondary: #334155;
+      --text-muted: #64748b;
+      --border-subtle: rgba(148, 163, 184, 0.25);
+      --border-accent: rgba(148, 163, 184, 0.4);
+
+      --radius: 16px;
+      --radius-sm: 10px;
+      --radius-xs: 6px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Animated background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(37,99,235,0.04), transparent),
+        radial-gradient(ellipse 60% 40% at 80% 50%, rgba(124,58,237,0.03), transparent),
+        radial-gradient(ellipse 50% 60% at 10% 80%, rgba(5,150,105,0.03), transparent);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ─── NAVBAR ─── */
+    .navbar {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: var(--bg-glass);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+    }
+    .navbar a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 999px;
+      transition: all 0.2s;
+    }
+    .navbar a:hover {
+      background: rgba(148, 163, 184, 0.1);
+      color: var(--text-primary);
+    }
+
+    /* ─── HEADER ─── */
+    .header {
+      position: relative;
+      z-index: 10;
+      text-align: center;
+      padding: 48px 24px 32px;
+    }
+    .header__badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(59,130,246,0.1);
+      border: 1px solid rgba(59,130,246,0.2);
+      border-radius: 999px;
+      padding: 6px 18px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--lane-frontend);
+      margin-bottom: 20px;
+    }
+    .header__badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--lane-frontend);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+    .header h1 {
+      font-size: clamp(28px, 4vw, 48px);
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 10px;
+    }
+    .header p {
+      font-size: 15px;
+      color: var(--text-secondary);
+      max-width: 560px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    /* ─── LEGEND ─── */
+    .legend {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 0 24px 36px;
+    }
+    .legend__item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-glass);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      transition: all 0.3s ease;
+    }
+    .legend__item:hover {
+      border-color: var(--border-accent);
+      transform: translateY(-1px);
+    }
+    .legend__dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ─── MAIN DIAGRAM CONTAINER ─── */
+    .diagram {
+      position: relative;
+      z-index: 10;
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 0 24px 60px;
+    }
+
+    /* ─── SWIMLANE LAYOUT ─── */
+    .swimlanes {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      position: relative;
+    }
+
+    .swimlane {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      border: 1px solid var(--border-subtle);
+      border-bottom: none;
+      position: relative;
+      transition: all 0.3s ease;
+    }
+    .swimlane:first-child {
+      border-radius: var(--radius) var(--radius) 0 0;
+    }
+    .swimlane:last-child {
+      border-bottom: 1px solid var(--border-subtle);
+      border-radius: 0 0 var(--radius) var(--radius);
+    }
+    .swimlane:hover {
+      z-index: 2;
+    }
+
+    .swimlane__label {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      padding: 28px 16px;
+      border-right: 1px solid var(--border-subtle);
+      position: relative;
+      text-align: center;
+    }
+    .swimlane__label-icon {
+      font-size: 28px;
+      line-height: 1;
+    }
+    .swimlane__label-text {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .swimlane__label-sub {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    .swimlane__content {
+      padding: 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      min-height: 110px;
+    }
+
+    /* Swimlane color theming */
+    .swimlane--frontend { background: var(--lane-frontend-bg); }
+    .swimlane--frontend .swimlane__label { background: var(--lane-frontend-glow); }
+    .swimlane--frontend .swimlane__label-text { color: var(--lane-frontend); }
+
+    .swimlane--gateway { background: var(--lane-gateway-bg); }
+    .swimlane--gateway .swimlane__label { background: var(--lane-gateway-glow); }
+    .swimlane--gateway .swimlane__label-text { color: var(--lane-gateway); }
+
+    .swimlane--backend { background: var(--lane-backend-bg); }
+    .swimlane--backend .swimlane__label { background: var(--lane-backend-glow); }
+    .swimlane--backend .swimlane__label-text { color: var(--lane-backend); }
+
+    .swimlane--keycloak { background: var(--lane-keycloak-bg); }
+    .swimlane--keycloak .swimlane__label { background: var(--lane-keycloak-glow); }
+    .swimlane--keycloak .swimlane__label-text { color: var(--lane-keycloak); }
+
+    .swimlane--data { background: var(--lane-data-bg); }
+    .swimlane--data .swimlane__label { background: var(--lane-data-glow); }
+    .swimlane--data .swimlane__label-text { color: var(--lane-data); }
+
+    .swimlane--kafka { background: var(--lane-kafka-bg); }
+    .swimlane--kafka .swimlane__label { background: var(--lane-kafka-glow); }
+    .swimlane--kafka .swimlane__label-text { color: var(--lane-kafka); }
+
+    /* ─── NODE CARDS ─── */
+    .node {
+      background: var(--bg-glass);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-sm);
+      padding: 14px 18px;
+      min-width: 150px;
+      max-width: 220px;
+      position: relative;
+      transition: all 0.3s ease;
+      cursor: default;
+    }
+    .node:hover {
+      transform: translateY(-3px);
+      border-color: var(--text-muted);
+      box-shadow: 0 12px 32px rgba(0,0,0,0.3);
+    }
+    .node__name {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .node__desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .node__port {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: rgba(100, 116, 139, 0.15);
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+    .node--highlight {
+      border-color: var(--lane-frontend);
+      box-shadow: 0 0 20px rgba(59,130,246,0.15);
+    }
+
+    /* color-coded left bar on nodes */
+    .node::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 12px; bottom: 12px;
+      width: 3px;
+      border-radius: 0 3px 3px 0;
+    }
+    .swimlane--frontend .node::before { background: var(--lane-frontend); }
+    .swimlane--gateway .node::before { background: var(--lane-gateway); }
+    .swimlane--backend .node::before { background: var(--lane-backend); }
+    .swimlane--keycloak .node::before { background: var(--lane-keycloak); }
+    .swimlane--data .node::before { background: var(--lane-data); }
+    .swimlane--kafka .node::before { background: var(--lane-kafka); }
+
+    /* ─── FLOW ARROWS BETWEEN LANES ─── */
+    .flow-connector {
+      position: relative;
+      height: 0;
+      display: flex;
+      justify-content: center;
+      z-index: 5;
+    }
+    .flow-tag {
+      position: relative;
+      top: -13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 14px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      z-index: 6;
+    }
+    .flow-tag--down {
+      background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(139,92,246,0.15));
+      border: 1px solid rgba(99,102,241,0.25);
+      color: #a5b4fc;
+    }
+    .flow-tag--up {
+      background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.15));
+      border: 1px solid rgba(52,211,153,0.25);
+      color: #6ee7b7;
+    }
+    .flow-tag--auth {
+      background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(239,68,68,0.15));
+      border: 1px solid rgba(245,158,11,0.25);
+      color: #fcd34d;
+    }
+
+    /* ─── JWT INFO BOX ─── */
+    .jwt-panel {
+      margin-top: 48px;
+      background: var(--bg-glass);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .jwt-panel__header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 24px;
+      background: rgba(245,158,11,0.06);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .jwt-panel__header h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--lane-keycloak);
+    }
+    .jwt-panel__body {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 0;
+    }
+    .jwt-section {
+      padding: 20px 24px;
+      border-right: 1px solid var(--border-subtle);
+    }
+    .jwt-section:last-child { border-right: none; }
+    .jwt-section__title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .jwt-section--header .jwt-section__title { color: #b91c1c; }
+    .jwt-section--payload .jwt-section__title { color: #6d28d9; }
+    .jwt-section--signature .jwt-section__title { color: #047857; }
+
+    .jwt-code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      line-height: 1.8;
+      color: var(--text-secondary);
+      background: rgba(0,0,0,0.03);
+      padding: 12px 16px;
+      border-radius: var(--radius-xs);
+    }
+    .jwt-code .key { color: #2563eb; }
+    .jwt-code .val { color: #dc2626; }
+    .jwt-code .str { color: #059669; }
+
+    /* ─── AUTH FLOW STEPS ─── */
+    .flow-section {
+      margin-top: 48px;
+    }
+    .flow-section__title {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+    .flow-section__subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 28px;
+    }
+
+    .flow-steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .flow-step {
+      background: var(--bg-glass);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 18px 20px;
+      position: relative;
+      transition: all 0.3s ease;
+      overflow: hidden;
+    }
+    .flow-step:hover {
+      border-color: var(--border-accent);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    }
+    .flow-step::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+    }
+    .flow-step[data-lane="frontend"]::before { background: var(--lane-frontend); }
+    .flow-step[data-lane="gateway"]::before { background: var(--lane-gateway); }
+    .flow-step[data-lane="backend"]::before { background: var(--lane-backend); }
+    .flow-step[data-lane="keycloak"]::before { background: var(--lane-keycloak); }
+
+    .flow-step__number {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+    .flow-step[data-lane="frontend"] .flow-step__number {
+      background: rgba(59,130,246,0.15);
+      color: var(--lane-frontend);
+      border: 1px solid rgba(59,130,246,0.3);
+    }
+    .flow-step[data-lane="gateway"] .flow-step__number {
+      background: rgba(139,92,246,0.15);
+      color: var(--lane-gateway);
+      border: 1px solid rgba(139,92,246,0.3);
+    }
+    .flow-step[data-lane="backend"] .flow-step__number {
+      background: rgba(16,185,129,0.15);
+      color: var(--lane-backend);
+      border: 1px solid rgba(16,185,129,0.3);
+    }
+    .flow-step[data-lane="keycloak"] .flow-step__number {
+      background: rgba(245,158,11,0.15);
+      color: var(--lane-keycloak);
+      border: 1px solid rgba(245,158,11,0.3);
+    }
+
+    .flow-step__title {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .flow-step__desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .flow-step__lane {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+    .flow-step[data-lane="frontend"] .flow-step__lane {
+      background: rgba(59,130,246,0.1);
+      color: var(--lane-frontend);
+    }
+    .flow-step[data-lane="gateway"] .flow-step__lane {
+      background: rgba(139,92,246,0.1);
+      color: var(--lane-gateway);
+    }
+    .flow-step[data-lane="backend"] .flow-step__lane {
+      background: rgba(16,185,129,0.1);
+      color: var(--lane-backend);
+    }
+    .flow-step[data-lane="keycloak"] .flow-step__lane {
+      background: rgba(245,158,11,0.1);
+      color: var(--lane-keycloak);
+    }
+
+    /* ─── RBAC TABLE ─── */
+    .rbac-section {
+      margin-top: 48px;
+    }
+    .rbac-table-wrapper {
+      background: var(--bg-glass);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .rbac-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .rbac-table thead {
+      background: rgba(139,92,246,0.06);
+    }
+    .rbac-table th {
+      padding: 14px 20px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      text-align: left;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .rbac-table td {
+      padding: 14px 20px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .rbac-table tr:last-child td { border-bottom: none; }
+    .rbac-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .rbac-role {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 700;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+    .rbac-role--admin { background: rgba(239,68,68,0.12); color: #b91c1c; }
+    .rbac-role--user { background: rgba(59,130,246,0.12); color: #1d4ed8; }
+    .rbac-role--viewer { background: rgba(16,185,129,0.12); color: #047857; }
+    .rbac-role--mssp { background: rgba(245,158,11,0.12); color: #b45309; }
+    .rbac-role--master { background: rgba(168,85,247,0.12); color: #7e22ce; }
+    .rbac-check { color: #059669; }
+    .rbac-cross { color: #94a3b8; }
+
+    /* ─── SVG ARCHITECTURE DIAGRAM ─── */
+    .svg-diagram-wrapper {
+      margin-top: 48px;
+      background: var(--bg-glass);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .svg-diagram-wrapper__header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 24px;
+      background: rgba(99,102,241,0.05);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .svg-diagram-wrapper__header h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .svg-container {
+      padding: 24px;
+      display: flex;
+      justify-content: center;
+      overflow-x: auto;
+    }
+
+    /* ─── FOOTER ─── */
+    .footer {
+      position: relative;
+      z-index: 10;
+      text-align: center;
+      padding: 40px 24px 60px;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+    .footer a {
+      color: var(--lane-frontend);
+      text-decoration: none;
+    }
+
+    /* ─── RESPONSIVE ─── */
+    @media (max-width: 768px) {
+      .swimlane {
+        grid-template-columns: 1fr;
+      }
+      .swimlane__label {
+        flex-direction: row;
+        border-right: none;
+        border-bottom: 1px solid var(--border-subtle);
+        padding: 14px 16px;
+      }
+      .swimlane__content {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .node { max-width: 100%; min-width: 0; width: 100%; }
+      .jwt-panel__body { grid-template-columns: 1fr; }
+      .jwt-section { border-right: none; border-bottom: 1px solid var(--border-subtle); }
+      .jwt-section:last-child { border-bottom: none; }
+    }
+
+    /* ─── ANIMATIONS ─── */
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .swimlane, .jwt-panel, .flow-section, .rbac-section, .svg-diagram-wrapper {
+      animation: fadeSlideUp 0.6s ease-out both;
+    }
+    .swimlane:nth-child(1) { animation-delay: 0.1s; }
+    .swimlane:nth-child(2) { animation-delay: 0.15s; }
+    .swimlane:nth-child(3) { animation-delay: 0.2s; }
+    .swimlane:nth-child(4) { animation-delay: 0.25s; }
+    .swimlane:nth-child(5) { animation-delay: 0.3s; }
+    .swimlane:nth-child(6) { animation-delay: 0.35s; }
+
+    /* Pulse animation for live indicators */
+    @keyframes glow-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 currentColor; }
+      50% { box-shadow: 0 0 8px 2px currentColor; }
+    }
+
+    /* ─── TOOLTIP ─── */
+    .tooltip {
+      position: fixed;
+      display: none;
+      background: #ffffff;
+      border: 1px solid var(--border-accent);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      max-width: 280px;
+      z-index: 999;
+      pointer-events: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    }
+    .tooltip.visible { display: block; }
+
+    /* Arrow flow strip */
+    .arrow-strip {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 6px 0;
+    }
+    .arrow-strip__arrow {
+      font-size: 18px;
+      animation: bounce-arrow 1.2s ease-in-out infinite;
+    }
+    @keyframes bounce-arrow {
+      0%, 100% { transform: translateY(0); opacity: 0.4; }
+      50% { transform: translateY(3px); opacity: 1; }
+    }
+
+    .section-divider {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 6px 0;
+    }
+    .section-divider__line {
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-accent), transparent);
+    }
+    .section-divider__icon {
+      color: var(--text-muted);
+      font-size: 16px;
+      opacity: 0.5;
+    }
+  </style>
+</head>
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="#architecture">Architecture</a>
+  <a href="#flowchart">Communication Flow</a>
+  <a href="#jwt-structure">JWT Structure</a>
+  <a href="#auth-flow">Auth Flow</a>
+  <a href="#rbac-matrix">RBAC Matrix</a>
+</nav>
+
+<!-- ═══════════════════ HEADER ═══════════════════ -->
+<header class="header">
+  <div class="header__badge">
+    <span class="dot"></span>
+    System Architecture v1.0
+  </div>
+  <h1>🔐 SecuFusion</h1>
+  <p>Multi-Tenant Browser Security Platform — Microservices Architecture with Keycloak JWT Authentication & Role-Based Access Control</p>
+</header>
+
+<!-- ═══════════════════ LEGEND ═══════════════════ -->
+<div class="legend">
+  <div class="legend__item"><span class="legend__dot" style="background:var(--lane-frontend)"></span> Frontend (React/Angular)</div>
+  <div class="legend__item"><span class="legend__dot" style="background:var(--lane-gateway)"></span> API Gateway</div>
+  <div class="legend__item"><span class="legend__dot" style="background:var(--lane-backend)"></span> Backend Services</div>
+  <div class="legend__item"><span class="legend__dot" style="background:var(--lane-keycloak)"></span> Keycloak (Auth)</div>
+  <div class="legend__item"><span class="legend__dot" style="background:var(--lane-data)"></span> Data Layer</div>
+  <div class="legend__item"><span class="legend__dot" style="background:var(--lane-kafka)"></span> Async Messaging</div>
+</div>
+
+<!-- ═══════════════════ SWIMLANE DIAGRAM ═══════════════════ -->
+<div class="diagram">
+  <div class="swimlanes" id="architecture">
+
+    <!-- ── FRONTEND LANE ── -->
+    <div class="swimlane swimlane--frontend">
+      <div class="swimlane__label">
+        <div class="swimlane__label-icon">🖥️</div>
+        <div class="swimlane__label-text">Frontend</div>
+        <div class="swimlane__label-sub">Client Layer</div>
+      </div>
+      <div class="swimlane__content">
+        <div class="node" data-tooltip="The main admin/tenant portal UI. Built with React or Angular. Handles login, dashboards, policy config, SecOps, and analytics.">
+          <div class="node__name">🌐 Web Portal</div>
+          <div class="node__desc">Admin dashboard, tenant management, policy config, SecOps, analytics</div>
+        </div>
+        <div class="node" data-tooltip="Chrome browser extension enforcing DLP, URL filtering, and security policies. Authenticates via API Key or Azure SSO.">
+          <div class="node__name">🧩 Chrome Extension</div>
+          <div class="node__desc">Browser security enforcement, DLP, clipboard control, URL filtering</div>
+        </div>
+        <div class="node" data-tooltip="JWT tokens stored in browser (localStorage / HttpOnly cookies). Attached as Bearer token in Authorization header for every API call.">
+          <div class="node__name">🔑 JWT Storage</div>
+          <div class="node__desc">Access + Refresh tokens stored in browser, sent via Authorization header</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow strip -->
+    <div class="arrow-strip">
+      <span class="arrow-strip__arrow" style="color:var(--lane-frontend); animation-delay:0s;">▼</span>
+      <span style="font-size:10px; color:var(--text-muted);">HTTPS / REST — Bearer JWT</span>
+      <span class="arrow-strip__arrow" style="color:var(--lane-gateway); animation-delay:0.4s;">▼</span>
+    </div>
+
+    <!-- ── GATEWAY LANE ── -->
+    <div class="swimlane swimlane--gateway">
+      <div class="swimlane__label">
+        <div class="swimlane__label-icon">🚪</div>
+        <div class="swimlane__label-text">Gateway</div>
+        <div class="swimlane__label-sub">API Gateway</div>
+      </div>
+      <div class="swimlane__content">
+        <div class="node" data-tooltip="Spring Cloud Gateway — single entry point for all client requests. Routes to internal services via Eureka load-balanced URIs. Handles CORS, rate limiting, and path-based routing.">
+          <div class="node__name">🛡️ sfn-gateway-api</div>
+          <div class="node__port">:8083</div>
+          <div class="node__desc">Spring Cloud Gateway, CORS, routing, Swagger aggregation, Resilience4j</div>
+        </div>
+        <div class="node" data-tooltip="Netflix Eureka Server — service registry for dynamic service discovery. All microservices register here and Gateway uses it for load-balanced routing.">
+          <div class="node__name">📡 sfn-eureka-api</div>
+          <div class="node__port">:8761</div>
+          <div class="node__desc">Service registry &amp; discovery, health monitoring</div>
+        </div>
+        <div class="node" style="border-color:rgba(139,92,246,0.3); background:rgba(139,92,246,0.05);">
+          <div class="node__name" style="font-size:11px;">📋 Route Map</div>
+          <div class="node__desc" style="font-family:'JetBrains Mono',monospace; font-size:10px; line-height:1.8;">
+            /api/iam/** → lb://IAM-SERVICE<br>
+            /api/tenants/** → lb://TENANT-SERVICE<br>
+            /api/events/** → lb://EVENTS-SERVICE
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow strip -->
+    <div class="arrow-strip">
+      <span class="arrow-strip__arrow" style="color:var(--lane-gateway); animation-delay:0s;">▼</span>
+      <span style="font-size:10px; color:var(--text-muted);">Eureka LB Routing — JWT forwarded</span>
+      <span class="arrow-strip__arrow" style="color:var(--lane-backend); animation-delay:0.4s;">▼</span>
+    </div>
+
+    <!-- ── BACKEND SERVICES LANE ── -->
+    <div class="swimlane swimlane--backend">
+      <div class="swimlane__label">
+        <div class="swimlane__label-icon">⚙️</div>
+        <div class="swimlane__label-text">Backend</div>
+        <div class="swimlane__label-sub">Spring Boot Services</div>
+      </div>
+      <div class="swimlane__content">
+        <div class="node" data-tooltip="Identity & Access Management — manages users, roles, scopes, access levels, features, packages, subscriptions, SSO config. Talks to Keycloak Admin API and Azure Graph. Publishes device-registration events to Kafka.">
+          <div class="node__name">👤 sfn-iam-api</div>
+          <div class="node__port">:8084</div>
+          <div class="node__desc">Users, Roles, Scopes, SSO, Packages, Features, Azure Graph, Login Audit</div>
+        </div>
+        <div class="node" data-tooltip="Tenant Management — handles tenant provisioning (Keycloak realm creation), policies (browser, network, extension, DLP), API keys, notifications, webhooks, audit logs. Publishes policy-events to Kafka.">
+          <div class="node__name">🏢 sfn-tenants-api</div>
+          <div class="node__port">:8085</div>
+          <div class="node__desc">Tenant provisioning, policies (Browser/Network/DLP), API keys, webhooks</div>
+        </div>
+        <div class="node" data-tooltip="Security Operations — manages devices, browser events, security events, incidents, playbooks, escalation rules, analytics. Consumes device-registration from Kafka. Self-manages event pipeline via quickstart-events topic.">
+          <div class="node__name">📊 sfn-events-api</div>
+          <div class="node__port">:8086</div>
+          <div class="node__desc">Devices, Events, Incidents, Playbooks, Escalation, Analytics</div>
+        </div>
+        <div class="node" style="border-color:rgba(16,185,129,0.3); background:rgba(16,185,129,0.05); min-width:200px;">
+          <div class="node__name" style="font-size:11px;">🔒 JWT Validation (per-service)</div>
+          <div class="node__desc" style="font-family:'JetBrains Mono',monospace; font-size:10px; line-height:1.8;">
+            ✓ Signature via JWK Set URI<br>
+            ✓ Expiry check (iat, exp)<br>
+            ✓ Claims: roles, realm_access<br>
+            ✓ RBAC enforcement (38 scopes)
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow strip -->
+    <div class="arrow-strip">
+      <span class="arrow-strip__arrow" style="color:var(--lane-backend); animation-delay:0s;">▼</span>
+      <span style="font-size:10px; color:var(--text-muted);">Admin API + OIDC Token Endpoints</span>
+      <span class="arrow-strip__arrow" style="color:var(--lane-keycloak); animation-delay:0.4s;">▼</span>
+    </div>
+
+    <!-- ── KEYCLOAK LANE ── -->
+    <div class="swimlane swimlane--keycloak">
+      <div class="swimlane__label">
+        <div class="swimlane__label-icon">🔐</div>
+        <div class="swimlane__label-text">Keycloak</div>
+        <div class="swimlane__label-sub">Auth Server</div>
+      </div>
+      <div class="swimlane__content">
+        <div class="node" data-tooltip="Keycloak Identity Provider — manages realms (one per tenant), clients, users, roles, and SSO federation. Issues JWT access + refresh tokens via OIDC. Exposes JWK Set URI for token signature verification.">
+          <div class="node__name">🏛️ Keycloak Server</div>
+          <div class="node__desc">OpenID Connect, realm-per-tenant, JWT issuance, user federation</div>
+        </div>
+        <div class="node" data-tooltip="Each tenant gets its own Keycloak realm with isolated users, roles, and client configurations. The master realm 'secufusion' is for platform admins.">
+          <div class="node__name">🔀 Realm Management</div>
+          <div class="node__desc">Multi-Tenant Realm isolation, client config per tenant, SSO federation</div>
+        </div>
+        <div class="node" style="border-color:rgba(245,158,11,0.3); background:rgba(245,158,11,0.05); min-width:200px;">
+          <div class="node__name" style="font-size:11px;">🌐 Endpoints</div>
+          <div class="node__desc" style="font-family:'JetBrains Mono',monospace; font-size:10px; line-height:1.8;">
+            Token: /realms/{r}/protocol/openid-connect/token<br>
+            JWK: /realms/{r}/protocol/openid-connect/certs<br>
+            Admin: /admin/realms/{r}/...
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow strip -->
+    <div class="arrow-strip">
+      <span class="arrow-strip__arrow" style="color:var(--lane-keycloak); animation-delay:0s;">▼</span>
+      <span style="font-size:10px; color:var(--text-muted);">JDBC / Read-Write</span>
+      <span class="arrow-strip__arrow" style="color:var(--lane-data); animation-delay:0.4s;">▼</span>
+    </div>
+
+    <!-- ── DATA LAYER ── -->
+    <div class="swimlane swimlane--data">
+      <div class="swimlane__label">
+        <div class="swimlane__label-icon">🗄️</div>
+        <div class="swimlane__label-text">Data</div>
+        <div class="swimlane__label-sub">Persistence Layer</div>
+      </div>
+      <div class="swimlane__content">
+        <div class="node" data-tooltip="PostgreSQL database(s) — each service has its own logical domain tables. IAM owns user/role/feature tables. Tenants owns policy/config tables. Events owns device/event/incident tables. Physical separation is deployment-driven.">
+          <div class="node__name">🐘 PostgreSQL</div>
+          <div class="node__port">:5432</div>
+          <div class="node__desc">Domain-separated tables per service, Flyway migrations, HikariCP pooling</div>
+        </div>
+        <div class="node" data-tooltip="Azure Communication Services for transactional email (welcome emails, incident notifications, password reset). SMTP relay via smtp.azurecomm.net:587.">
+          <div class="node__name">📧 SMTP / Email</div>
+          <div class="node__desc">Azure Communication Services, incident notifications, welcome emails</div>
+        </div>
+        <div class="node" data-tooltip="Microsoft Azure AD integration for SSO federation, group sync, and extension authentication for Azure-enabled tenants.">
+          <div class="node__name">☁️ Azure AD / Graph</div>
+          <div class="node__desc">SSO federation, group sync, Azure tenant auth</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow strip -->
+    <div class="section-divider" style="padding: 10px 0;">
+      <div class="section-divider__line"></div>
+      <div class="section-divider__icon">⚡</div>
+      <div class="section-divider__line"></div>
+    </div>
+
+    <!-- ── KAFKA LANE ── -->
+    <div class="swimlane swimlane--kafka">
+      <div class="swimlane__label">
+        <div class="swimlane__label-icon">📨</div>
+        <div class="swimlane__label-text">Kafka</div>
+        <div class="swimlane__label-sub">Async Messaging</div>
+      </div>
+      <div class="swimlane__content">
+        <div class="node" data-tooltip="IAM publishes device-registration events when users/devices authenticate. Events service consumes these to create/update device records.">
+          <div class="node__name">📦 device-registration</div>
+          <div class="node__desc">IAM → Events: device registration on login/auth</div>
+        </div>
+        <div class="node" data-tooltip="Events service self-managed pipeline: publishes security events from API ingestion, consumes them for inbox processing, analytics, and incident workflows.">
+          <div class="node__name">📦 quickstart-events</div>
+          <div class="node__desc">Events → Events: security event ingestion pipeline</div>
+        </div>
+        <div class="node" data-tooltip="Tenants service publishes policy change events when browser, network, or extension policies are created/updated/assigned.">
+          <div class="node__name">📦 policy-events</div>
+          <div class="node__desc">Tenants → broadcast: policy change notifications</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════ SEQUENCE FLOWCHART ═══════════════════ -->
+  <style>
+    /* Add smooth scroll */
+    html { scroll-behavior: smooth; }
+    
+    .seq-flowchart {
+      margin-top: 48px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .seq-flowchart__header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 24px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .seq-flowchart__header h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .seq-flowchart__body {
+      padding: 40px 24px;
+      max-width: 600px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* Wrap the box to contain the badge */
+    .seq-step-wrapper {
+      position: relative;
+      width: 100%;
+      max-width: 320px;
+      margin: 0 auto;
+    }
+
+    /* Numbered marker */
+    .seq-marker {
+      position: absolute;
+      left: -48px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 32px;
+      height: 32px;
+      background: #0f172a;
+      color: #ffffff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      border: 3px solid #ffffff;
+      box-shadow: 0 0 0 1px #e2e8f0;
+      z-index: 10;
+    }
+
+    /* Service box */
+    .seq-box {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 8px;
+      border: 1.5px solid;
+      text-align: center;
+      position: relative;
+      background: #ffffff;
+    }
+    .seq-box__name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .seq-box__sub {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    .seq-box--blue { border-color: #3b82f6; background: #eff6ff; }
+    .seq-box--purple { border-color: #8b5cf6; background: #f5f3ff; }
+    .seq-box--green { border-color: #10b981; background: #ecfdf5; }
+    .seq-box--amber { border-color: #f59e0b; background: #fffbeb; }
+    .seq-box--red { border-color: #ef4444; background: #fef2f2; }
+    .seq-box--pink { border-color: #ec4899; background: #fdf2f8; }
+
+    /* Arrow between boxes */
+    .seq-arrow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+    .seq-arrow__line {
+      width: 2px;
+      height: 48px;
+      background: #cbd5e1;
+    }
+    .seq-arrow__head {
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-top: 8px solid #cbd5e1;
+      margin-top: 0px;
+    }
+    .seq-arrow__label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #475569;
+      background: #ffffff;
+      padding: 4px 12px;
+      border-radius: 999px;
+      border: 1px solid #e2e8f0;
+      white-space: nowrap;
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 5;
+    }
+    .seq-arrow__label--blue { color: #2563eb; background: #eff6ff; border-color: #bfdbfe; }
+    .seq-arrow__label--amber { color: #d97706; background: #fffbeb; border-color: #fde68a; }
+    .seq-arrow__label--pink { color: #db2777; background: #fdf2f8; border-color: #fbcfe8; }
+    .seq-arrow__label--red { color: #dc2626; background: #fef2f2; border-color: #fecaca; }
+
+    @media (max-width: 768px) {
+      .seq-marker {
+        left: -12px;
+        top: -12px;
+        transform: none;
+      }
+    }
+  </style>
+
+  <div class="seq-flowchart" id="flowchart">
+    <div class="seq-flowchart__header">
+      <span style="font-size:20px;">🗺️</span>
+      <h3>Service Communication Map — Auth to Async Event Flow</h3>
+    </div>
+    <div class="seq-flowchart__body">
+
+      <!-- Step 1 -->
+      <div class="seq-step-wrapper">
+        <div class="seq-marker">1</div>
+        <div class="seq-box seq-box--blue">
+          <div class="seq-box__name">🖥️ Frontend / Extension</div>
+          <div class="seq-box__sub">User triggers login</div>
+        </div>
+      </div>
+
+      <div class="seq-arrow">
+        <div class="seq-arrow__line"></div>
+        <div class="seq-arrow__label seq-arrow__label--blue">POST /api/iam/auth/login</div>
+        <div class="seq-arrow__head"></div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="seq-step-wrapper">
+        <div class="seq-marker">2</div>
+        <div class="seq-box seq-box--purple">
+          <div class="seq-box__name">🚪 API Gateway</div>
+          <div class="seq-box__sub">:8083 — Routes HTTP Request</div>
+        </div>
+      </div>
+
+      <div class="seq-arrow">
+        <div class="seq-arrow__line"></div>
+        <div class="seq-arrow__label">lb://IAM-SERVICE</div>
+        <div class="seq-arrow__head"></div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="seq-step-wrapper">
+        <div class="seq-marker">3</div>
+        <div class="seq-box seq-box--green">
+          <div class="seq-box__name">👤 IAM Service</div>
+          <div class="seq-box__sub">:8084 — Identity validation</div>
+        </div>
+      </div>
+
+      <div class="seq-arrow">
+        <div class="seq-arrow__line"></div>
+        <div class="seq-arrow__label seq-arrow__label--amber">OIDC Authenticate Request</div>
+        <div class="seq-arrow__head"></div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="seq-step-wrapper">
+        <div class="seq-marker">4</div>
+        <div class="seq-box seq-box--amber">
+          <div class="seq-box__name">🔐 Keycloak</div>
+          <div class="seq-box__sub">Validates against Realm db</div>
+        </div>
+      </div>
+
+      <div class="seq-arrow">
+        <div class="seq-arrow__line"></div>
+        <div class="seq-arrow__label seq-arrow__label--amber">Returns Valid JWTs (Authz + Ref)</div>
+        <div class="seq-arrow__head"></div>
+      </div>
+
+      <!-- Step 5 -->
+      <div class="seq-step-wrapper">
+        <div class="seq-marker">5</div>
+        <div class="seq-box seq-box--green">
+          <div class="seq-box__name">👤 IAM Service</div>
+          <div class="seq-box__sub">Auth ✅ — Triggers async tracking event</div>
+        </div>
+      </div>
+
+      <div class="seq-arrow">
+        <div class="seq-arrow__line"></div>
+        <div class="seq-arrow__label seq-arrow__label--pink">Publish "DeviceRegistrationEvent"</div>
+        <div class="seq-arrow__head"></div>
+      </div>
+
+      <!-- Step 6 -->
+      <div class="seq-step-wrapper">
+        <div class="seq-marker">6</div>
+        <div class="seq-box seq-box--pink">
+          <div class="seq-box__name">📦 device-registration</div>
+          <div class="seq-box__sub">Kafka Message Bus Topic</div>
+        </div>
+      </div>
+
+      <div class="seq-arrow">
+        <div class="seq-arrow__line"></div>
+        <div class="seq-arrow__label seq-arrow__label--pink">Consumer listens & Polls batch</div>
+        <div class="seq-arrow__head"></div>
+      </div>
+
+      <!-- Step 7 -->
+      <div class="seq-step-wrapper">
+        <div class="seq-marker">7</div>
+        <div class="seq-box seq-box--green">
+          <div class="seq-box__name">📊 Events Service</div>
+          <div class="seq-box__sub">:8086 — Receives event tracking msg</div>
+        </div>
+      </div>
+
+      <div class="seq-arrow">
+        <div class="seq-arrow__line"></div>
+        <div class="seq-arrow__label seq-arrow__label--red">JDBC Upsert (event_inbox & devices)</div>
+        <div class="seq-arrow__head"></div>
+      </div>
+
+      <!-- Step 8 -->
+      <div class="seq-step-wrapper">
+        <div class="seq-marker">8</div>
+        <div class="seq-box seq-box--red">
+          <div class="seq-box__name">🐘 PostgreSQL</div>
+          <div class="seq-box__sub">Persists device tracking to Domain DB</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════ JWT STRUCTURE ═══════════════════ -->
+  <div class="jwt-panel" id="jwt-structure">
+    <div class="jwt-panel__header">
+      <span style="font-size:22px;">🎫</span>
+      <h3>JWT Token Structure — header.payload.signature</h3>
+    </div>
+    <div class="jwt-panel__body">
+      <div class="jwt-section jwt-section--header">
+        <div class="jwt-section__title">Header (JOSE)</div>
+        <div class="jwt-code">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"alg"</span>: <span class="str">"RS256"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"typ"</span>: <span class="str">"JWT"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"kid"</span>: <span class="str">"&lt;key-id&gt;"</span><br>
+          }
+        </div>
+      </div>
+      <div class="jwt-section jwt-section--payload">
+        <div class="jwt-section__title">Payload (Claims)</div>
+        <div class="jwt-code">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"sub"</span>: <span class="str">"user-uuid"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"iss"</span>: <span class="str">"https://auth.../realms/tenant"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"realm_access"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"roles"</span>: [<span class="str">"ADMIN"</span>, <span class="str">"USER"</span>]<br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"exp"</span>: <span class="val">1712345678</span>,<br>
+          &nbsp;&nbsp;<span class="key">"iat"</span>: <span class="val">1712345378</span>,<br>
+          &nbsp;&nbsp;<span class="key">"azp"</span>: <span class="str">"secufusion"</span><br>
+          }
+        </div>
+      </div>
+      <div class="jwt-section jwt-section--signature">
+        <div class="jwt-section__title">Signature</div>
+        <div class="jwt-code">
+          RSASHA256(<br>
+          &nbsp;&nbsp;base64UrlEncode(header) + "." +<br>
+          &nbsp;&nbsp;base64UrlEncode(payload),<br>
+          &nbsp;&nbsp;RSA_PRIVATE_KEY<br>
+          )<br><br>
+          <span style="color:#34d399;">✓ Verified via JWK Set URI</span><br>
+          <span style="color:#64748b; font-size:9px;">/realms/{realm}/protocol/openid-connect/certs</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ AUTH FLOW STEPS ═══════════════════ -->
+  <div class="flow-section" id="auth-flow">
+    <h2 class="flow-section__title">🔄 JWT Authentication Flow — Step by Step</h2>
+    <p class="flow-section__subtitle">Complete login-to-access flow across Frontend, Backend, and Keycloak</p>
+
+    <div class="flow-steps">
+      <div class="flow-step" data-lane="frontend">
+        <div class="flow-step__number">1</div>
+        <div class="flow-step__title">User Opens Portal</div>
+        <div class="flow-step__desc">User navigates to the web portal and enters login credentials (username + password)</div>
+        <span class="flow-step__lane">Frontend</span>
+      </div>
+      <div class="flow-step" data-lane="frontend">
+        <div class="flow-step__number">2</div>
+        <div class="flow-step__title">Frontend → Backend</div>
+        <div class="flow-step__desc">Frontend sends POST /api/iam/auth/login with credentials to the API Gateway over HTTPS</div>
+        <span class="flow-step__lane">Frontend → Gateway</span>
+      </div>
+      <div class="flow-step" data-lane="backend">
+        <div class="flow-step__number">3</div>
+        <div class="flow-step__title">Backend → Keycloak</div>
+        <div class="flow-step__desc">IAM service forwards auth request to Keycloak's OIDC token endpoint for the tenant's realm</div>
+        <span class="flow-step__lane">Backend</span>
+      </div>
+      <div class="flow-step" data-lane="keycloak">
+        <div class="flow-step__number">4</div>
+        <div class="flow-step__title">Keycloak Validates</div>
+        <div class="flow-step__desc">Keycloak validates credentials against the realm user store; issues JWT access token (5 min) + refresh token (30 min)</div>
+        <span class="flow-step__lane">Keycloak</span>
+      </div>
+      <div class="flow-step" data-lane="backend">
+        <div class="flow-step__number">5</div>
+        <div class="flow-step__title">JWT Returned</div>
+        <div class="flow-step__desc">JWT tokens flow back: Keycloak → IAM Service → Gateway → Frontend. Login audit event recorded.</div>
+        <span class="flow-step__lane">Backend → Frontend</span>
+      </div>
+      <div class="flow-step" data-lane="frontend">
+        <div class="flow-step__number">6</div>
+        <div class="flow-step__title">JWT Stored</div>
+        <div class="flow-step__desc">Frontend stores access + refresh tokens. Every subsequent API request includes Authorization: Bearer &lt;token&gt;</div>
+        <span class="flow-step__lane">Frontend</span>
+      </div>
+      <div class="flow-step" data-lane="backend">
+        <div class="flow-step__number">7</div>
+        <div class="flow-step__title">JWT Validated</div>
+        <div class="flow-step__desc">Each service validates JWT: verifies RS256 signature via JWK Set URI, checks expiry (exp), issuer (iss), audience (azp)</div>
+        <span class="flow-step__lane">Backend (per-service)</span>
+      </div>
+      <div class="flow-step" data-lane="backend">
+        <div class="flow-step__number">8</div>
+        <div class="flow-step__title">RBAC Check</div>
+        <div class="flow-step__desc">Backend extracts roles from realm_access.roles claim. Checks against 38 defined scopes for endpoint-level authorization</div>
+        <span class="flow-step__lane">Backend</span>
+      </div>
+      <div class="flow-step" data-lane="backend">
+        <div class="flow-step__number">9</div>
+        <div class="flow-step__title">Access Decision</div>
+        <div class="flow-step__desc">Access granted ✅ or denied ❌ (403 Forbidden) based on role. Roles: MASTER_MSSP_ADMIN, MSSP_ADMIN, ENTERPRISE_ADMIN, USER, VIEWER</div>
+        <span class="flow-step__lane">Backend</span>
+      </div>
+      <div class="flow-step" data-lane="frontend">
+        <div class="flow-step__number">10</div>
+        <div class="flow-step__title">UI Rendered</div>
+        <div class="flow-step__desc">Response returned to Frontend. UI conditionally renders based on user's role — admin sees full dashboard, viewer sees read-only</div>
+        <span class="flow-step__lane">Frontend</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ RBAC TABLE ═══════════════════ -->
+  <div class="rbac-section" id="rbac-matrix">
+    <h2 class="flow-section__title">🛡️ Role-Based Access Control (RBAC)</h2>
+    <p class="flow-section__subtitle">Tenant hierarchy roles and their permissions across SecuFusion capabilities</p>
+
+    <div class="rbac-table-wrapper" style="margin-top:24px;">
+      <table class="rbac-table">
+        <thead>
+          <tr>
+            <th>Role</th>
+            <th>Tenant Mgmt</th>
+            <th>User Mgmt</th>
+            <th>Policies</th>
+            <th>SecOps</th>
+            <th>Analytics</th>
+            <th>Settings</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="rbac-role rbac-role--master">🔮 MASTER MSSP</span></td>
+            <td class="rbac-check">✅ Full</td>
+            <td class="rbac-check">✅ Full</td>
+            <td class="rbac-check">✅ Full</td>
+            <td class="rbac-check">✅ Full</td>
+            <td class="rbac-check">✅ Full</td>
+            <td class="rbac-check">✅ Full</td>
+          </tr>
+          <tr>
+            <td><span class="rbac-role rbac-role--mssp">🏷️ MSSP ADMIN</span></td>
+            <td class="rbac-check">✅ Own Clients</td>
+            <td class="rbac-check">✅ Own Clients</td>
+            <td class="rbac-check">✅ Own Clients</td>
+            <td class="rbac-check">✅ Own Clients</td>
+            <td class="rbac-check">✅ Own Clients</td>
+            <td class="rbac-check">✅ Limited</td>
+          </tr>
+          <tr>
+            <td><span class="rbac-role rbac-role--admin">🔑 ENT. ADMIN</span></td>
+            <td class="rbac-cross">❌</td>
+            <td class="rbac-check">✅ Own Org</td>
+            <td class="rbac-check">✅ Own Org</td>
+            <td class="rbac-check">✅ Own Org</td>
+            <td class="rbac-check">✅ Own Org</td>
+            <td class="rbac-check">✅ Own Org</td>
+          </tr>
+          <tr>
+            <td><span class="rbac-role rbac-role--user">👤 USER</span></td>
+            <td class="rbac-cross">❌</td>
+            <td class="rbac-cross">❌ Self Only</td>
+            <td class="rbac-cross">❌</td>
+            <td class="rbac-check">✅ View</td>
+            <td class="rbac-check">✅ View</td>
+            <td class="rbac-cross">❌</td>
+          </tr>
+          <tr>
+            <td><span class="rbac-role rbac-role--viewer">👁️ VIEWER</span></td>
+            <td class="rbac-cross">❌</td>
+            <td class="rbac-cross">❌</td>
+            <td class="rbac-cross">❌</td>
+            <td class="rbac-check">✅ Read Only</td>
+            <td class="rbac-check">✅ Read Only</td>
+            <td class="rbac-cross">❌</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════ FOOTER ═══════════════════ -->
+<footer class="footer">
+  <p>SecuFusion System Architecture v1.0 — April 2026</p>
+  <p style="margin-top:6px;">Spring Boot · Spring Cloud Gateway · Eureka · Keycloak · Kafka · PostgreSQL · Azure AD</p>
+</footer>
+
+<!-- ═══════════════════ TOOLTIP SCRIPT ═══════════════════ -->
+<div class="tooltip" id="tooltip"></div>
+<script>
+  const tooltip = document.getElementById('tooltip');
+  document.querySelectorAll('[data-tooltip]').forEach(el => {
+    el.addEventListener('mouseenter', e => {
+      tooltip.textContent = el.dataset.tooltip;
+      tooltip.classList.add('visible');
+    });
+    el.addEventListener('mousemove', e => {
+      const x = Math.min(e.clientX + 14, window.innerWidth - 300);
+      const y = Math.min(e.clientY + 14, window.innerHeight - 80);
+      tooltip.style.left = x + 'px';
+      tooltip.style.top = y + 'px';
+    });
+    el.addEventListener('mouseleave', () => {
+      tooltip.classList.remove('visible');
+    });
+  });
+</script>
+</body>
+</html>

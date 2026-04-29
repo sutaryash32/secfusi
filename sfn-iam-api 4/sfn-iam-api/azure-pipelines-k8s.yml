@@ -1,0 +1,110 @@
+trigger: none
+
+variables:
+- group: sfn-iam-api-config-prod
+- name: dockerRegistryServiceConnection
+  value: sfn-prod-acr
+- name: imageRepository
+  value: sfniamapi
+- name: containerRegistry
+  value: sfnprodacreastus
+- name: dockerfilePath
+  value: $(Build.SourcesDirectory)/Dockerfile
+- name: vmImageName
+  value: ubuntu-latest
+
+stages:
+
+# ========================================
+# STAGE 1: Build & Push Docker Image
+# ========================================
+- stage: Build
+  displayName: Build and push Docker image
+  jobs:
+  - job: BuildImage
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - checkout: self
+
+    - script: |
+        SHORT_SHA=$(echo $(Build.SourceVersion) | cut -c1-7)
+        echo "##vso[task.setvariable variable=IMAGE_TAG;isOutput=true]$SHORT_SHA"
+      name: SetVar
+      displayName: Set image tag (commit SHA)
+
+    - task: Docker@2
+      displayName: Build and push image to ACR
+      inputs:
+        command: buildAndPush
+        containerRegistry: $(dockerRegistryServiceConnection)
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        tags: |
+          $(SetVar.IMAGE_TAG)
+
+# ========================================
+# STAGE 2: Update GitOps Repo (Values)
+# ========================================
+- stage: UpdateGit
+  displayName: Update Helm values (GitOps)
+  dependsOn: Build
+  variables:
+    IMAGE_TAG: $[ stageDependencies.Build.BuildImage.outputs['SetVar.IMAGE_TAG'] ]
+  jobs:
+  - job: UpdateValues
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - checkout: self
+      persistCredentials: true
+
+    - checkout: git://$(System.TeamProject)/sfn-argocd-config
+      persistCredentials: true
+      path: sfn-argocd-config
+
+    - script: |
+        sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+        sudo chmod +x /usr/local/bin/yq
+      displayName: Install yq
+
+    - script: |
+        set -e
+        cd $(Pipeline.Workspace)/sfn-argocd-config/environments/prod/values
+
+        git config user.email "devops-automation@azure.com"
+        git config user.name "Azure DevOps Pipeline"
+
+        yq e -i ".image.tag = \"$(IMAGE_TAG)\"" sfn-iam-api.yaml
+
+        yq e -i '.config.data = {}' sfn-iam-api.yaml
+        yq e -i '.config.data.OWNER = "SIVA_POTHULA"' sfn-iam-api.yaml
+
+        echo "Syncing Variable Group to sfn-iam-api.yaml..."
+        for var in $(env | grep '^CFG_' | cut -d= -f1); do
+          key=${var#CFG_}
+          export VAL_TO_INJECT=${!var}
+          yq e -i ".config.data.$key = env(VAL_TO_INJECT)" sfn-iam-api.yaml
+          echo "Injected: $key"
+        done
+
+        BRANCH_NAME="update-sfn-iam-api-$(IMAGE_TAG)"
+        git checkout -b $BRANCH_NAME
+        git add sfn-iam-api.yaml
+        git commit -m "chore(sfn-iam-api): deploy $(IMAGE_TAG)"
+        git push origin $BRANCH_NAME
+      displayName: Update sfn-iam-api.yaml (Auto-Loop)
+
+    - script: |
+        export AZURE_DEVOPS_EXT_PAT=$SYSTEM_ACCESSTOKEN
+        az repos pr create \
+          --repository "sfn-argocd-config" \
+          --source-branch "update-sfn-iam-api-$(IMAGE_TAG)" \
+          --target-branch "main" \
+          --title "chore(sfn-iam-api): deploy $(IMAGE_TAG)" \
+          --description "Automated deployment update for image $(IMAGE_TAG)" \
+          --project "$(System.TeamProject)" \
+          --organization "$(System.CollectionUri)"
+      displayName: Create Pull Request
+      env:
+        SYSTEM_ACCESSTOKEN: $(System.AccessToken)

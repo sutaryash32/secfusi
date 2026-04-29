@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SecuFusion HLD — Frontend/Backend</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --text: #0f172a;
+      --card-bg: #ffffff;
+      --border: #e2e8f0;
+      
+      /* Accents */
+      --client: #3b82f6;      /* Blue */
+      --gateway: #8b5cf6;     /* Purple */
+      --backend: #10b981;     /* Green */
+      --security: #f59e0b;    /* Yellow/Amber */
+      --database: #ef4444;    /* Red */
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 0;
+    }
+
+    /* ── Navbar ── */
+    header {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 16px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+
+    /* ── Main Container ── */
+    .container {
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+
+    .title-section {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+    .title-section h2 { font-size: 36px; font-weight: 800; margin-bottom: 12px; }
+    .title-section p { font-size: 16px; color: #64748b; max-width: 600px; margin: 0 auto; }
+
+    /* ── HLD Grid (The 3 Layers) ── */
+    .hld-grid {
+      display: grid;
+      grid-template-columns: 1fr 100px 1.5fr;
+      gap: 20px;
+      align-items: stretch;
+      margin-bottom: 60px;
+    }
+
+    @media (max-width: 900px) {
+      .hld-grid {
+        grid-template-columns: 1fr;
+        gap: 40px;
+      }
+    }
+
+    /* Layer Boxes */
+    .layer {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 30px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      position: relative;
+    }
+    
+    .layer__title {
+      font-size: 14px;
+      text-transform: uppercase;
+      font-weight: 800;
+      letter-spacing: 1px;
+      margin-bottom: 24px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Client Layer */
+    .layer--client .layer__title { color: var(--client); border-bottom-color: #bfdbfe; }
+    /* Backend Layer */
+    .layer--backend .layer__title { color: var(--backend); border-bottom-color: #a7f3d0; }
+
+    /* Nodes / Components */
+    .node {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      transition: transform 0.2s, box-shadow 0.2s;
+      position: relative;
+    }
+    .node:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Number Marker for Flow Tracking */
+    .marker {
+      position: absolute;
+      top: -12px;
+      left: -12px;
+      width: 24px;
+      height: 24px;
+      background: #0f172a;
+      color: #ffffff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 11px;
+      border: 2px solid #ffffff;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      z-index: 10;
+    }
+    .node__title {
+      font-weight: 700;
+      font-size: 16px;
+      margin-bottom: 4px;
+    }
+    .node__desc {
+      font-size: 13px;
+      color: #64748b;
+    }
+
+    /* Inner Micro-Grid */
+    .micro-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    /* Colorized Nodes */
+    .node--blue { border-left: 4px solid var(--client); }
+    .node--green { border-left: 4px solid var(--backend); }
+    .node--purple { border-left: 4px solid var(--gateway); }
+    .node--yellow { border-left: 4px solid var(--security); }
+
+    /* ── Bridge (Gateway) ── */
+    .bridge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+    .bridge-line {
+      width: 2px;
+      height: 100px;
+      background: repeating-linear-gradient(to bottom, #cbd5e1 0, #cbd5e1 6px, transparent 6px, transparent 12px);
+    }
+    @media (max-width: 900px) {
+      .bridge-line {
+        width: 100px;
+        height: 2px;
+        background: repeating-linear-gradient(to right, #cbd5e1 0, #cbd5e1 6px, transparent 6px, transparent 12px);
+      }
+    }
+    .gateway-pill {
+      background: var(--gateway);
+      color: white;
+      font-weight: 700;
+      font-size: 14px;
+      padding: 16px 20px;
+      border-radius: 999px;
+      text-align: center;
+      box-shadow: 0 10px 15px -3px rgba(139, 92, 246, 0.3);
+      writing-mode: vertical-lr;
+      transform: rotate(180deg);
+      letter-spacing: 2px;
+      position: relative;
+    }
+    @media (max-width: 900px) {
+      .gateway-pill {
+        writing-mode: horizontal-tb;
+        transform: rotate(0);
+        width: 200px;
+      }
+    }
+
+    /* ── Conversation Timeline ── */
+    .timeline {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 60px 40px;
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      position: relative;
+    }
+    .timeline h3 { font-size: 24px; font-weight: 800; margin-bottom: 60px; text-align: center; }
+    
+    .chat-container {
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+      position: relative;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    /* Central vertical dashed line */
+    .chat-container::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #e2e8f0;
+      transform: translateX(-50%);
+      z-index: 1;
+    }
+
+    @media (max-width: 768px) {
+      .chat-container::before { left: 24px; }
+    }
+
+    .chat-msg {
+      display: flex;
+      width: 100%;
+      position: relative;
+      z-index: 2;
+    }
+
+    .chat-msg--left { justify-content: flex-start; }
+    .chat-msg--right { justify-content: flex-end; }
+    .chat-msg--center { justify-content: center; }
+
+    .chat-bubble {
+      width: 42%;
+      padding: 16px 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      position: relative;
+    }
+    
+    @media (max-width: 768px) {
+      .chat-msg--left, .chat-msg--right, .chat-msg--center { justify-content: flex-end; }
+      .chat-bubble { width: calc(100% - 60px); }
+    }
+
+    .chat-msg--left .chat-bubble { border-top-right-radius: 0; }
+    .chat-msg--right .chat-bubble { border-top-left-radius: 0; }
+    .chat-msg--center .chat-bubble { width: 50%; text-align: center; border-radius: 16px; }
+
+    .chat-header {
+      font-weight: 800;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .chat-text { font-family: monospace; font-size: 13px; line-height: 1.6; }
+
+    .chat-num {
+      width: 32px;
+      height: 32px;
+      background: #ffffff;
+      border: 3px solid #e2e8f0;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 12px;
+      color: #475569;
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3;
+    }
+
+    @media (max-width: 768px) {
+      .chat-num { left: 24px; }
+    }
+
+    /* Colors */
+    .bubble-user { background: #f8fafc; color: #334155; border: 1px solid #cbd5e1; }
+    .bubble-user .chat-header { color: #64748b; }
+
+    .bubble-front { background: #eff6ff; color: #1e3a8a; border: 1px solid #bfdbfe; }
+    .bubble-front .chat-header { color: #2563eb; }
+
+    .bubble-back { background: #ecfdf5; color: #064e3b; border: 1px solid #a7f3d0; }
+    .bubble-back .chat-header { color: #059669; }
+
+    .bubble-keycloak { background: #fffbeb; color: #78350f; border: 1px solid #fde68a; }
+    .bubble-keycloak .chat-header { color: #d97706; }
+
+
+  </style>
+</head>
+<body>
+
+  <header>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <span style="font-size: 24px;">🌐</span>
+      <h1>SecuFusion HLD</h1>
+    </div>
+    <div style="font-size: 13px; font-weight: 600; color: #64748b;">Frontend ↔ Backend Communication</div>
+  </header>
+
+  <div class="container">
+    
+    <!-- LIFECYCLE CHAT / TIMELINE -->
+    <div class="timeline">
+      <h3>The Complete Login-to-Render Journey</h3>
+      
+      <div class="chat-container">
+
+        <!-- 1 -->
+        <div class="chat-msg chat-msg--left">
+          <div class="chat-num">1</div>
+          <div class="chat-bubble bubble-user">
+            <div class="chat-header">User &rarr; Frontend</div>
+            <div class="chat-text">"Opens login page, enters username + password"</div>
+          </div>
+        </div>
+
+        <!-- 2 -->
+        <div class="chat-msg chat-msg--left">
+          <div class="chat-num">2</div>
+          <div class="chat-bubble bubble-front">
+            <div class="chat-header">Frontend &rarr; Backend</div>
+            <div class="chat-text">"POST /auth/login | { username, password }"</div>
+          </div>
+        </div>
+
+        <!-- 3 -->
+        <div class="chat-msg chat-msg--right">
+          <div class="chat-num">3</div>
+          <div class="chat-bubble bubble-back">
+            <div class="chat-header">Backend &rarr; Keycloak</div>
+            <div class="chat-text">"Authenticate this user via OIDC"</div>
+          </div>
+        </div>
+
+        <!-- 4 -->
+        <div class="chat-msg chat-msg--right">
+          <div class="chat-num">4</div>
+          <div class="chat-bubble bubble-keycloak" style="margin-left: auto;">
+            <div class="chat-header">Keycloak &rarr; Keycloak</div>
+            <div class="chat-text">"Validating credentials against realm users..."</div>
+          </div>
+        </div>
+
+        <!-- 5 -->
+        <div class="chat-msg chat-msg--right">
+          <div class="chat-num">5</div>
+          <div class="chat-bubble bubble-keycloak">
+            <div class="chat-header">Keycloak &rarr; Backend</div>
+            <div class="chat-text">"Valid. Here is Access Token + Refresh Token (JWT)"</div>
+          </div>
+        </div>
+
+        <!-- 6 -->
+        <div class="chat-msg chat-msg--right">
+          <div class="chat-num">6</div>
+          <div class="chat-bubble bubble-back">
+            <div class="chat-header">Backend &rarr; Frontend</div>
+            <div class="chat-text">"Login success. { accessToken, refreshToken }"</div>
+          </div>
+        </div>
+
+        <!-- 7 -->
+        <div class="chat-msg chat-msg--left">
+          <div class="chat-num">7</div>
+          <div class="chat-bubble bubble-front">
+            <div class="chat-header">Frontend &rarr; Frontend</div>
+            <div class="chat-text">"Storing tokens in memory/localStorage"</div>
+          </div>
+        </div>
+
+        <!-- 8 -->
+        <div class="chat-msg chat-msg--left">
+          <div class="chat-num">8</div>
+          <div class="chat-bubble bubble-user">
+            <div class="chat-header">User triggers action</div>
+            <div class="chat-text">"Clicks on protected resource"</div>
+          </div>
+        </div>
+
+        <!-- 9 -->
+        <div class="chat-msg chat-msg--left">
+          <div class="chat-num">9</div>
+          <div class="chat-bubble bubble-front">
+            <div class="chat-header">Frontend &rarr; Backend</div>
+            <div class="chat-text">"GET /api/events | Authorization: Bearer {JWT}"</div>
+          </div>
+        </div>
+
+        <!-- 10 -->
+        <div class="chat-msg chat-msg--right">
+          <div class="chat-num">10</div>
+          <div class="chat-bubble bubble-back">
+            <div class="chat-header">Backend &rarr; Keycloak</div>
+            <div class="chat-text">"Validate JWT using cached JWK public keys"</div>
+          </div>
+        </div>
+
+        <!-- 11 -->
+        <div class="chat-msg chat-msg--right">
+          <div class="chat-num">11</div>
+          <div class="chat-bubble bubble-keycloak">
+            <div class="chat-header">Keycloak &rarr; Backend</div>
+            <div class="chat-text">"Valid. Claims: { roles: ROLE_ADMIN, sub: user123 }"</div>
+          </div>
+        </div>
+
+        <!-- 12 -->
+        <div class="chat-msg chat-msg--right">
+          <div class="chat-num">12</div>
+          <div class="chat-bubble bubble-back" style="margin-left: auto;">
+            <div class="chat-header">Backend (internal)</div>
+            <div class="chat-text">"RBAC check &mdash; @PreAuthorize ROLE_ADMIN &check;"</div>
+          </div>
+        </div>
+
+        <!-- 13 -->
+        <div class="chat-msg chat-msg--right">
+          <div class="chat-num">13</div>
+          <div class="chat-bubble bubble-back" style="margin-left: auto;">
+            <div class="chat-header">Backend &rarr; Database</div>
+            <div class="chat-text">"Execute query, fetch events data"</div>
+          </div>
+        </div>
+
+        <!-- 14 -->
+        <div class="chat-msg chat-msg--right">
+          <div class="chat-num">14</div>
+          <div class="chat-bubble bubble-back">
+            <div class="chat-header">Backend &rarr; Frontend</div>
+            <div class="chat-text">"200 OK | { events: [...] }"</div>
+          </div>
+        </div>
+
+        <!-- 15 -->
+        <div class="chat-msg chat-msg--left">
+          <div class="chat-num">15</div>
+          <div class="chat-bubble bubble-front">
+            <div class="chat-header">Frontend &rarr; Frontend</div>
+            <div class="chat-text">"Decode JWT, render Admin UI based on roles"</div>
+          </div>
+        </div>
+
+        <!-- 16 -->
+        <div class="chat-msg chat-msg--left">
+          <div class="chat-num">16</div>
+          <div class="chat-bubble bubble-front">
+            <div class="chat-header">Frontend &rarr; User</div>
+            <div class="chat-text">"Shows UI with admin controls and events data"</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

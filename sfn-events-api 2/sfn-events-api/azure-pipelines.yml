@@ -1,0 +1,92 @@
+name: $(MajorVersion).$(MinorVersion).$(Build)$(rev:.r)
+
+trigger:
+- develop
+- release*
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+- group: SecufusionVariableGroup
+
+parameters:
+- name: applicationName
+  default: 'sfn-events-api'
+- name: buildnumber
+  default: '$(Build.BuildNumber)'
+# - name: rcNumber
+#   type: string
+#   default: '01'
+#   displayName: 'RC Number (01, 02, 03, etc.)'
+
+resources:
+  repositories: 
+    - repository: azuretemplates
+      type: git
+      ref: main 
+      name: SFCloud-MSSP/sfn-devops-templates
+
+steps:
+- task: Bash@3
+  inputs:
+    targetType: 'inline'
+    script: |
+      java -version
+      mvn install -DskipTests
+      ls 
+      pwd
+
+- template: getbranchtype.yml@azuretemplates
+
+- task: Bash@3
+  displayName: 'Debug - Show Feed Values'
+  inputs:
+    targetType: 'inline'
+    script: |
+      echo "Artifact feed value: $(artifactfeed)"
+      echo "Snapshot feed from variable: $(snapshotFeed)"
+      echo "Release feed from variable: $(releaseFeed)"
+
+- template: getversion.yml@azuretemplates
+  parameters:
+      buildnumber: ${{ parameters.buildnumber }}
+      azuredevopspat: $(azuredevopspat)
+      applicationName: ${{ parameters.applicationName }}
+
+# For release branches: append RC to version, keep artifactname empty
+# - task: Bash@3
+#   condition: startsWith(variables['Build.SourceBranchName'], 'release-')
+#   inputs:
+#     targetType: 'inline'
+#     script: |
+#       ORIGINAL_VERSION="$(version)"
+#       NEW_VERSION="${ORIGINAL_VERSION}-rc-${{ parameters.rcNumber }}"
+#       echo "Original version: $ORIGINAL_VERSION"
+#       echo "New version with RC: $NEW_VERSION"
+#       echo "##vso[task.setvariable variable=version]$NEW_VERSION"
+
+- task: Bash@3
+  displayName: 'Copy SNAPSHOT jar to staging'
+  inputs:
+    targetType: 'inline'
+    script: |
+      mkdir -p $(Build.ArtifactStagingDirectory)/package
+      cp ./target/*-SNAPSHOT.jar $(Build.ArtifactStagingDirectory)/package/
+
+- template: pushtoazurefeed.yml@azuretemplates
+  parameters:
+      artifactfeed: $(artifactfeed)
+      applicationName: ${{ parameters.applicationName }}
+      buildfilespath: $(Build.ArtifactStagingDirectory)/package
+      buildnumber: $(version)
+      artifactname: $(artifactname)
+
+
+- template: createazuregittag.yml@azuretemplates
+  parameters:
+    version: $(version)
+    targetRepoName: sfn-events-api
+    azureorginizationname: secufusion
+    azureprojectname: SFCloud-MSSP
+    azuredevopspat: $(azuredevopspat)

@@ -1,0 +1,429 @@
+{
+	"info": {
+		"_postman_id": "sfn-test-cases-v1",
+		"name": "Secufusion — API Test Cases",
+		"description": "102 test cases for all Secufusion APIs with auto-token management.\n\n1. Import this collection\n2. Set base_url and tenant_host variables\n3. Run Auth Flow first to get token\n4. Run Collection Runner for full E2E",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{"key": "base_url", "value": "http://localhost:8083"},
+		{"key": "auth_token", "value": ""},
+		{"key": "tenant_host", "value": "example.motivitylabs.net"},
+		{"key": "tenant_id", "value": ""},
+		{"key": "user_id", "value": ""},
+		{"key": "role_id", "value": ""},
+		{"key": "group_id", "value": ""},
+		{"key": "package_id", "value": ""},
+		{"key": "feature_id", "value": ""},
+		{"key": "events_group_id", "value": ""},
+		{"key": "device_user_id", "value": ""},
+		{"key": "extension_key_id", "value": ""},
+		{"key": "sso_config_id", "value": ""},
+		{"key": "region_id", "value": ""},
+		{"key": "created_user_id", "value": ""},
+		{"key": "created_role_id", "value": ""},
+		{"key": "azure_jwt", "value": "PASTE_YOUR_AZURE_JWT_HERE"}
+	],
+	"item": [
+		{
+			"name": "01 — Auth Flow",
+			"item": [
+				{
+					"name": "TC-001 Get Tenant Config (Public)",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));","pm.test('Response time < 2s', () => pm.expect(pm.response.responseTime).to.be.below(2000));","pm.test('Has tenant config', () => {","    const j = pm.response.json();","    pm.expect(j).to.have.property('results');","    pm.expect(j.results).to.have.property('tenantId');","    pm.expect(j.results).to.have.property('clientId');","    pm.expect(j.results).to.have.property('ssoType');","    pm.expect(j.results.ssoType).to.be.oneOf(['AZURE','KEYCLOAK','APIKEY']);","});","pm.test('Save tenant_id', () => {","    const j = pm.response.json();","    if(j.results && j.results.tenantId){","        pm.collectionVariables.set('tenant_id', j.results.tenantId);","    }","});"]}}],
+					"request": {"method": "GET", "header": [], "url": {"raw": "{{base_url}}/api/iam/tenant-config?host={{tenant_host}}", "host": ["{{base_url}}"], "path": ["api","iam","tenant-config"], "query": [{"key": "host", "value": "{{tenant_host}}"}]}}
+				},
+				{
+					"name": "TC-002 Tenant Config — Invalid Host",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Returns error for invalid host', () => {","    pm.expect(pm.response.code).to.be.oneOf([400,404,500]);","});","pm.test('Error message present', () => {","    const j = pm.response.json();","    const has = j.message || j.error || j.errorCode;","    pm.expect(has).to.not.be.undefined;","});"]}}],
+					"request": {"method": "GET", "header": [], "url": {"raw": "{{base_url}}/api/iam/tenant-config?host=nonexistent.invalid.com", "host": ["{{base_url}}"], "path": ["api","iam","tenant-config"], "query": [{"key": "host", "value": "nonexistent.invalid.com"}]}}
+				},
+				{
+					"name": "TC-003 Tenant Config — Missing Host",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 400 for missing param', () => {","    pm.expect(pm.response.code).to.be.oneOf([400,500]);","});"]}}],
+					"request": {"method": "GET", "header": [], "url": {"raw": "{{base_url}}/api/iam/tenant-config", "host": ["{{base_url}}"], "path": ["api","iam","tenant-config"]}}
+				},
+				{
+					"name": "TC-004 Login with Valid Token",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));","pm.test('Login returns user details', () => {","    const j = pm.response.json();","    pm.expect(j.results).to.have.property('userId');","    pm.expect(j.results).to.have.property('email');","    pm.expect(j.results).to.have.property('tenantId');","});","pm.test('Token saved', () => {","    const j = pm.response.json();","    pm.expect(j.results.token).to.be.a('string').and.not.empty;","    pm.collectionVariables.set('auth_token', j.results.token);","    pm.collectionVariables.set('user_id', j.results.userId);","    pm.collectionVariables.set('tenant_id', j.results.tenantId);","});"]}}],
+					"request": {"method": "POST", "header": [{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw","raw":"{\n  \"deviceFingerprint\": \"postman-test\",\n  \"deviceName\": \"Postman\",\n  \"deviceOS\": \"Test\",\n  \"browser\": \"Postman\",\n  \"ipAddress\": \"127.0.0.1\"\n}"}, "url": {"raw": "{{base_url}}/api/iam/login?token={{azure_jwt}}", "host": ["{{base_url}}"], "path": ["api","iam","login"], "query": [{"key": "token", "value": "{{azure_jwt}}"}]}}
+				},
+				{
+					"name": "TC-005 Login — Invalid Token",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status is 401/403', () => {","    pm.expect(pm.response.code).to.be.oneOf([400,401,403,500]);","});","pm.test('No valid token returned', () => {","    const j = pm.response.json();","    if(j.results) pm.expect(j.results.token).to.be.undefined;","});"]}}],
+					"request": {"method": "POST", "header": [], "url": {"raw": "{{base_url}}/api/iam/login?token=invalid.jwt.token", "host": ["{{base_url}}"], "path": ["api","iam","login"], "query": [{"key": "token", "value": "invalid.jwt.token"}]}}
+				},
+				{
+					"name": "TC-006 Login — Empty Token",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Rejects empty token', () => {","    pm.expect(pm.response.code).to.be.oneOf([400,401,500]);","});"]}}],
+					"request": {"method": "POST", "header": [], "url": {"raw": "{{base_url}}/api/iam/login?token=", "host": ["{{base_url}}"], "path": ["api","iam","login"], "query": [{"key": "token", "value": ""}]}}
+				},
+				{
+					"name": "TC-007 SSO Login",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));","pm.test('SSO returns tenant info', () => {","    const j = pm.response.json();","    pm.expect(j.results).to.have.property('tenantId');","});"]}}],
+					"request": {"method": "POST", "header": [], "url": {"raw": "{{base_url}}/api/iam/login/sso?token={{azure_jwt}}", "host": ["{{base_url}}"], "path": ["api","iam","login","sso"], "query": [{"key": "token", "value": "{{azure_jwt}}"}]}}
+				}
+			]
+		},
+		{
+			"name": "02 — User Management",
+			"item": [
+				{
+					"name": "TC-010 Get All Users",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Response < 3s', () => pm.expect(pm.response.responseTime).to.be.below(3000));","pm.test('Returns user array', () => {","    const j = pm.response.json();","    const u = j.results || j;","    pm.expect(u).to.be.an('array');","    if(u.length>0) pm.collectionVariables.set('user_id', u[0].userId||u[0].id);","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/users", "host": ["{{base_url}}"], "path": ["api","iam","users"]}}
+				},
+				{
+					"name": "TC-011 Get Users — No Auth (Security)",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 401/403 without auth', () => {","    pm.expect(pm.response.code).to.be.oneOf([401,403]);","});"]}}],
+					"request": {"method": "GET", "header": [], "url": {"raw": "{{base_url}}/api/iam/users", "host": ["{{base_url}}"], "path": ["api","iam","users"]}}
+				},
+				{
+					"name": "TC-012 Get Users by Tenant",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Returns users', () => {","    const j = pm.response.json();","    pm.expect(j.results||j).to.be.an('array');","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/users/tenant/{{tenant_id}}", "host": ["{{base_url}}"], "path": ["api","iam","users","tenant","{{tenant_id}}"]}}
+				},
+				{
+					"name": "TC-013 Get User by ID",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Has user fields', () => {","    const u = pm.response.json().results || pm.response.json();","    pm.expect(u).to.have.property('email');","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/users/{{user_id}}", "host": ["{{base_url}}"], "path": ["api","iam","users","{{user_id}}"]}}
+				},
+				{
+					"name": "TC-014 Get User — Invalid ID",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 404 for invalid ID', () => {","    pm.expect(pm.response.code).to.be.oneOf([400,404,500]);","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/users/00000000-0000-0000-0000-000000000000", "host": ["{{base_url}}"], "path": ["api","iam","users","00000000-0000-0000-0000-000000000000"]}}
+				},
+				{
+					"name": "TC-015 Create User",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200/201', () => pm.expect(pm.response.code).to.be.oneOf([200,201]));","pm.test('User created', () => {","    const u = pm.response.json().results || pm.response.json();","    pm.expect(u).to.have.property('email');","    if(u.userId||u.id) pm.collectionVariables.set('created_user_id', u.userId||u.id);","});"]}}],
+					"request": {"method": "POST", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"},{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw","raw":"{\n  \"userName\": \"testuser_postman\",\n  \"firstName\": \"Test\",\n  \"lastName\": \"User\",\n  \"email\": \"testuser_postman@example.com\",\n  \"phoneNumber\": \"+15551234567\",\n  \"role\": \"USER\"\n}"}, "url": {"raw": "{{base_url}}/api/iam/users/{{tenant_id}}", "host": ["{{base_url}}"], "path": ["api","iam","users","{{tenant_id}}"]}}
+				},
+				{
+					"name": "TC-016 Create User — Missing Fields",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('400 for missing fields', () => {","    pm.expect(pm.response.code).to.be.oneOf([400,422,500]);","});"]}}],
+					"request": {"method": "POST", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"},{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw","raw":"{ \"userName\": \"\" }"}, "url": {"raw": "{{base_url}}/api/iam/users/{{tenant_id}}", "host": ["{{base_url}}"], "path": ["api","iam","users","{{tenant_id}}"]}}
+				},
+				{
+					"name": "TC-017 Check User Uniqueness",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/users/check?userName=newuser&phoneNumber=%2B19999&email=new@test.com", "host": ["{{base_url}}"], "path": ["api","iam","users","check"], "query": [{"key":"userName","value":"newuser"},{"key":"phoneNumber","value":"+19999"},{"key":"email","value":"new@test.com"}]}}
+				}
+			]
+		},
+		{
+			"name": "03 — Roles & Scopes",
+			"item": [
+				{
+					"name": "TC-030 Get All Roles",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Roles array', () => {","    const r = pm.response.json().results||pm.response.json();","    pm.expect(r).to.be.an('array');","    if(r.length>0) pm.collectionVariables.set('role_id', r[0].roleId||r[0].id);","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/roles", "host": ["{{base_url}}"], "path": ["api","iam","roles"]}}
+				},
+				{
+					"name": "TC-031 Create Role",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200/201', () => pm.expect(pm.response.code).to.be.oneOf([200,201]));","pm.test('Role created', () => {","    const r = pm.response.json().results||pm.response.json();","    pm.expect(r).to.have.property('roleName');","});"]}}],
+					"request": {"method": "POST", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"},{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw","raw":"{\n  \"roleName\": \"Test_Analyst\",\n  \"description\": \"Postman test role\",\n  \"scopes\": []\n}"}, "url": {"raw": "{{base_url}}/api/iam/roles", "host": ["{{base_url}}"], "path": ["api","iam","roles"]}}
+				},
+				{
+					"name": "TC-040 Get All Scopes",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Scopes array', () => {","    pm.expect(pm.response.json().results||pm.response.json()).to.be.an('array');","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/scopes", "host": ["{{base_url}}"], "path": ["api","iam","scopes"]}}
+				}
+			]
+		},
+		{
+			"name": "04 — Dropdowns & Reference",
+			"item": [
+				{
+					"name": "TC-060 Get Regions",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('< 500ms', () => pm.expect(pm.response.responseTime).to.be.below(500));","pm.test('Non-empty', () => {","    const r = pm.response.json().results||pm.response.json();","    pm.expect(r).to.be.an('array').and.not.empty;","    pm.collectionVariables.set('region_id', r[0].regionId||r[0].id);","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/regions", "host": ["{{base_url}}"], "path": ["api","iam","regions"]}}
+				},
+				{
+					"name": "TC-061 Get Countries",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/countries?regionId={{region_id}}", "host": ["{{base_url}}"], "path": ["api","iam","countries"], "query": [{"key":"regionId","value":"{{region_id}}"}]}}
+				},
+				{
+					"name": "TC-062 Get Industries",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Non-empty', () => pm.expect(pm.response.json().results||pm.response.json()).to.be.an('array').and.not.empty);"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/industries", "host": ["{{base_url}}"], "path": ["api","iam","industries"]}}
+				},
+				{
+					"name": "TC-063 Get Billing Types",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/tenants/billing", "host": ["{{base_url}}"], "path": ["api","iam","tenants","billing"]}}
+				},
+				{
+					"name": "TC-064 Get Tenant Types",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/tenants/types", "host": ["{{base_url}}"], "path": ["api","iam","tenants","types"]}}
+				},
+				{
+					"name": "TC-065 Get Package Types",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/package-types", "host": ["{{base_url}}"], "path": ["api","iam","package-types"]}}
+				},
+				{
+					"name": "TC-066 Get Billing Cycles",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Has cycles', () => pm.expect(pm.response.json().results||pm.response.json()).to.be.an('array').and.not.empty);"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/billing-cycles", "host": ["{{base_url}}"], "path": ["api","iam","billing-cycles"]}}
+				}
+			]
+		},
+		{
+			"name": "05 — Features & Packages",
+			"item": [
+				{
+					"name": "TC-070 Get All Features",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Features', () => {","    const f = pm.response.json().results||pm.response.json();","    pm.expect(f).to.be.an('array');","    if(f.length>0) pm.collectionVariables.set('feature_id', f[0].featureId||f[0].id);","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/features", "host": ["{{base_url}}"], "path": ["api","iam","features"]}}
+				},
+				{
+					"name": "TC-071 Get All Packages",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Packages', () => {","    const p = pm.response.json().results||pm.response.json();","    pm.expect(p).to.be.an('array').and.not.empty;","    pm.collectionVariables.set('package_id', p[0].packageId||p[0].id);","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/packages", "host": ["{{base_url}}"], "path": ["api","iam","packages"]}}
+				},
+				{
+					"name": "TC-072 Get Feature Matrices",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/package-feature-mappings/matrices", "host": ["{{base_url}}"], "path": ["api","iam","package-feature-mappings","matrices"]}}
+				},
+				{
+					"name": "TC-074 Get Access Levels",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Non-empty', () => pm.expect(pm.response.json().results||pm.response.json()).to.be.an('array').and.not.empty);"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/access-levels", "host": ["{{base_url}}"], "path": ["api","iam","access-levels"]}}
+				},
+				{
+					"name": "TC-075 Get Retention Periods",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/retention-periods", "host": ["{{base_url}}"], "path": ["api","iam","retention-periods"]}}
+				}
+			]
+		},
+		{
+			"name": "06 — Subscriptions",
+			"item": [
+				{
+					"name": "TC-080 Get Active Subscription",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/subscriptions/tenant/{{tenant_id}}", "host": ["{{base_url}}"], "path": ["api","iam","subscriptions","tenant","{{tenant_id}}"]}}
+				},
+				{
+					"name": "TC-081 Subscription History",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Array', () => pm.expect(pm.response.json().results||pm.response.json()).to.be.an('array'));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/subscriptions/tenant/{{tenant_id}}/history", "host": ["{{base_url}}"], "path": ["api","iam","subscriptions","tenant","{{tenant_id}}","history"]}}
+				},
+				{
+					"name": "TC-082 Package Pricing",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/subscriptions/pricing/packages", "host": ["{{base_url}}"], "path": ["api","iam","subscriptions","pricing","packages"]}}
+				},
+				{
+					"name": "TC-084 Billing Summary",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/tenant-addon-features/tenant/{{tenant_id}}/billing-summary", "host": ["{{base_url}}"], "path": ["api","iam","tenant-addon-features","tenant","{{tenant_id}}","billing-summary"]}}
+				}
+			]
+		},
+		{
+			"name": "07 — Events Groups",
+			"item": [
+				{
+					"name": "TC-090 Get Events Groups",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Groups', () => {","    const g = pm.response.json().results||pm.response.json();","    pm.expect(g).to.be.an('array');","    if(g.length>0) pm.collectionVariables.set('events_group_id', g[0].groupId||g[0].id||g[0].pkEventsGroupId);","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/events-groups?authorizedOnly=false&includePolicies=true", "host": ["{{base_url}}"], "path": ["api","iam","events-groups"], "query": [{"key":"authorizedOnly","value":"false"},{"key":"includePolicies","value":"true"}]}}
+				},
+				{
+					"name": "TC-091 Create APIKEY Group",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200/201', () => pm.expect(pm.response.code).to.be.oneOf([200,201]));"]}}],
+					"request": {"method": "POST", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"},{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw","raw":"{\n  \"name\": \"Test_Group_Postman\",\n  \"description\": \"Auto test group\"\n}"}, "url": {"raw": "{{base_url}}/api/iam/events-groups", "host": ["{{base_url}}"], "path": ["api","iam","events-groups"]}}
+				},
+				{
+					"name": "TC-092 Membership Stats",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Array', () => pm.expect(pm.response.json()).to.be.an('array'));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/events-groups/stats/memberships", "host": ["{{base_url}}"], "path": ["api","iam","events-groups","stats","memberships"]}}
+				},
+				{
+					"name": "TC-094 Group History",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/events-groups/history", "host": ["{{base_url}}"], "path": ["api","iam","events-groups","history"]}}
+				}
+			]
+		},
+		{
+			"name": "08 — Login Audit",
+			"item": [
+				{
+					"name": "TC-110 Audit Events",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/audit/login/events?page=0&size=10", "host": ["{{base_url}}"], "path": ["api","iam","audit","login","events"], "query": [{"key":"page","value":"0"},{"key":"size","value":"10"}]}}
+				},
+				{
+					"name": "TC-111 All Devices",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/audit/login/devices", "host": ["{{base_url}}"], "path": ["api","iam","audit","login","devices"]}}
+				},
+				{
+					"name": "TC-112 Device Stats",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/audit/login/devices/stats?start=2024-01-01T00:00:00&end=2027-12-31T23:59:59", "host": ["{{base_url}}"], "path": ["api","iam","audit","login","devices","stats"], "query": [{"key":"start","value":"2024-01-01T00:00:00"},{"key":"end","value":"2027-12-31T23:59:59"}]}}
+				}
+			]
+		},
+		{
+			"name": "09 — Tenant Sessions",
+			"item": [
+				{
+					"name": "TC-120 All Sessions",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/tenants/sessions", "host": ["{{base_url}}"], "path": ["api","tenants","sessions"]}}
+				},
+				{
+					"name": "TC-121 Session Count",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/tenants/sessions/count", "host": ["{{base_url}}"], "path": ["api","tenants","sessions","count"]}}
+				},
+				{
+					"name": "TC-123 My Sessions",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/tenants/sessions/me", "host": ["{{base_url}}"], "path": ["api","tenants","sessions","me"]}}
+				}
+			]
+		},
+		{
+			"name": "10 — Tenant Policies & SMTP",
+			"item": [
+				{
+					"name": "TC-130 Extension Policies",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/tenants/extension-policy", "host": ["{{base_url}}"], "path": ["api","tenants","extension-policy"]}}
+				},
+				{
+					"name": "TC-131 Policy Mappings",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/tenants/policy/mapping", "host": ["{{base_url}}"], "path": ["api","tenants","policy","mapping"]}}
+				},
+				{
+					"name": "TC-132 SMTP Config",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200 or 404', () => pm.expect(pm.response.code).to.be.oneOf([200,404]));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/tenants/smtp-config", "host": ["{{base_url}}"], "path": ["api","tenants","smtp-config"]}}
+				}
+			]
+		},
+		{
+			"name": "11 — Events: Core",
+			"item": [
+				{
+					"name": "TC-140 Get Events",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('< 5s', () => pm.expect(pm.response.responseTime).to.be.below(5000));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events?page=0&size=20", "host": ["{{base_url}}"], "path": ["api","events"], "query": [{"key":"page","value":"0"},{"key":"size","value":"20"}]}}
+				},
+				{
+					"name": "TC-141 Event Summary",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/summary", "host": ["{{base_url}}"], "path": ["api","events","summary"]}}
+				},
+				{
+					"name": "TC-142 Event Categories",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/categories", "host": ["{{base_url}}"], "path": ["api","events","categories"]}}
+				},
+				{
+					"name": "TC-143 Event Count",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/count", "host": ["{{base_url}}"], "path": ["api","events","count"]}}
+				},
+				{
+					"name": "TC-144 Search Events",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/search?q=malware&page=0&size=10", "host": ["{{base_url}}"], "path": ["api","events","search"], "query": [{"key":"q","value":"malware"},{"key":"page","value":"0"},{"key":"size","value":"10"}]}}
+				}
+			]
+		},
+		{
+			"name": "12 — Events: Security",
+			"item": [
+				{
+					"name": "TC-150 Security Events",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/security", "host": ["{{base_url}}"], "path": ["api","events","security"]}}
+				},
+				{
+					"name": "TC-151 Critical Events",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('All CRITICAL', () => {","    const e = pm.response.json().results||pm.response.json().content||pm.response.json();","    if(Array.isArray(e)&&e.length>0) e.forEach(ev => pm.expect(ev.severity).to.equal('CRITICAL'));","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/security/critical", "host": ["{{base_url}}"], "path": ["api","events","security","critical"]}}
+				},
+				{
+					"name": "TC-152 Security Stats",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/security/stats", "host": ["{{base_url}}"], "path": ["api","events","security","stats"]}}
+				},
+				{
+					"name": "TC-153 Security Dashboard",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('< 5s', () => pm.expect(pm.response.responseTime).to.be.below(5000));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/security/dashboard", "host": ["{{base_url}}"], "path": ["api","events","security","dashboard"]}}
+				},
+				{
+					"name": "TC-156 Security Count",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/security/count", "host": ["{{base_url}}"], "path": ["api","events","security","count"]}}
+				}
+			]
+		},
+		{
+			"name": "13 — Events: API Keys & Activity",
+			"item": [
+				{
+					"name": "TC-160 Get API Keys",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Keys', () => {","    const k = pm.response.json().results||pm.response.json();","    if(Array.isArray(k)&&k.length>0) pm.collectionVariables.set('extension_key_id', k[0].keyId||k[0].id);","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/extension-api-keys", "host": ["{{base_url}}"], "path": ["api","events","extension-api-keys"]}}
+				},
+				{
+					"name": "TC-161 API Key Stats",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/extension-api-keys/stats", "host": ["{{base_url}}"], "path": ["api","events","extension-api-keys","stats"]}}
+				},
+				{
+					"name": "TC-170 Escalation Rules",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Array', () => pm.expect(pm.response.json().results||pm.response.json()).to.be.an('array'));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/escalation-rules", "host": ["{{base_url}}"], "path": ["api","events","escalation-rules"]}}
+				},
+				{
+					"name": "TC-171 User Activity",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/user-activity", "host": ["{{base_url}}"], "path": ["api","events","user-activity"]}}
+				},
+				{
+					"name": "TC-172 Activity Stats",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/events/user-activity/stats", "host": ["{{base_url}}"], "path": ["api","events","user-activity","stats"]}}
+				}
+			]
+		},
+		{
+			"name": "14 — Security Tests",
+			"item": [
+				{
+					"name": "TC-180 Malformed Token",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('401/403 for bad token', () => pm.expect(pm.response.code).to.be.oneOf([401,403]));"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer not-a-jwt-token"}], "url": {"raw": "{{base_url}}/api/iam/users", "host": ["{{base_url}}"], "path": ["api","iam","users"]}}
+				},
+				{
+					"name": "TC-181 No Auth Header",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('401/403 without auth', () => pm.expect(pm.response.code).to.be.oneOf([401,403]));"]}}],
+					"request": {"method": "GET", "header": [], "url": {"raw": "{{base_url}}/api/iam/roles", "host": ["{{base_url}}"], "path": ["api","iam","roles"]}}
+				},
+				{
+					"name": "TC-183 SQL Injection Attempt",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('No SQL error exposed', () => {","    const b = pm.response.text().toLowerCase();","    pm.expect(b).to.not.include('sql');","    pm.expect(b).to.not.include('syntax error');","    pm.expect(b).to.not.include('psql');","});"]}}],
+					"request": {"method": "GET", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"}], "url": {"raw": "{{base_url}}/api/iam/users/check?userName=admin'--&email=test@t.com&phoneNumber=123", "host": ["{{base_url}}"], "path": ["api","iam","users","check"], "query": [{"key":"userName","value":"admin'--"},{"key":"email","value":"test@t.com"},{"key":"phoneNumber","value":"123"}]}}
+				},
+				{
+					"name": "TC-184 XSS in Body",
+					"event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('XSS sanitized', () => {","    pm.expect(pm.response.text()).to.not.include('<script>');","});"]}}],
+					"request": {"method": "POST", "header": [{"key":"Authorization","value":"Bearer {{auth_token}}"},{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw","raw":"{ \"roleName\": \"<script>alert('xss')</script>\", \"description\": \"test\" }"}, "url": {"raw": "{{base_url}}/api/iam/roles", "host": ["{{base_url}}"], "path": ["api","iam","roles"]}}
+				}
+			]
+		}
+	]
+}

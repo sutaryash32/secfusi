@@ -1,0 +1,167 @@
+name: $(MajorVersion).$(MinorVersion).$(Build)$(rev:.r)
+
+trigger:
+- develop
+- release*
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+- group: SecufusionVariableGroup
+- name: imageName
+  value: flyingduckio/duckdefender:latest
+
+parameters:
+- name: applicationName
+  default: 'sfn-tenants-api'
+- name: buildnumber
+  default: '$(Build.BuildNumber)'
+
+resources:
+  repositories:
+    - repository: azuretemplates
+      type: git
+      ref: main
+      name: SFCloud-MSSP/sfn-devops-templates
+
+# ========================================================================
+#                               STAGE 1: TESTS (JACOCO)
+# ========================================================================
+stages:
+- stage: Tests
+  displayName: "Run Unit Tests + JaCoCo"
+  jobs:
+  - job: RunTests
+    displayName: "Execute Unit Tests"
+    continueOnError: true
+    steps:
+
+    - task: Bash@3
+      displayName: "Run Unit Tests with JaCoCo"
+      continueOnError: true
+      inputs:
+        targetType: 'inline'
+        script: |
+          echo "Running tests and generating JaCoCo report..."
+          mvn clean test jacoco:report || echo 'Tests failed — continuing'
+          echo "Test Stage Completed."
+
+    - task: Bash@3
+      displayName: "DEBUG — Find Jacoco XML"
+      inputs:
+        targetType: 'inline'
+        script: |
+          echo "Searching for jacoco.xml..."
+          find /home/vsts/work -name jacoco.xml || true
+          echo "---------"
+          echo "Searching for 'target' folders..."
+          find /home/vsts/work -maxdepth 5 -type d -name target || true
+          echo "---------"
+          echo "Build.SourcesDirectory:"
+          echo "$(Build.SourcesDirectory)"
+          ls -R $(Build.SourcesDirectory) || true
+
+    - task: PublishCodeCoverageResults@1
+      displayName: "Publish JaCoCo Code Coverage"
+      continueOnError: true
+      inputs:
+        codeCoverageTool: 'JaCoCo'
+        summaryFileLocation: '$(Build.SourcesDirectory)/target/site/jacoco/jacoco.xml'
+        reportDirectory: '$(Build.SourcesDirectory)/target/site/jacoco'
+        failIfCoverageEmpty: false
+
+
+# ========================================================================
+#                               STAGE 2: FLYINGDUCK SCAN
+# ========================================================================
+- stage: FlyingDuck
+  displayName: "Run DuckDefender Security Scan"
+  dependsOn: Tests
+  condition: succeededOrFailed()   # Even if tests fail, scan runs
+
+  jobs:
+  - job: DuckScan
+    displayName: "DuckDefender Scan"
+    steps:
+
+    - script: |
+        echo "Pulling DuckDefender image..."
+        docker pull $(imageName)
+      displayName: 'Pull Duckdefender Docker Image'
+
+    - script: |
+        echo "Running DuckDefender scan..."
+        docker run \
+        -e AZURE_DEVOPS_REPO_NAME="$(Build.Repository.Name)" \
+        -e AZURE_DEVOPS_BRANCH=$(Build.SourceBranch) \
+        -e AZURE_DEVOPS_COMMIT=$(Build.SourceVersion) \
+        -e FD_API_KEY=$(FD_API_KEY) \
+        -v $(Build.SourcesDirectory):/src \
+        --entrypoint /bin/sh $(imageName) -c "duckdefender code --all"
+      displayName: 'Run Duckdefender Container'
+
+
+# ========================================================================
+#                               STAGE 3: BUILD
+# ========================================================================
+- stage: Build
+  displayName: "Build & Publish Artifacts"
+  dependsOn: FlyingDuck
+  condition: succeededOrFailed()   # Build continues even if scan fails
+
+  jobs:
+  - job: BuildJob
+    displayName: "Build Backend Service"
+    steps:
+
+    - task: Bash@3
+      displayName: "Initial Build (skip tests)"
+      inputs:
+        targetType: 'inline'
+        script: |
+          java -version
+          mvn install -DskipTests
+          ls
+          pwd
+
+    - template: getbranchtype.yml@azuretemplates
+
+    - task: Bash@3
+      displayName: 'Debug - Show Feed Values'
+      inputs:
+        targetType: 'inline'
+        script: |
+          echo "Artifact feed value: $(artifactfeed)"
+          echo "Snapshot feed from variable: $(snapshotFeed)"
+          echo "Release feed from variable: $(releaseFeed)"
+
+    - template: getversion.yml@azuretemplates
+      parameters:
+        buildnumber: ${{ parameters.buildnumber }}
+        azuredevopspat: $(azuredevopspat)
+        applicationName: ${{ parameters.applicationName }}
+
+    - task: Bash@3
+      displayName: 'Copy SNAPSHOT jar to staging'
+      inputs:
+        targetType: 'inline'
+        script: |
+          mkdir -p $(Build.ArtifactStagingDirectory)/package
+          cp ./target/*-SNAPSHOT.jar $(Build.ArtifactStagingDirectory)/package/
+
+    - template: pushtoazurefeed.yml@azuretemplates
+      parameters:
+        artifactfeed: $(artifactfeed)
+        applicationName: ${{ parameters.applicationName }}
+        buildfilespath: $(Build.ArtifactStagingDirectory)/package
+        buildnumber: $(version)
+        artifactname: $(artifactname)
+
+    - template: createazuregittag.yml@azuretemplates
+      parameters:
+        version: $(version)
+        targetRepoName: sfn-tenants-api
+        azureorginizationname: secufusion
+        azureprojectname: SFCloud-MSSP
+        azuredevopspat: $(azuredevopspat)

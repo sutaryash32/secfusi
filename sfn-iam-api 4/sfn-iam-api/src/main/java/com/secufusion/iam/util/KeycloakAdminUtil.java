@@ -1,0 +1,706 @@
+package com.secufusion.iam.util;
+
+import com.secufusion.iam.dto.CreateIdentityProviderRequest;
+import com.secufusion.iam.exception.KeycloakOperationException;
+import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.core.Response;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.keycloak.admin.client.CreatedResponseUtil;
+import org.keycloak.admin.client.Keycloak;
+import org.keycloak.admin.client.resource.*;
+import org.keycloak.representations.idm.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import jakarta.mail.*;
+
+import java.util.*;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+
+/**
+ * Utility wrapper around Keycloak Admin client for common realm/client/user operations.
+ * Adds consistent logging, validation and exception handling (wraps errors into KeycloakOperationException).
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class KeycloakAdminUtil {
+
+    private final Keycloak keycloak;
+
+    // ---------------- SMTP properties (injected from application properties) ----------------
+    @Value("${mail.smtp.host}")
+    private String smtpHost;
+
+    @Value("${mail.smtp.port}")
+    private String smtpPort;
+
+    @Value("${mail.smtp.auth}")
+    private String smtpAuth;
+
+    @Value("${mail.smtp.starttls}")
+    private String smtpStarttls;
+
+    @Value("${mail.smtp.username}")
+    private String smtpUsername;
+
+    @Value("${mail.smtp.password}")
+    private String smtpPassword;
+
+    @Value("${mail.smtp.mail}")
+    private String smtpMail;
+
+    @Value("${keycloak.admin.server-url}")
+    private String keycloakServerUrl;
+
+    // ============================================================
+    // Helper to centralize exception wrapping and logging
+    // ============================================================
+    private KeycloakOperationException wrap(String code, int status, String op, Exception e) {
+        log.error("{} - {}: {}", op, e.getClass().getSimpleName(), e.getMessage(), e);
+        return new KeycloakOperationException(code, status, op + " failed: " + e.getMessage());
+    }
+
+//    public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
+//        log.info("Adding identity provider '{}' to realm {}", dto.getAlias(), realm);
+//
+//        Response resp = null;
+//
+//        try {
+//            if (dto == null) {
+//                throw new KeycloakOperationException("INVALID_INPUT", 400,
+//                        "CreateIdentityProviderRequest must not be null");
+//            }
+//
+//            RealmResource rr = keycloak.realm(realm);
+//
+//            // -------------------------------
+//            // 1️⃣ Build IDP object
+//            // -------------------------------
+//            IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
+//            idpRep.setAlias(dto.getAlias());
+//            idpRep.setProviderId(dto.getProviderId());
+//            idpRep.setEnabled(Boolean.TRUE.equals(dto.getEnabled()));
+//            idpRep.setStoreToken(Boolean.TRUE.equals(dto.getStoreToken()));
+//            idpRep.setLinkOnly(Boolean.TRUE.equals(dto.getLinkOnly()));
+//            idpRep.setTrustEmail(Boolean.TRUE.equals(dto.getTrustEmail()));
+//            idpRep.setDisplayName(dto.getDisplayName());
+//
+//            // IDP Configuration
+//            Map<String, String> config = new HashMap<>();
+//            put(config, "clientId", dto.getClientId());
+//            put(config, "clientSecret", dto.getClientSecret());
+//            put(config, "authorizationUrl", dto.getAuthorizationUrl());
+//            put(config, "tokenUrl", dto.getTokenUrl());
+//            put(config, "userInfoUrl", dto.getUserInfoUrl());
+//            put(config, "issuer", dto.getIssuer());
+//            put(config, "redirectUri", dto.getRedirectUri());
+//            put(config, "tenantId", dto.getTenantId());
+//            config.put("scopes", "openid email profile");
+//            config.put("disableUserInfo", "true");
+//
+//            idpRep.setConfig(config);
+//
+//            // -------------------------------
+//            // 2️⃣ Create IDP in Keycloak
+//            // -------------------------------
+//            resp = rr.identityProviders().create(idpRep);
+//
+//            int status = resp.getStatus();
+//            log.debug("IDP create response = {}", status);
+//
+//            if (status != 201 && status != 409) {
+//                String body = resp.readEntity(String.class);
+//                throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
+//                        "Identity provider creation failed: " + body);
+//            }
+//
+//            if (status == 409) {
+//                log.warn("Identity provider '{}' already exists in realm {}", dto.getAlias(), realm);
+//            } else {
+//                log.info("Identity provider '{}' created successfully in realm {}", dto.getAlias(), realm);
+//            }
+//
+//            // -------------------------------
+//            // 3️⃣ Update IDP config (optional patches)
+//            // -------------------------------
+//            IdentityProviderResource idpRes = rr.identityProviders().get(dto.getAlias());
+//            IdentityProviderRepresentation rep = idpRes.toRepresentation();
+//
+//            rep.setTrustEmail(true);
+//            rep.getConfig().put("disableUserInfo", "true");
+//            rep.getConfig().put("scopes", "openid email profile");
+//
+//            idpRes.update(rep);
+//
+//            try {
+//                configureAttributePassthrough(rr, dto.getAlias());
+//                configureRolePassthrough(rr, dto.getAlias());
+//            } catch (Exception e) {
+//                // We log error but DO NOT throw, so we still return the redirect URL
+//                log.error("Failed to configure auto-mappers for IdP '{}'. Users may not have groups in token. Error: {}",
+//                        dto.getAlias(), e.getMessage());
+//            }            // -------------------------------
+//            // 4️⃣ Return redirect URL
+//            // -------------------------------
+//            return buildAzureRedirectUrl(realm, dto.getAlias());
+//
+//        } catch (KeycloakOperationException e) {
+//            throw new KeycloakOperationException("IDP_CREATE_FAILED", 500,
+//                    "Failed to create identity provider in realm " + realm);
+//        } finally {
+//            if (resp != null) resp.close();
+//        }
+//    }
+
+    private String buildAzureRedirectUrl(String realm, String alias) {
+        String keycloakBaseUrl = keycloakServerUrl;
+
+        return keycloakBaseUrl + "/realms/" + realm + "/broker/" + alias + "/endpoint";
+    }
+
+
+    private void put(Map<String, String> map, String key, String value) {
+        if (value != null && !value.isEmpty()) {
+            map.put(key, value);
+        }
+    }
+
+
+    public void setAsDefaultIdentityProvider(String realm, String alias) {
+        RealmResource rr = keycloak.realm(realm);
+
+        // Get all flows
+        List<AuthenticationFlowRepresentation> flows = rr.flows().getFlows();
+
+        // Find browser flow
+        AuthenticationFlowRepresentation browserFlow = flows.stream()
+                .filter(f -> "browser".equalsIgnoreCase(f.getAlias()))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Browser flow not found"));
+
+        // Get executions in browser flow
+        List<AuthenticationExecutionInfoRepresentation> executions =
+                rr.flows().getExecutions(browserFlow.getAlias());
+
+        // Find Identity Provider Redirector execution
+        AuthenticationExecutionInfoRepresentation idpRedirectExec = executions.stream()
+                .filter(e -> "identity-provider-redirector".equals(e.getProviderId()))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Identity Provider Redirector not found"));
+
+        String configId = idpRedirectExec.getAuthenticationConfig();
+
+        // -------------------------
+        // 🔥 FIX: Create AuthenticatorConfigRepresentation
+        // -------------------------
+        AuthenticatorConfigRepresentation cfg = new AuthenticatorConfigRepresentation();
+        cfg.setAlias("idp-redirector-config-" + alias);
+
+        Map<String, String> configMap = new HashMap<>();
+        configMap.put("defaultProvider", alias);
+        cfg.setConfig(configMap);
+
+        // If config doesn't exist, create it
+        if (configId == null) {
+            try (Response res = rr.flows().newExecutionConfig(idpRedirectExec.getId(), cfg)) {
+                if (res.getStatus() != 201) {
+                    throw new RuntimeException("Failed to create authenticator config for IDP redirector");
+                }
+            }
+            log.info("Created new authenticator config for IDP redirector");
+        } else {
+            // Update existing config
+            rr.flows().updateAuthenticatorConfig(configId, cfg);
+            log.info("Updated authenticator config for IDP redirector");
+        }
+
+        log.info("Default Identity Provider for realm={} set to {}", realm, alias);
+    }
+
+    public void disableIdentityProvider(String realm, String alias) {
+        log.info("Disabling Identity Provider '{}' in realm '{}'", alias, realm);
+        try {
+            RealmResource rr = keycloak.realm(realm);
+            IdentityProviderResource idpRes = rr.identityProviders().get(alias);
+            IdentityProviderRepresentation rep = idpRes.toRepresentation();
+            if (rep == null) {
+                throw new KeycloakOperationException("IDP_NOT_FOUND", 404,
+                        "Identity provider not found: " + alias);
+            }
+            rep.setEnabled(false);
+            idpRes.update(rep);
+            log.info("Disabled Identity Provider '{}' in realm '{}'", alias, realm);
+        } catch (KeycloakOperationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap("IDP_DISABLE_FAILED", 500,
+                    "Failed to disable identity provider " + alias + " in realm " + realm, e);
+        }
+    }
+
+
+// -------------------------------------------------------------------------
+// KEYCLOAK UTIL METHODS (Refined)
+// -------------------------------------------------------------------------
+
+    public String addIdentityProvider(String realm, CreateIdentityProviderRequest dto) {
+        log.info("Adding identity provider '{}' to realm {}", dto.getAlias(), realm);
+        Response resp = null;
+        try {
+            RealmResource rr = keycloak.realm(realm);
+
+            // --- 1. Create IDP Object ---
+            IdentityProviderRepresentation idpRep = new IdentityProviderRepresentation();
+            idpRep.setAlias(dto.getAlias());
+            idpRep.setProviderId("oidc"); // Enforce OIDC
+            idpRep.setEnabled(Boolean.TRUE.equals(dto.getEnabled()));
+            idpRep.setStoreToken(Boolean.TRUE.equals(dto.getStoreToken()));
+            idpRep.setLinkOnly(Boolean.FALSE);
+            idpRep.setTrustEmail(true); // Always trust email for SSO
+            idpRep.setDisplayName(dto.getDisplayName());
+
+            Map<String, String> config = new HashMap<>();
+            config.put("clientId", dto.getClientId());
+            config.put("clientSecret", dto.getClientSecret());
+
+            // Multi-tenant Azure configs
+            config.put("authorizationUrl", "https://login.microsoftonline.com/common/oauth2/v2.0/authorize");
+            config.put("tokenUrl", "https://login.microsoftonline.com/common/oauth2/v2.0/token");
+            config.put("logoutUrl", "https://login.microsoftonline.com/common/oauth2/v2.0/logout");
+            config.put("userInfoUrl", "https://graph.microsoft.com/oidc/userinfo");
+            config.put("jwksUrl", "https://login.microsoftonline.com/common/discovery/v2.0/keys");
+
+            // CRITICAL: Empty Issuer for Multi-tenant to avoid validation errors
+            config.put("issuer", "");
+            config.put("validateSignature", "true");
+            config.put("useJwksUrl", "true");
+
+            // Scopes: Ensure we ask for what we need
+            config.put("scopes", "openid email profile offline_access");
+
+            idpRep.setConfig(config);
+
+            // --- 2. Create in Keycloak ---
+            resp = rr.identityProviders().create(idpRep);
+            if (resp.getStatus() != 201 && resp.getStatus() != 409) {
+                throw new RuntimeException("Failed to create IdP: " + resp.getStatusInfo());
+            }
+
+            // --- 3. Configure Mappers (The "Enhancement") ---
+            // This programmatically sets up the "tid" -> "azure_tenant_id" flow
+            configureOidcMappers(rr, realm, dto.getAlias());
+            return buildAzureRedirectUrl(realm, dto.getAlias());
+
+        } catch (Exception e) {
+            log.error("Error creating IdP: {}", e.getMessage(), e);
+            throw new RuntimeException("IdP creation failed", e);
+        } finally {
+            if (resp != null) resp.close();
+        }
+    }
+
+    /**
+     * Consolidates mapper logic.
+     * 1. Creates IdP Mappers (Azure JWT -> Keycloak User Attribute)
+     * 2. Creates DEDICATED Client Mappers (Keycloak User Attribute -> App Access Token)
+     */
+    private void configureOidcMappers(RealmResource rr, String realmName, String idpAlias) {
+        // Logic: Client ID is exactly the same as the Realm Name
+        String targetClientId = realmName;
+
+        log.info("Configuring Mappers. Realm: {}, IdP: {}, TargetClient: {}", realmName, idpAlias, targetClientId);
+
+        // =================================================================================
+        // STEP A: Import Data from Azure Token (IdP Mappers)
+        // =================================================================================
+        try {
+            IdentityProviderResource idpRes = rr.identityProviders().get(idpAlias);
+
+            // 1. Tenant ID (tid -> azure_tenant_id)
+            createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Tenant ID", "tid", "azure_tenant_id");
+
+            // 2. Roles (roles -> azure_roles)
+            createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Roles", "roles", "azure_roles");
+
+            // 3. Groups (groups -> azure_groups)
+            createIdpAttributeMapper(idpRes, idpAlias, "Import Azure Groups", "groups", "azure_groups");
+
+        } catch (Exception e) {
+            log.error("Failed to configure IdP Mappers for {}: {}", idpAlias, e.getMessage());
+        }
+
+        // =================================================================================
+        // STEP B: Export Data to App Token (Dedicated Client Mappers)
+        // =================================================================================
+
+        ClientsResource clientsRes = rr.clients();
+        ClientResource clientResource = null;
+
+        // 1. Find the Client (using realmName as the clientId)
+        try {
+            List<ClientRepresentation> foundClients = clientsRes.findByClientId(targetClientId);
+
+            if (foundClients == null || foundClients.isEmpty()) {
+                log.error("CRITICAL: Client '{}' not found. Mappers cannot be added.", targetClientId);
+                return;
+            }
+
+            // We must use the internal UUID to get the resource
+            String internalId = foundClients.get(0).getId();
+            clientResource = clientsRes.get(internalId);
+
+        } catch (Exception e) {
+            log.error("Error finding client '{}': {}", targetClientId, e.getMessage());
+            return;
+        }
+
+        // 2. Get existing mappers to prevent duplicates
+        List<ProtocolMapperRepresentation> currentMappers = clientResource.getProtocolMappers().getMappers();
+        Predicate<String> exists = name -> currentMappers.stream().anyMatch(m -> m.getName().equals(name));
+
+        // Mapper 1: Pass Tenant ID
+        if (!exists.test("Pass Tenant ID")) {
+            createClientProtocolMapper(clientResource, "Pass Tenant ID", "azure_tenant_id", "azure_tenant_id", "String", false);
+        }
+
+        // Mapper 2: Pass Roles
+        if (!exists.test("Pass Roles")) {
+            createClientProtocolMapper(clientResource, "Pass Roles", "azure_roles", "roles", "String", true);
+        }
+
+        // Mapper 3: Pass Groups
+        if (!exists.test("Pass Groups")) {
+            createClientProtocolMapper(clientResource, "Pass Groups", "azure_groups", "groups", "String", true);
+        }
+    }
+
+    // --- HELPER 1: Create IdP Mapper (Import from Azure) ---
+    private void createIdpAttributeMapper(IdentityProviderResource idpRes, String alias, String name, String claimName, String userAttribute) {
+        try {
+            IdentityProviderMapperRepresentation mapper = new IdentityProviderMapperRepresentation();
+            mapper.setName(name);
+            mapper.setIdentityProviderAlias(alias);
+            mapper.setIdentityProviderMapper("oidc-user-attribute-idp-mapper");
+            mapper.setConfig(Map.of(
+                    "claim", claimName,
+                    "user.attribute", userAttribute,
+                    "syncMode", "FORCE"
+            ));
+            idpRes.addMapper(mapper);
+            log.info("IdP Mapper created: {}", name);
+        } catch (Exception e) {
+            // Safe to ignore if exists
+        }
+    }
+
+    // --- HELPER 2: Create Client Protocol Mapper (Export to Token) ---
+// UPDATED: Accepts ClientResource instead of ClientScopeResource
+    private void createClientProtocolMapper(ClientResource clientRes, String name, String userAttribute, String tokenClaimName, String jsonType, boolean multivalued) {
+        try {
+            ProtocolMapperRepresentation mapper = new ProtocolMapperRepresentation();
+            mapper.setName(name);
+            mapper.setProtocol("openid-connect");
+            mapper.setProtocolMapper("oidc-usermodel-attribute-mapper");
+
+            mapper.setConfig(Map.of(
+                    "user.attribute", userAttribute,      // Read from Keycloak DB
+                    "claim.name", tokenClaimName,         // Write to Backend Token
+                    "jsonType.label", jsonType,
+                    "multivalued", String.valueOf(multivalued),
+                    "id.token.claim", "true",
+                    "access.token.claim", "true"
+            ));
+
+            // Add mapper directly to the client
+            clientRes.getProtocolMappers().createMapper(mapper);
+            log.info("Created Dedicated Client Mapper: {}", name);
+
+        } catch (Exception e) {
+            log.error("Failed to create client mapper '{}': {}", name, e.getMessage());
+        }
+    }
+
+    /**
+     * Create a user. Returns created Keycloak user id or null if already exists.
+     */
+    public String createUser(String realm, String username, String email, String firstName, String lastName, boolean emailVerified) {
+        log.info("Creating Keycloak user in realm='{}' username='{}'", realm, username);
+
+        // Validate and ensure uniqueness
+        try {
+            findUsersByUsernameOrEmail(realm, username, email).forEach(u -> {
+                log.warn("User with same username/email already exists in realm='{}': userId='{}', username='{}', email='{}'",
+                        realm, u.getId(), u.getUsername(), u.getEmail());
+                throw new KeycloakOperationException("USER_ALREADY_EXISTS", 409, "User with same username/email already exists in realm");
+            });
+        } catch (KeycloakOperationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap("USER_CREATE_VALIDATION_FAILED", 500, "Failed validation for user creation in realm " + realm, e);
+        }
+
+        UserRepresentation user = new UserRepresentation();
+        user.setUsername(username);
+        user.setEmail(email);
+        user.setFirstName(firstName);
+        user.setLastName(lastName);
+        user.setEnabled(true);
+        user.setEmailVerified(emailVerified);
+
+        Response response = null;
+        try {
+            response = keycloak.realm(realm).users().create(user);
+            int status = response.getStatus();
+
+            if (status == 409) {
+                log.warn("User already exists in realm={} username={} - fetching existing user id", realm, username);
+                List<UserRepresentation> existing = findUsersByUsernameOrEmail(realm, username, email);
+                if (!existing.isEmpty()) {
+                    log.info("Recovered existing KC user on 409. kcUserId={}", existing.get(0).getId());
+                    return existing.get(0).getId();
+                }
+                return null;
+            }
+
+            if (status != 201) {
+                String body = response.readEntity(String.class);
+                throw new KeycloakOperationException("USER_CREATE_FAILED", 500, "Failed to create user: " + body);
+            }
+
+            String userId = CreatedResponseUtil.getCreatedId(response);
+            log.info("Created Keycloak user {} in realm {} with id {}", username, realm, userId);
+            return userId;
+        } catch (KeycloakOperationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap("USER_CREATE_FAILED", 500, "Error creating user in Keycloak realm=" + realm + " username=" + username, e);
+        } finally {
+            if (response != null) {
+                try {
+                    response.close();
+                } catch (Exception e) {
+                    log.warn("Failed to close user creation response: {}", e.getMessage(), e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Update user basic attributes. Validates uniqueness of username/email across other users.
+     */
+    public void updateUser(String realm, String userId, String username, String email, String firstName, String lastName) {
+        log.info("Syncing KC user '{}' in realm '{}'", userId, realm);
+
+        try {
+            UsersResource users = keycloak.realm(realm).users();
+            UserResource userResource = users.get(userId);
+
+            // Fetch current KC state
+            UserRepresentation rep = userResource.toRepresentation();
+            if (rep == null) {
+                throw new KeycloakOperationException("USER_NOT_FOUND", 404, "User not found in Keycloak");
+            }
+
+            // --- FIX FOR HTTP 400: DIRTY CHECKING ---
+            // Only call setters if the value is ACTUALLY different.
+            // This prevents triggering validation errors on fields we aren't changing.
+
+            boolean isDirty = false;
+
+            // 1. Check Username (Careful: If Realm forbids username changes, this avoids the error)
+            if (username != null && !Objects.equals(rep.getUsername(), username)) {
+                // Optional: Add check here if your realm allows username edits
+                rep.setUsername(username);
+                isDirty = true;
+            }
+
+            // 2. Check Email
+            if (email != null && !Objects.equals(rep.getEmail(), email)) {
+                rep.setEmail(email);
+                // Verify email isn't verified automatically if you change it (optional policy)
+                rep.setEmailVerified(false);
+                isDirty = true;
+            }
+
+            // 3. Check Names
+            if (!Objects.equals(rep.getFirstName(), firstName)) {
+                rep.setFirstName(firstName);
+                isDirty = true;
+            }
+            if (!Objects.equals(rep.getLastName(), lastName)) {
+                rep.setLastName(lastName);
+                isDirty = true;
+            }
+
+            // --- PERFORM UPDATE ONLY IF DIRTY ---
+            if (isDirty) {
+                // Optional: Re-validate Uniqueness here if you removed it from Service
+                // (But typically Service layer handles the heavy lifting)
+
+                userResource.update(rep);
+                log.info("✔ KC User Updated: {}", userId);
+            } else {
+                log.info("⚠ KC Update Skipped: No fields differed from current Keycloak state.");
+            }
+
+        } catch (BadRequestException e) {
+            // Capture the response body to see the REAL error message from Keycloak
+            String responseBody = e.getResponse().readEntity(String.class);
+            log.error("KC 400 Bad Request Details: {}", responseBody);
+            throw new KeycloakOperationException("INVALID_INPUT", 400, "Keycloak rejected update: " + responseBody);
+        } catch (Exception e) {
+            log.error("KC Update Failure", e);
+            throw new KeycloakOperationException("UPDATE_FAILED", 500, e.getMessage());
+        }
+    }
+
+    /**
+     * Remove a user by id.
+     */
+    public void removeUser(String realm, String userId) {
+        log.info("Removing KC user '{}' from realm '{}'", userId, realm);
+        try {
+            keycloak.realm(realm).users().get(userId).remove();
+            log.info("Removed KC user {}", userId);
+        } catch (Exception e) {
+            throw wrap("USER_DELETE_FAILED", 500, "Failed to remove KC user " + userId + " in realm " + realm, e);
+        }
+    }
+
+    /**
+     * Trigger Keycloak to send required action emails (e.g., verify email, update password).
+     */
+    public void sendRequiredActionEmail(String realm, String userId, List<String> actions) {
+        log.info("Sending required-action email to KC user '{}' in realm {}", userId, realm);
+        try {
+            keycloak.realm(realm).users().get(userId).executeActionsEmail(actions);
+            log.debug("Required-action email triggered for user {}", userId);
+        } catch (Exception e) {
+            throw wrap("EMAIL_ACTION_TRIGGER_FAILED", 500, "Failed to send required-action email to KC user " + userId, e);
+        }
+    }
+
+    /**
+     * Search users by username or email and return deduped list (by id).
+     */
+    public List<UserRepresentation> findUsersByUsernameOrEmail(
+            String realm,
+            String username,
+            String email
+    ) {
+        UsersResource users = keycloak.realm(realm).users();
+        List<UserRepresentation> results = new ArrayList<>();
+
+        try {
+            if (username != null && !username.isBlank()) {
+                results.addAll(users.search(username, true));
+            }
+            if (email != null && !email.isBlank()) {
+                results.addAll(users.search(email, true));
+            }
+        } catch (Exception e) {
+            throw wrap(
+                    "USER_SEARCH_FAILED",
+                    500,
+                    "Error searching KC for realm=" + realm +
+                            " username=" + username +
+                            " email=" + email,
+                    e
+            );
+        }
+
+        // 🔐 Filter to exact matches only
+        return results.stream()
+                .filter(u ->
+                        (username != null && username.equalsIgnoreCase(u.getUsername())) ||
+                                (email != null && email.equalsIgnoreCase(u.getEmail()))
+                )
+                // 🔁 Deduplicate by Keycloak user ID
+                .collect(Collectors.toMap(
+                        UserRepresentation::getId,
+                        u -> u,
+                        (a, b) -> a
+                ))
+                .values()
+                .stream()
+                .toList();
+    }
+
+    public void deleteIdentityProvider(String realm, String alias) {
+        try {
+            keycloak.realm(realm)
+                    .identityProviders()
+                    .get(alias)
+                    .remove();
+
+            log.info("Deleted Identity Provider '{}' from realm '{}'", alias, realm);
+        } catch (Exception e) {
+            log.error("Failed to delete Identity Provider '{}' from realm '{}'",
+                    alias, realm, e);
+            throw e; // let service decide whether to continue
+        }
+    }
+
+    /**
+     * Updates the Identity Provider's essential claim filter so that only users
+     * belonging to at least one of the supplied Azure group OIDs can log in.
+     *
+     * When groupIds is non-empty the following IdP config keys are set:
+     *   filteredByClaim  = "true"
+     *   claimFilterName  = "groups"
+     *   claimFilterValue = ".*(id1|id2|id3).*"
+     *
+     * When groupIds is empty the filter is disabled (filteredByClaim = "false").
+     *
+     * @param realm     Keycloak realm name
+     * @param idpAlias  Identity provider alias (e.g. "microsoft")
+     * @param groupIds  Azure AD group OIDs to allow through the claim filter
+     */
+    public void updateIdpEssentialClaim(String realm, String idpAlias, List<String> groupIds) {
+        log.info("Updating IdP essential claim for realm={} alias={} groupCount={}",
+                realm, idpAlias, groupIds.size());
+        try {
+            IdentityProviderResource idpRes = keycloak.realm(realm).identityProviders().get(idpAlias);
+            IdentityProviderRepresentation rep = idpRes.toRepresentation();
+
+            if (rep == null) {
+                throw new KeycloakOperationException("IDP_NOT_FOUND", 404,
+                        "Identity provider not found: " + idpAlias);
+            }
+
+            Map<String, String> config = rep.getConfig();
+            if (config == null) {
+                config = new HashMap<>();
+                rep.setConfig(config);
+            }
+
+            if (groupIds.isEmpty()) {
+                config.put("filteredByClaim", "false");
+                config.remove("claimFilterName");
+                config.remove("claimFilterValue");
+                log.info("Disabled essential claim filter for IdP={} in realm={} (no authorized groups remaining)",
+                        idpAlias, realm);
+            } else {
+                String pattern = ".*(" + String.join("|", groupIds) + ").*";
+                config.put("filteredByClaim", "true");
+                config.put("claimFilterName", "groups");
+                config.put("claimFilterValue", pattern);
+                log.info("Set essential claim filter for IdP={} in realm={}: {}", idpAlias, realm, pattern);
+            }
+
+            rep.setConfig(config);
+            idpRes.update(rep);
+            log.info("Essential claim updated successfully for IdP={} in realm={}", idpAlias, realm);
+
+        } catch (KeycloakOperationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw wrap("IDP_CLAIM_UPDATE_FAILED", 500,
+                    "Failed to update essential claim for IdP " + idpAlias + " in realm " + realm, e);
+        }
+    }
+
+}
