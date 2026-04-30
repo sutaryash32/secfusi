@@ -269,11 +269,14 @@ public class UserController {
             log.info("Username validation returned result for {}", userName);
             return ResponseEntity.ok(new ResponseDto<>(result,String.valueOf(HttpStatus.OK.value()),result ? "Username Already Exists" : "Username Available"));
         }
-        if (phoneNumber != null) {
-            log.debug("Checking phone number uniqueness for {}", phoneNumber);
+        if (phoneNumber != null && !phoneNumber.isBlank()) {
+
             boolean result = userService.checkMobileNumber(phoneNumber);
-            log.info("Phone number validation returned result for {}", phoneNumber);
-            return ResponseEntity.ok(new ResponseDto<>(result,String.valueOf(HttpStatus.OK.value()),result ? "Phone Number Already Exists" : "Phone Number Available"));
+
+            return ResponseEntity.ok(
+                    new ResponseDto<>(result, String.valueOf(HttpStatus.OK.value()),
+                            result ? "Phone Number Already Exists" : "Phone Number Available")
+            );
         }
         if (email != null) {
             log.debug("Checking email uniqueness for {}", email);
