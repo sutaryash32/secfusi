@@ -241,7 +241,11 @@ public class UserService {
             user.setLastName(dto.getLastName());
             user.setEmail(dto.getEmail());
             user.setUserName(dto.getEmail());
-            user.setPhoneNo(dto.getPhoneNumber());
+            if (dto.getPhoneNumber() != null && !dto.getPhoneNumber().isBlank()) {
+                user.setPhoneNo(dto.getPhoneNumber().trim());
+            } else {
+                user.setPhoneNo(null);
+            }
             user.setTenant(tenant);
             user.setStatus("CREATING");
             user.setCreatedAt(LocalDateTime.now());
@@ -437,7 +441,11 @@ public class UserService {
         user.setLastName(dto.getLastName());
         user.setEmail(dto.getEmail());
         user.setUserName(dto.getEmail()); // Assuming Email = Username
-        user.setPhoneNo(dto.getPhoneNumber());
+        if (dto.getPhoneNumber() != null && !dto.getPhoneNumber().isBlank()) {
+            user.setPhoneNo(dto.getPhoneNumber().trim());
+        } else {
+            user.setPhoneNo(null);
+        }
 
         if (dto.getStatus() != null && !dto.getStatus().isBlank()) {
             user.setStatus(dto.getStatus().trim().toUpperCase());
@@ -522,7 +530,11 @@ public class UserService {
             user.setLastName(dto.getLastName());
             user.setEmail(dto.getEmail());
             user.setUserName(dto.getEmail());
-            user.setPhoneNo(dto.getPhoneNumber());
+            if (dto.getPhoneNumber() != null && !dto.getPhoneNumber().isBlank()) {
+                user.setPhoneNo(dto.getPhoneNumber().trim());
+            } else {
+                user.setPhoneNo(null);
+            }
             user.setUpdatedAt(LocalDateTime.now());
             user.setLastUpdatedBy(requestingUser.getPkUserId());
 
@@ -910,15 +922,12 @@ public class UserService {
      * Check whether a mobile number exists in DB.
      */
     public boolean checkMobileNumber(String mobileNumber){
-        log.info("➡️ [CHECK MOBILE] Start. mobileNumber={}", maskPhone(mobileNumber));
-        boolean exists = userRepository.existsByPhoneNo(mobileNumber);
-        log.debug("DB existsByPhoneNo returned: {}", exists);
-        if (exists){
-            log.info("✔ Mobile number exists in DB. mobileNumber={}", maskPhone(mobileNumber));
-        } else{
-            log.info("✔ Mobile number is available. mobileNumber={}", maskPhone(mobileNumber));
+
+        if (mobileNumber == null || mobileNumber.isBlank()) {
+            return false; // treat as available
         }
-        return exists;
+
+        return userRepository.existsByPhoneNo(mobileNumber);
     }
 
     /**
