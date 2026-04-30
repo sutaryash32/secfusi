@@ -41,4 +41,11 @@ public class LoginResponseDto {
      * Used by the UI in "My Org Mode" to show Enterprise menu items.
      */
     private Map<String, Map<String, Set<String>>> myOrgPermissionMatrix;
+
+    /**
+     * True when the user's tenant is the root platform admin tenant:
+     * Master MSSP tenant type, no parent tenant, ACTIVE, and has a
+     * successfully bootstrapped default_user.
+     */
+    private boolean platformAdminTenant;
 }
